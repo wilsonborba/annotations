@@ -47,4 +47,32 @@ void main() {
       'registered',
     );
   });
+  testWidgets('waitlist shows a backend error and stays unregistered', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final service = fixtureService(
+      handler: (request) async => request.url.path == '/waitlist'
+          ? http.Response('{"error":"Too many requests"}', 429)
+          : http.Response('{"items":[]}', 200),
+    );
+    await tester.pumpWidget(
+      AnnotationsApp(initialLocation: '/v1/home', service: service),
+    );
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const Key('waitlist-email')));
+    await tester.enterText(
+      find.byKey(const Key('waitlist-email')),
+      'reader@example.com',
+    );
+    await tester.enterText(find.byKey(const Key('waitlist-message')), 'Hello');
+    await tester.ensureVisible(find.byKey(const Key('waitlist-submit')));
+    await tester.tap(find.byKey(const Key('waitlist-submit')));
+    await tester.pumpAndSettle();
+    expect(find.text('Too many requests'), findsOneWidget);
+    expect(
+      (await SharedPreferences.getInstance()).getString('annotations.waitlist'),
+      isNull,
+    );
+  });
 }
