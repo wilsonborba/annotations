@@ -69,4 +69,21 @@ void main() {
     expect(find.byKey(const Key('footer-about')), findsOneWidget);
     expect(find.byKey(const Key('footer-api')), findsOneWidget);
   });
+  testWidgets('missing or private notes show a not-found state', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final service = fixtureService(
+      handler: (request) async => http.Response('{"error":"Not found"}', 404),
+    );
+    await tester.pumpWidget(
+      AnnotationsApp(
+        service: service,
+        initialLocation: '/v1/menu/wilson/private-note',
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('not-found')), findsOneWidget);
+    expect(find.text('Try again'), findsNothing);
+  });
 }
