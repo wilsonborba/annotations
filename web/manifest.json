@@ -1,11 +1,11 @@
 {
-    "name": "annotations",
-    "short_name": "annotations",
+    "name": "Annotations",
+    "short_name": "Annotations",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#7C3AED",
+    "theme_color": "#7C3AED",
+    "description": "Study notes and research from Asodya.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [
