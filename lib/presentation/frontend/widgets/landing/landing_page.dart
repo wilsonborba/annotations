@@ -120,7 +120,7 @@ class _LandingPageState extends State<LandingPage> {
                           ),
                         ],
                       ),
-                      child: const Column(
+                      child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Row(
@@ -131,7 +131,7 @@ class _LandingPageState extends State<LandingPage> {
                               ),
                               SizedBox(width: 9),
                               Text(
-                                'Notes / Sources / Reports',
+                                context.tr('noteSources'),
                                 style: TextStyle(
                                   color: Color(0xFF242429),
                                   fontWeight: FontWeight.w700,
@@ -174,13 +174,13 @@ class _LandingPageState extends State<LandingPage> {
                         color: const Color(0xFF27232E),
                         borderRadius: BorderRadius.circular(7),
                       ),
-                      child: const Row(
+                      child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Icon(Icons.link_rounded, color: Color(0xFFBBFF73)),
                           SizedBox(width: 10),
                           Text(
-                            'One idea. More connections.',
+                            context.tr('ideaConnections'),
                             style: TextStyle(color: Colors.white, fontSize: 12),
                           ),
                         ],

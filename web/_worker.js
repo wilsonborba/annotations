@@ -12,7 +12,7 @@ export default {
       const content = new URL(`${api}/posts/${encodeURIComponent(decodeURIComponent(match[2]))}`);
       content.searchParams.set('channel', decodeURIComponent(match[1]));
       if (url.searchParams.has('lang')) content.searchParams.set('lang',url.searchParams.get('lang'));
-      const response = await fetch(content, {headers:{accept:'application/json'},signal:AbortSignal.timeout(5000), redirect:'error'});
+      const response = await fetch(content, {headers:{accept:'application/json','user-agent':'Annotations/1.0 (+https://annotations.asodya.com)'},signal:AbortSignal.timeout(5000), redirect:'error'});
       if (response.ok) article = await response.json();
       else if (response.status >= 500) return env.ASSETS.fetch(request);
     } catch { return env.ASSETS.fetch(request); }

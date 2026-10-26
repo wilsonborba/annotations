@@ -130,7 +130,12 @@ class _CatalogPageState extends State<CatalogPage> {
                       width: 260,
                       child: DropdownButtonFormField<String>(
                         isExpanded: true,
-                        initialValue: widget.topic,
+                        initialValue:
+                            records(
+                              catalog['topics'],
+                            ).any((v) => v['id'] == widget.topic)
+                            ? widget.topic
+                            : '',
                         decoration: InputDecoration(
                           labelText: context.tr('topics'),
                         ),
@@ -153,7 +158,12 @@ class _CatalogPageState extends State<CatalogPage> {
                       width: 260,
                       child: DropdownButtonFormField<String>(
                         isExpanded: true,
-                        initialValue: widget.channel,
+                        initialValue:
+                            records(
+                              catalog['channels'],
+                            ).any((v) => v['id'] == widget.channel)
+                            ? widget.channel
+                            : '',
                         decoration: InputDecoration(
                           labelText: context.tr('channels'),
                         ),
@@ -185,6 +195,9 @@ class _CatalogPageState extends State<CatalogPage> {
                 if (articles.length == 24) const SizedBox(height: 20),
                 if (articles.length == 24)
                   MoreNotes(
+                    key: ValueKey(
+                      [widget.query, widget.topic, widget.channel].join('|'),
+                    ),
                     query: widget.query,
                     topic: widget.topic,
                     channel: widget.channel,
