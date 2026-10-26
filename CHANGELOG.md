@@ -8,6 +8,8 @@
 - Merge landing and waitlist (#3)
 - Browse public notes by query, topic and publication (#4)
 - Merge public catalog (#4)
+- Render default articles and independent content translations (#5)
+- Merge translated article reader (#5)
 
 ### ⚙️ Miscellaneous Tasks
 
