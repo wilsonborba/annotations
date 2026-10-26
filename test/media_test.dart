@@ -59,4 +59,37 @@ void main() {
     expect(find.byIcon(Icons.picture_as_pdf_outlined), findsOneWidget);
     expect(find.text('Open original'), findsOneWidget);
   });
+  testWidgets('a failed link preview falls back to the URL domain', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final service = fixtureService(
+      handler: (request) async {
+        if (request.url.path == '/links/preview') {
+          return http.Response('{"error":"unavailable"}', 502);
+        }
+        return http.Response(
+          jsonEncode({
+            'title': 'A source',
+            'summary': '',
+            'language': 'en',
+            'available_languages': ['en'],
+            'updated_at': 0,
+            'topics': [],
+            'body': {
+              'blocks': [
+                {'type': 'link', 'url': 'https://example.org/paper'},
+              ],
+            },
+          }),
+          200,
+        );
+      },
+    );
+    await tester.pumpWidget(
+      AnnotationsApp(service: service, initialLocation: '/v1/menu/wilson/src'),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('example.org'), findsWidgets);
+  });
 }
