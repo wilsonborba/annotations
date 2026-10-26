@@ -249,6 +249,27 @@ class FooterLink extends StatelessWidget {
   );
 }
 
+/// Missing or private content: no retry, because trying again cannot reveal it.
+class NotFoundState extends StatelessWidget {
+  const NotFoundState({super.key});
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 48),
+    child: Column(
+      children: [
+        const Icon(Icons.search_off_rounded, size: 32),
+        const SizedBox(height: 12),
+        Text(context.tr('notFound'), key: const Key('not-found')),
+        const SizedBox(height: 12),
+        OutlinedButton(
+          onPressed: () => context.go('/v1/menu'),
+          child: Text(context.tr('back')),
+        ),
+      ],
+    ),
+  );
+}
+
 class LoadError extends StatelessWidget {
   final VoidCallback retry;
   const LoadError({super.key, required this.retry});

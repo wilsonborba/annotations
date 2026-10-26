@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../../dal/remote/api_adapter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
@@ -53,6 +54,9 @@ class _ArticlePageState extends State<ArticlePage> {
     child: FutureBuilder<Data>(
       future: data,
       builder: (context, s) {
+        if (s.error is ApiError && (s.error as ApiError).status == 404) {
+          return const NotFoundState();
+        }
         if (s.hasError) {
           return LoadError(retry: () => setState(() => data = load()));
         }

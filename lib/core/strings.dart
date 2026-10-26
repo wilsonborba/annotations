@@ -57,6 +57,11 @@ const strings = <String, List<String>>{
     'Não foi possível carregar este conteúdo.',
     'ไม่สามารถโหลดเนื้อหานี้ได้',
   ],
+  'notFound': [
+    'This note does not exist or is not public.',
+    'Esta anotação não existe ou não é pública.',
+    'ไม่พบบันทึกนี้หรือบันทึกนี้ไม่ได้เผยแพร่',
+  ],
   'retry': ['Try again', 'Tentar novamente', 'ลองอีกครั้ง'],
   'waitTitle': [
     'A little room for more voices.',
