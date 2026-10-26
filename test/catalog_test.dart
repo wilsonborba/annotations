@@ -36,7 +36,11 @@ void main() {
       },
     );
     await tester.pumpWidget(
-      AnnotationsApp(service: service, initialLocation: '/v1/menu?q=retrieval'),
+      AnnotationsApp(
+        trackingEnabled: false,
+        service: service,
+        initialLocation: '/v1/menu?q=retrieval',
+      ),
     );
     await tester.pumpAndSettle();
     expect(query, 'retrieval');
@@ -57,7 +61,11 @@ void main() {
       },
     );
     await tester.pumpWidget(
-      AnnotationsApp(service: service, initialLocation: '/v1/menu?q=none'),
+      AnnotationsApp(
+        trackingEnabled: false,
+        service: service,
+        initialLocation: '/v1/menu?q=none',
+      ),
     );
     await tester.pumpAndSettle();
     expect(find.text('No notes here yet. Try another topic.'), findsOneWidget);
@@ -65,7 +73,11 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
     await tester.pumpWidget(
-      AnnotationsApp(service: service, initialLocation: '/v1/menu?q=down'),
+      AnnotationsApp(
+        trackingEnabled: false,
+        service: service,
+        initialLocation: '/v1/menu?q=down',
+      ),
     );
     await tester.pumpAndSettle();
     expect(find.text('This content could not be loaded.'), findsOneWidget);

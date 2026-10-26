@@ -7,7 +7,11 @@ void main() {
   testWidgets('public shell starts without authentication', (tester) async {
     SharedPreferences.setMockInitialValues({});
     await tester.pumpWidget(
-      AnnotationsApp(initialLocation: '/v1/home', service: fixtureService()),
+      AnnotationsApp(
+        trackingEnabled: false,
+        initialLocation: '/v1/home',
+        service: fixtureService(),
+      ),
     );
     await tester.pumpAndSettle();
     expect(find.text('Annotations'), findsOneWidget);

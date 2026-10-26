@@ -50,6 +50,7 @@ void main() {
     );
     await tester.pumpWidget(
       AnnotationsApp(
+        trackingEnabled: false,
         service: service,
         initialLocation: '/v1/menu/wilson/chart',
       ),
@@ -87,7 +88,11 @@ void main() {
       },
     );
     await tester.pumpWidget(
-      AnnotationsApp(service: service, initialLocation: '/v1/menu/wilson/src'),
+      AnnotationsApp(
+        trackingEnabled: false,
+        service: service,
+        initialLocation: '/v1/menu/wilson/src',
+      ),
     );
     await tester.pumpAndSettle();
     expect(find.text('example.org'), findsWidgets);

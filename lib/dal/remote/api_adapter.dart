@@ -13,9 +13,24 @@ class ApiError implements Exception {
 class ApiAdapter {
   final http.Client client;
   final String base;
+  void Function(Object, StackTrace)? onError;
   ApiAdapter({http.Client? client, this.base = Settings.apiBase})
     : client = client ?? http.Client();
   Future<Map<String, dynamic>> request(
+    String path, {
+    String method = 'GET',
+    Map<String, dynamic>? body,
+    Map<String, String>? query,
+  }) async {
+    try {
+      return await _request(path, method: method, body: body, query: query);
+    } catch (error, stack) {
+      onError?.call(error, stack);
+      rethrow;
+    }
+  }
+
+  Future<Map<String, dynamic>> _request(
     String path, {
     String method = 'GET',
     Map<String, dynamic>? body,

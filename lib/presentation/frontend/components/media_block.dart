@@ -1,3 +1,4 @@
+import 'package:annotations/core/tracking_manifest.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../domain/models/content.dart';
@@ -66,44 +67,47 @@ class _MediaBlockState extends State<MediaBlock> {
     return Material(
       color: Theme.of(context).colorScheme.surface,
       borderRadius: BorderRadius.circular(6),
-      child: InkWell(
-        onTap: () => open(url),
-        borderRadius: BorderRadius.circular(6),
-        child: Container(
-          padding: const EdgeInsets.all(18),
-          decoration: BoxDecoration(
-            border: Border.all(color: Theme.of(context).dividerColor),
-            borderRadius: BorderRadius.circular(6),
-          ),
-          child: Row(
-            children: [
-              Padding(
-                padding: const EdgeInsets.only(right: 16),
-                child: leading,
-              ),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontWeight: FontWeight.w600),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      domain,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ],
+      child: track(
+        'article.media.link',
+        InkWell(
+          onTap: () => open(url),
+          borderRadius: BorderRadius.circular(6),
+          child: Container(
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              border: Border.all(color: Theme.of(context).dividerColor),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Row(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(right: 16),
+                  child: leading,
                 ),
-              ),
-              const SizedBox(width: 12),
-              const Icon(Icons.north_east_rounded, size: 17),
-            ],
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        domain,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                const Icon(Icons.north_east_rounded, size: 17),
+              ],
+            ),
           ),
         ),
       ),
@@ -153,10 +157,14 @@ class _MediaBlockState extends State<MediaBlock> {
             embeddedFrame(url, height: 480),
             Align(
               alignment: Alignment.centerRight,
-              child: TextButton.icon(
-                onPressed: () => open((block['source_url'] ?? url).toString()),
-                icon: const Icon(Icons.north_east_rounded, size: 15),
-                label: Text(context.tr('open')),
+              child: track(
+                'article.media.report',
+                TextButton.icon(
+                  onPressed: () =>
+                      open((block['source_url'] ?? url).toString()),
+                  icon: const Icon(Icons.north_east_rounded, size: 15),
+                  label: Text(context.tr('open')),
+                ),
               ),
             ),
           ],

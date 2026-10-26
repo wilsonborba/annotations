@@ -56,3 +56,17 @@ static file. It derives article metadata from the public API only, escapes HTML,
 preserves content language and returns generic metadata for unavailable/private
 posts. The deployer requires the sibling `domain` or `certifications` deployment
 helper and the existing local Cloudflare credential configuration.
+
+## Telemetry
+
+The pinned `asodya_tracking` package sends errors and mapped usage to separate
+SQL-backed gateway routes. `tracking_manifest.json` lists screens, actions,
+labels, tree paths and descriptions. The matching Dart constants live in
+`lib/core/tracking_manifest.dart`.
+
+Navigation uses the router observer and concrete-route listener. The root listener
+records mapped clicks and scrolling. Existing field controllers supply typed input.
+Form callbacks record submits. No control layout or authentication flow changes.
+Instant Share capability values and room path tokens are excluded on the device.
+Existing consent remains in place. Tests inject fake transports and disable periodic
+network delivery. The API adapter also reports handled service failures.

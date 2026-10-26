@@ -42,6 +42,7 @@ void main() {
     );
     await tester.pumpWidget(
       AnnotationsApp(
+        trackingEnabled: false,
         service: service,
         initialLocation: '/v1/menu/wilson/rag?lang=en',
       ),
@@ -78,6 +79,7 @@ void main() {
     );
     await tester.pumpWidget(
       AnnotationsApp(
+        trackingEnabled: false,
         service: service,
         initialLocation: '/v1/menu/wilson/private-note',
       ),

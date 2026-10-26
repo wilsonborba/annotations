@@ -1,3 +1,4 @@
+import 'package:annotations/core/tracking_manifest.dart';
 import 'package:flutter/material.dart';
 import '../../../../dal/remote/api_adapter.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -72,10 +73,13 @@ class _ArticlePageState extends State<ArticlePage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              TextButton.icon(
-                onPressed: () => context.go('/v1/menu'),
-                icon: const Icon(Icons.arrow_back_rounded, size: 17),
-                label: Text(context.tr('back')),
+              track(
+                'article.catalog.back',
+                TextButton.icon(
+                  onPressed: () => context.go('/v1/menu'),
+                  icon: const Icon(Icons.arrow_back_rounded, size: 17),
+                  label: Text(context.tr('back')),
+                ),
               ),
               const SizedBox(height: 28),
               Wrap(
@@ -123,23 +127,26 @@ class _ArticlePageState extends State<ArticlePage> {
                     selected: article['language'],
                     onChanged: language,
                   ),
-                  IconButton(
-                    tooltip: context.tr('copy'),
-                    onPressed: () async {
-                      final uri = Uri.base.replace(
-                        path: '/v1/menu/${widget.channel}/${widget.slug}',
-                        queryParameters: {'lang': article['language']},
-                      );
-                      await Clipboard.setData(
-                        ClipboardData(text: uri.toString()),
-                      );
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text(context.tr('copied'))),
+                  track(
+                    'article.share.copy',
+                    IconButton(
+                      tooltip: context.tr('copy'),
+                      onPressed: () async {
+                        final uri = Uri.base.replace(
+                          path: '/v1/menu/${widget.channel}/${widget.slug}',
+                          queryParameters: {'lang': article['language']},
                         );
-                      }
-                    },
-                    icon: const Icon(Icons.link_rounded),
+                        await Clipboard.setData(
+                          ClipboardData(text: uri.toString()),
+                        );
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text(context.tr('copied'))),
+                          );
+                        }
+                      },
+                      icon: const Icon(Icons.link_rounded),
+                    ),
                   ),
                 ],
               ),
@@ -223,22 +230,38 @@ class ContentLanguageSelector extends StatelessWidget {
           Container(width: 1, height: 22, color: theme.dividerColor),
           const SizedBox(width: 4),
           DropdownButtonHideUnderline(
-            child: DropdownButton<String>(
-              key: const Key('content-language-dropdown'),
-              value: languages.contains(selected) ? selected : null,
-              borderRadius: BorderRadius.circular(8),
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              icon: const Icon(Icons.expand_more_rounded, size: 20),
-              style: theme.textTheme.bodyMedium?.copyWith(
-                fontWeight: FontWeight.w600,
+            child: track(
+              'article.content_language.dropdown',
+              DropdownButton<String>(
+                key: const Key('content-language-dropdown'),
+                value: languages.contains(selected) ? selected : null,
+                borderRadius: BorderRadius.circular(8),
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                icon: const Icon(Icons.expand_more_rounded, size: 20),
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+                items: [
+                  for (final code in languages)
+                    DropdownMenuItem(
+                      value: code,
+                      child: track(
+                        'article.content_language.dropdown',
+                        Text(label(code)),
+                      ),
+                    ),
+                ],
+                onChanged: (code) {
+                  if (code != null && code != selected) {
+                    trackChoice(
+                      context,
+                      'article.content_language.dropdown',
+                      code,
+                    );
+                    onChanged(code);
+                  }
+                },
               ),
-              items: [
-                for (final code in languages)
-                  DropdownMenuItem(value: code, child: Text(label(code))),
-              ],
-              onChanged: (code) {
-                if (code != null && code != selected) onChanged(code);
-              },
             ),
           ),
         ],
@@ -281,20 +304,23 @@ class AboutAuthor extends StatelessWidget {
           if (url.isEmpty)
             name
           else
-            InkWell(
-              key: const Key('author-link'),
-              onTap: () => launchUrl(Uri.parse(url)),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  name,
-                  const SizedBox(width: 6),
-                  Icon(
-                    Icons.north_east_rounded,
-                    size: 16,
-                    color: theme.colorScheme.primary,
-                  ),
-                ],
+            track(
+              'article.author.open',
+              InkWell(
+                key: const Key('author-link'),
+                onTap: () => launchUrl(Uri.parse(url)),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    name,
+                    const SizedBox(width: 6),
+                    Icon(
+                      Icons.north_east_rounded,
+                      size: 16,
+                      color: theme.colorScheme.primary,
+                    ),
+                  ],
+                ),
               ),
             ),
           if (url.isNotEmpty)

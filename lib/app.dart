@@ -1,3 +1,5 @@
+import 'core/tracking_manifest.dart';
+import 'core/settings.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'domain/services/preferences.dart';
@@ -12,7 +14,15 @@ import 'presentation/frontend/widgets/instant/instant_page.dart';
 class AnnotationsApp extends StatefulWidget {
   final AnnotationsService? service;
   final String? initialLocation;
-  const AnnotationsApp({super.key, this.service, this.initialLocation});
+  final AsodyaTracker? tracker;
+  final bool trackingEnabled;
+  const AnnotationsApp({
+    super.key,
+    this.service,
+    this.initialLocation,
+    this.tracker,
+    this.trackingEnabled = true,
+  });
   @override
   State<AnnotationsApp> createState() => _AnnotationsAppState();
 }
@@ -21,12 +31,28 @@ class _AnnotationsAppState extends State<AnnotationsApp> {
   late final service = widget.service ?? AnnotationsService();
   final preferences = Preferences();
   late final GoRouter router;
+  late final tracker =
+      widget.tracker ??
+      AsodyaTracker(
+        appId: 'annotations',
+        baseUrl: Uri.parse(Settings.apiBase).origin,
+        buildVersion: '${Settings.version} (${Settings.buildTime})',
+        screens: annotationScreens,
+        autoFlush: widget.trackingEnabled,
+      );
+  void trackRoute() =>
+      tracker.view(router.routeInformationProvider.value.uri.path);
+
   @override
   void initState() {
     super.initState();
     preferences.load();
+    if (widget.trackingEnabled) tracker.installErrorCapture();
+    service.api.onError = (error, stack) =>
+        tracker.error(error, stack, type: 'ApiError');
     router = GoRouter(
       initialLocation: widget.initialLocation,
+      observers: [TrackingNavigatorObserver(tracker)],
       routes: [
         GoRoute(path: '/', redirect: (_, _) => '/v1/home'),
         ShellRoute(
@@ -62,11 +88,16 @@ class _AnnotationsAppState extends State<AnnotationsApp> {
         ),
       ],
     );
+    router.routeInformationProvider.addListener(trackRoute);
+    trackRoute();
   }
 
   @override
   void dispose() {
+    router.routeInformationProvider.removeListener(trackRoute);
     router.dispose();
+    service.api.onError = null;
+    tracker.dispose();
     preferences.dispose();
     super.dispose();
   }
@@ -157,6 +188,10 @@ class _AnnotationsAppState extends State<AnnotationsApp> {
         darkTheme: theme(Brightness.dark),
         themeMode: preferences.theme,
         routerConfig: router,
+        builder: (context, child) => TrackingRoot(
+          tracker: tracker,
+          child: child ?? const SizedBox.shrink(),
+        ),
       ),
     ),
   );
