@@ -1,0 +1,20 @@
+# Local-only context and secrets
+docs/
+.env
+.env.*
+!.env.example
+.scratch/
+*.local.md
+
+# Editor and operating-system output
+.idea/
+.vscode/
+.DS_Store
+
+# Flutter and Dart generated files
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+build/
+coverage/
