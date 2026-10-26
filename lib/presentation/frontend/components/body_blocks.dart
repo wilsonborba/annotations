@@ -1,3 +1,4 @@
+import 'media_block.dart';
 import 'package:flutter/material.dart';
 import '../../../domain/models/content.dart';
 
@@ -84,6 +85,13 @@ class BodyBlocks extends StatelessWidget {
         );
       case 'paragraph':
         return Text(text, style: style);
+      case 'image':
+      case 'link':
+      case 'source':
+      case 'pdf':
+      case 'youtube':
+      case 'reports':
+        return MediaBlock(key: ValueKey(block['url']), block: block);
       default:
         return const SizedBox.shrink();
     }
