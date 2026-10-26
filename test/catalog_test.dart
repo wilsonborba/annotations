@@ -43,4 +43,31 @@ void main() {
     expect(find.text('Retrieval basics'), findsOneWidget);
     expect(find.byKey(const Key('catalog-search')), findsOneWidget);
   });
+  testWidgets('catalog shows empty and failure states', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    var fail = false;
+    final service = fixtureService(
+      handler: (request) async {
+        if (request.url.path == '/catalog') {
+          return http.Response('{"topics":[],"channels":[]}', 200);
+        }
+        return fail
+            ? http.Response('{"error":"down"}', 503)
+            : http.Response('{"items":[]}', 200);
+      },
+    );
+    await tester.pumpWidget(
+      AnnotationsApp(service: service, initialLocation: '/v1/menu?q=none'),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('No notes here yet. Try another topic.'), findsOneWidget);
+    fail = true;
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    await tester.pumpWidget(
+      AnnotationsApp(service: service, initialLocation: '/v1/menu?q=down'),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('This content could not be loaded.'), findsOneWidget);
+  });
 }

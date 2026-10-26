@@ -80,6 +80,21 @@ class RoomHandler extends ChangeNotifier {
     }
   }
 
+  Future<void> remove(String id) async {
+    busy = true;
+    error = null;
+    emit();
+    try {
+      room = await service.remove(code, id);
+    } catch (e) {
+      final problem = e.toString();
+      await refresh();
+      error = problem;
+    }
+    busy = false;
+    emit();
+  }
+
   Future<void> choose() async {
     final files = await browser.chooseFiles();
     for (final file in files) {

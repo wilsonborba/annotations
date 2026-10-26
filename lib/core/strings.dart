@@ -30,7 +30,7 @@ const strings = <String, List<String>>{
     'Ideias merecem mais que uma aba aberta. Explore anotações, consulte as fontes e veja o trabalho por trás do aprendizado.',
     'แนวคิดควรเป็นมากกว่าแท็บที่เปิดไว้ สำรวจบันทึก อ่านแหล่งข้อมูล และดูเส้นทางการเรียนรู้',
   ],
-  'eyebrow': ['ASODYA / ANNOTATIONS', 'ASODYA / ANOTAÇÕES', 'ASODYA / บันทึก'],
+  'eyebrow': ['ANNOTATIONS', 'ANNOTATIONS', 'ANNOTATIONS'],
   'research': [
     'From curiosity to understanding',
     'Da curiosidade à compreensão',
@@ -56,6 +56,11 @@ const strings = <String, List<String>>{
     'This content could not be loaded.',
     'Não foi possível carregar este conteúdo.',
     'ไม่สามารถโหลดเนื้อหานี้ได้',
+  ],
+  'notFound': [
+    'This note does not exist or is not public.',
+    'Esta anotação não existe ou não é pública.',
+    'ไม่พบบันทึกนี้หรือบันทึกนี้ไม่ได้เผยแพร่',
   ],
   'retry': ['Try again', 'Tentar novamente', 'ลองอีกครั้ง'],
   'waitTitle': [
@@ -145,6 +150,9 @@ const strings = <String, List<String>>{
   ],
   'download': ['Download', 'Baixar', 'ดาวน์โหลด'],
   'edit': ['Edit', 'Editar', 'แก้ไข'],
+  'remove': ['Remove', 'Remover', 'ลบ'],
+  'aboutUs': ['About us', 'Sobre nós', 'เกี่ยวกับเรา'],
+  'aboutAuthor': ['About the author', 'Sobre o autor', 'เกี่ยวกับผู้เขียน'],
   'save': ['Save', 'Salvar', 'บันทึก'],
   'cancel': ['Cancel', 'Cancelar', 'ยกเลิก'],
   'roomEmpty': [

@@ -21,6 +21,11 @@ void main() {
             'summary': 'A demonstration',
             'slug': 'rag',
             'owner_id': 'wilson',
+            'author': {
+              'id': 'wilson',
+              'name': 'Wilson Borba',
+              'url': 'https://wilsonborba.com/',
+            },
             'language': 'en',
             'available_languages': ['en', 'pt-BR'],
             'updated_at': 0,
@@ -46,8 +51,39 @@ void main() {
     expect(find.text('A plain readable paragraph.'), findsOneWidget);
     expect(requested, ['en']);
     final selector = tester.widget<DropdownButton<String>>(
-      find.byKey(const Key('content-language')),
+      find.byKey(const Key('content-language-dropdown')),
     );
     expect(selector.items!.map((i) => i.value), ['en', 'pt-BR']);
+    expect(selector.value, 'en');
+    final th = tester.widget<Container>(
+      find.descendant(
+        of: find.byKey(const Key('language-th')),
+        matching: find.byType(Container),
+      ),
+    );
+    expect((th.decoration as BoxDecoration).color, isNot(Colors.transparent));
+    expect(find.byKey(const Key('author-link')), findsOneWidget);
+    expect(find.text('Wilson Borba'), findsWidgets);
+    expect(find.text('wilsonborba.com'), findsOneWidget);
+    expect(find.textContaining('ASODYA'), findsNothing);
+    expect(find.byKey(const Key('footer-about')), findsOneWidget);
+    expect(find.byKey(const Key('footer-api')), findsOneWidget);
+  });
+  testWidgets('missing or private notes show a not-found state', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final service = fixtureService(
+      handler: (request) async => http.Response('{"error":"Not found"}', 404),
+    );
+    await tester.pumpWidget(
+      AnnotationsApp(
+        service: service,
+        initialLocation: '/v1/menu/wilson/private-note',
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('not-found')), findsOneWidget);
+    expect(find.text('Try again'), findsNothing);
   });
 }
