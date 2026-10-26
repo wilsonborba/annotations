@@ -147,6 +147,7 @@ const strings = <String, List<String>>{
   'edit': ['Edit', 'Editar', 'แก้ไข'],
   'remove': ['Remove', 'Remover', 'ลบ'],
   'aboutUs': ['About us', 'Sobre nós', 'เกี่ยวกับเรา'],
+  'aboutAuthor': ['About the author', 'Sobre o autor', 'เกี่ยวกับผู้เขียน'],
   'save': ['Save', 'Salvar', 'บันทึก'],
   'cancel': ['Cancel', 'Cancelar', 'ยกเลิก'],
   'roomEmpty': [
