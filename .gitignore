@@ -18,3 +18,8 @@ docs/
 .packages
 build/
 coverage/
+
+*.iml
+.metadata
+
+__pycache__/
