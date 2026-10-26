@@ -7,3 +7,5 @@ flutter build web --release --base-href / --no-web-resources-cdn \
   --dart-define=DEVELOPMENT_MODE=false \
   --dart-define=BUILD_NAME="${BUILD_NAME:-1.0.0}" \
   --dart-define=BUILD_TIMESTAMP="$(TZ=Asia/Bangkok date +'%Y-%m-%d %H:%M ICT')"
+
+cp web/_worker.js web/_routes.json build/web/
