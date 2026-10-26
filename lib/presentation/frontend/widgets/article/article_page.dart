@@ -260,6 +260,7 @@ class AboutAuthor extends StatelessWidget {
     );
     return Container(
       key: const Key('about-author'),
+      width: double.infinity,
       margin: const EdgeInsets.only(top: 48),
       padding: const EdgeInsets.only(top: 28),
       decoration: BoxDecoration(
