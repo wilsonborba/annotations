@@ -21,6 +21,11 @@ void main() {
             'summary': 'A demonstration',
             'slug': 'rag',
             'owner_id': 'wilson',
+            'author': {
+              'id': 'wilson',
+              'name': 'Wilson Borba',
+              'url': 'https://wilsonborba.com/',
+            },
             'language': 'en',
             'available_languages': ['en', 'pt-BR'],
             'updated_at': 0,
@@ -42,12 +47,24 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.byTooltip('ภาษาของเนื้อหา'), findsOneWidget);
+    expect(find.text('ภาษาของเนื้อหา'), findsOneWidget);
     expect(find.text('A plain readable paragraph.'), findsOneWidget);
     expect(requested, ['en']);
-    expect(find.byKey(const Key('content-language-en')), findsOneWidget);
-    expect(find.byKey(const Key('content-language-pt-BR')), findsOneWidget);
-    expect(find.text('Português'), findsOneWidget);
+    final selector = tester.widget<DropdownButton<String>>(
+      find.byKey(const Key('content-language-dropdown')),
+    );
+    expect(selector.items!.map((i) => i.value), ['en', 'pt-BR']);
+    expect(selector.value, 'en');
+    final th = tester.widget<Container>(
+      find.descendant(
+        of: find.byKey(const Key('language-th')),
+        matching: find.byType(Container),
+      ),
+    );
+    expect((th.decoration as BoxDecoration).color, isNot(Colors.transparent));
+    expect(find.byKey(const Key('author-link')), findsOneWidget);
+    expect(find.text('Wilson Borba'), findsWidgets);
+    expect(find.text('wilsonborba.com'), findsOneWidget);
     expect(find.textContaining('ASODYA'), findsNothing);
     expect(find.byKey(const Key('footer-about')), findsOneWidget);
     expect(find.byKey(const Key('footer-api')), findsOneWidget);

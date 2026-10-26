@@ -90,7 +90,8 @@ class PostCard extends StatelessWidget {
                       children: [
                         Expanded(
                           child: Text(
-                            channels.join(' · '),
+                            ((post['author'] as Map?)?['name'] ?? '')
+                                .toString(),
                             style: Theme.of(context).textTheme.bodySmall,
                           ),
                         ),

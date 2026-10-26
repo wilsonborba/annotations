@@ -9,13 +9,15 @@ class PageShell extends StatelessWidget {
   const PageShell({super.key, required this.child});
   @override
   Widget build(BuildContext context) {
-    final wide = MediaQuery.sizeOf(context).width > 740;
+    final width = MediaQuery.sizeOf(context).width;
+    // Navigation links need room beside the language switcher.
+    final wide = width > 940;
     final prefs = AppScope.of(context).preferences;
     final dark = Theme.of(context).brightness == Brightness.dark;
     return Scaffold(
       appBar: AppBar(
         toolbarHeight: 80,
-        titleSpacing: wide ? 40 : 18,
+        titleSpacing: width > 740 ? 40 : 18,
         title: InkWell(
           onTap: () => context.go('/v1/home'),
           child: Row(
@@ -25,11 +27,13 @@ class PageShell extends StatelessWidget {
                 'lib/presentation/frontend/assets/images/asodya_logo.png',
                 height: 29,
               ),
-              const SizedBox(width: 12),
-              const Text(
-                'Annotations',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
-              ),
+              if (width >= 430) ...[
+                const SizedBox(width: 12),
+                const Text(
+                  'Annotations',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+                ),
+              ],
             ],
           ),
         ),
@@ -46,20 +50,8 @@ class PageShell extends StatelessWidget {
             ),
             const SizedBox(width: 16),
           ],
-          DropdownButtonHideUnderline(
-            child: DropdownButton<String>(
-              value: prefs.locale,
-              iconSize: 17,
-              items: const [
-                DropdownMenuItem(value: 'en', child: Text('EN')),
-                DropdownMenuItem(value: 'pt-BR', child: Text('PT')),
-                DropdownMenuItem(value: 'th', child: Text('TH')),
-              ],
-              onChanged: (v) {
-                if (v != null) prefs.language(v);
-              },
-            ),
-          ),
+          LanguageSwitch(selected: prefs.locale, onChanged: prefs.language),
+          const SizedBox(width: 4),
           IconButton(
             key: const Key('theme-toggle'),
             tooltip: context.tr('theme'),
@@ -92,6 +84,73 @@ class PageShell extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [child, const Footer()],
+        ),
+      ),
+    );
+  }
+}
+
+/// Interface language: the same segmented switcher as the other Asodya apps.
+class LanguageSwitch extends StatelessWidget {
+  final String selected;
+  final ValueChanged<String> onChanged;
+  const LanguageSwitch({
+    super.key,
+    required this.selected,
+    required this.onChanged,
+  });
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Tooltip(
+      message: context.tr('language'),
+      child: Container(
+        key: const Key('language-switch'),
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+        decoration: BoxDecoration(
+          color: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: scheme.outline.withValues(alpha: 0.3)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final (code, label) in const [
+              ('en', 'EN'),
+              ('pt-BR', 'PT'),
+              ('th', 'TH'),
+            ])
+              InkWell(
+                key: Key('language-$code'),
+                onTap: () => onChanged(code),
+                borderRadius: BorderRadius.circular(14),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 150),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: code == selected
+                        ? scheme.primary
+                        : Colors.transparent,
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: code == selected
+                          ? FontWeight.bold
+                          : FontWeight.normal,
+                      color: code == selected
+                          ? scheme.onPrimary
+                          : scheme.onSurface.withValues(alpha: 0.75),
+                    ),
+                  ),
+                ),
+              ),
+          ],
         ),
       ),
     );

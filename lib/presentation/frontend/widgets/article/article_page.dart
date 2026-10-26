@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../domain/models/content.dart';
@@ -109,7 +110,7 @@ class _ArticlePageState extends State<ArticlePage> {
                 runSpacing: 12,
                 children: [
                   Text(
-                    '${article['owner_id']} · ${DateTime.fromMillisecondsSinceEpoch(((article['updated_at'] ?? 0) as num).toInt() * 1000).toIso8601String().split('T').first}',
+                    '${(article['author'] as Map?)?['name'] ?? ''} · ${DateTime.fromMillisecondsSinceEpoch(((article['updated_at'] ?? 0) as num).toInt() * 1000).toIso8601String().split('T').first}',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                   ContentLanguageSelector(
@@ -158,6 +159,10 @@ class _ArticlePageState extends State<ArticlePage> {
               BodyBlocks(
                 body: Map<String, dynamic>.from(article['body'] ?? {}),
               ),
+              if (article['author'] is Map)
+                AboutAuthor(
+                  author: Map<String, dynamic>.from(article['author']),
+                ),
             ],
           ),
         );
@@ -167,6 +172,7 @@ class _ArticlePageState extends State<ArticlePage> {
 }
 
 /// Language of the article body; independent from the interface language.
+/// A dropdown, because an article can offer any number of translations.
 class ContentLanguageSelector extends StatelessWidget {
   final List<String> languages;
   final String? selected;
@@ -185,65 +191,109 @@ class ContentLanguageSelector extends StatelessWidget {
   };
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Semantics(
-      label: context.tr('contentLanguage'),
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Container(
+      padding: const EdgeInsets.only(left: 12, right: 6),
+      decoration: BoxDecoration(
+        color: scheme.surface,
+        border: Border.all(color: theme.dividerColor),
+        borderRadius: BorderRadius.circular(8),
+      ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Tooltip(
-            message: context.tr('contentLanguage'),
-            child: Icon(
-              Icons.translate_rounded,
-              size: 18,
+          Icon(
+            Icons.translate_rounded,
+            size: 17,
+            color: scheme.onSurface.withValues(alpha: 0.7),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            context.tr('contentLanguage'),
+            style: theme.textTheme.bodySmall?.copyWith(
               color: scheme.onSurface.withValues(alpha: 0.7),
             ),
           ),
           const SizedBox(width: 10),
-          Container(
-            padding: const EdgeInsets.all(3),
-            decoration: BoxDecoration(
-              color: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: scheme.outline.withValues(alpha: 0.3)),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
+          Container(width: 1, height: 22, color: theme.dividerColor),
+          const SizedBox(width: 4),
+          DropdownButtonHideUnderline(
+            child: DropdownButton<String>(
+              key: const Key('content-language-dropdown'),
+              value: languages.contains(selected) ? selected : null,
+              borderRadius: BorderRadius.circular(8),
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              icon: const Icon(Icons.expand_more_rounded, size: 20),
+              style: theme.textTheme.bodyMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+              items: [
                 for (final code in languages)
-                  InkWell(
-                    key: Key('content-language-$code'),
-                    onTap: code == selected ? null : () => onChanged(code),
-                    borderRadius: BorderRadius.circular(16),
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 150),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: code == selected
-                            ? scheme.primary
-                            : Colors.transparent,
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: Text(
-                        label(code),
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: code == selected
-                              ? FontWeight.w700
-                              : FontWeight.w500,
-                          color: code == selected
-                              ? scheme.onPrimary
-                              : scheme.onSurface.withValues(alpha: 0.75),
-                        ),
-                      ),
-                    ),
-                  ),
+                  DropdownMenuItem(value: code, child: Text(label(code))),
               ],
+              onChanged: (code) {
+                if (code != null && code != selected) onChanged(code);
+              },
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The article's single author, linked to the author's own site.
+class AboutAuthor extends StatelessWidget {
+  final Map<String, dynamic> author;
+  const AboutAuthor({super.key, required this.author});
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final url = (author['url'] ?? '').toString();
+    final name = Text(
+      (author['name'] ?? '').toString(),
+      style: theme.textTheme.titleMedium?.copyWith(
+        fontWeight: FontWeight.w700,
+        color: url.isEmpty ? null : theme.colorScheme.primary,
+      ),
+    );
+    return Container(
+      key: const Key('about-author'),
+      margin: const EdgeInsets.only(top: 48),
+      padding: const EdgeInsets.only(top: 28),
+      decoration: BoxDecoration(
+        border: Border(top: BorderSide(color: theme.dividerColor)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            context.tr('aboutAuthor').toUpperCase(),
+            style: theme.textTheme.labelSmall?.copyWith(letterSpacing: 1.4),
+          ),
+          const SizedBox(height: 10),
+          if (url.isEmpty)
+            name
+          else
+            InkWell(
+              key: const Key('author-link'),
+              onTap: () => launchUrl(Uri.parse(url)),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  name,
+                  const SizedBox(width: 6),
+                  Icon(
+                    Icons.north_east_rounded,
+                    size: 16,
+                    color: theme.colorScheme.primary,
+                  ),
+                ],
+              ),
+            ),
+          if (url.isNotEmpty)
+            Text(Uri.parse(url).host, style: theme.textTheme.bodySmall),
         ],
       ),
     );
