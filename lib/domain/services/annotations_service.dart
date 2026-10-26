@@ -50,11 +50,6 @@ class AnnotationsService {
   }) => api.request(
     '/instant/${Uri.encodeComponent(code)}/items',
     method: 'POST',
-    body: {
-      'kind': kind,
-      'text': text,
-      'id': ?id,
-      'revision': ?revision,
-    },
+    body: {'kind': kind, 'text': text, 'id': ?id, 'revision': ?revision},
   );
 }
