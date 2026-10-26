@@ -112,38 +112,11 @@ class _ArticlePageState extends State<ArticlePage> {
                     '${article['owner_id']} · ${DateTime.fromMillisecondsSinceEpoch(((article['updated_at'] ?? 0) as num).toInt() * 1000).toIso8601String().split('T').first}',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        context.tr('contentLanguage'),
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                      const SizedBox(width: 14),
-                      DropdownButton<String>(
-                        key: const Key('content-language'),
-                        value: article['language'],
-                        items: available
-                            .map(
-                              (code) => DropdownMenuItem(
-                                value: code,
-                                child: Text(
-                                  code == 'pt-BR'
-                                      ? 'Português'
-                                      : code == 'th'
-                                      ? 'ไทย'
-                                      : code == 'en'
-                                      ? 'English'
-                                      : code,
-                                ),
-                              ),
-                            )
-                            .toList(),
-                        onChanged: (v) {
-                          if (v != null) language(v);
-                        },
-                      ),
-                    ],
+                  ContentLanguageSelector(
+                    key: const Key('content-language'),
+                    languages: available,
+                    selected: article['language'],
+                    onChanged: language,
                   ),
                   IconButton(
                     tooltip: context.tr('copy'),
@@ -191,4 +164,88 @@ class _ArticlePageState extends State<ArticlePage> {
       },
     ),
   );
+}
+
+/// Language of the article body; independent from the interface language.
+class ContentLanguageSelector extends StatelessWidget {
+  final List<String> languages;
+  final String? selected;
+  final ValueChanged<String> onChanged;
+  const ContentLanguageSelector({
+    super.key,
+    required this.languages,
+    required this.selected,
+    required this.onChanged,
+  });
+  static String label(String code) => switch (code) {
+    'en' => 'English',
+    'pt-BR' => 'Português',
+    'th' => 'ไทย',
+    _ => code,
+  };
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Semantics(
+      label: context.tr('contentLanguage'),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Tooltip(
+            message: context.tr('contentLanguage'),
+            child: Icon(
+              Icons.translate_rounded,
+              size: 18,
+              color: scheme.onSurface.withValues(alpha: 0.7),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Container(
+            padding: const EdgeInsets.all(3),
+            decoration: BoxDecoration(
+              color: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: scheme.outline.withValues(alpha: 0.3)),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (final code in languages)
+                  InkWell(
+                    key: Key('content-language-$code'),
+                    onTap: code == selected ? null : () => onChanged(code),
+                    borderRadius: BorderRadius.circular(16),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 150),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: code == selected
+                            ? scheme.primary
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Text(
+                        label(code),
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: code == selected
+                              ? FontWeight.w700
+                              : FontWeight.w500,
+                          color: code == selected
+                              ? scheme.onPrimary
+                              : scheme.onSurface.withValues(alpha: 0.75),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }

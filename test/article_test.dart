@@ -42,12 +42,14 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('ภาษาของเนื้อหา'), findsOneWidget);
+    expect(find.byTooltip('ภาษาของเนื้อหา'), findsOneWidget);
     expect(find.text('A plain readable paragraph.'), findsOneWidget);
     expect(requested, ['en']);
-    final selector = tester.widget<DropdownButton<String>>(
-      find.byKey(const Key('content-language')),
-    );
-    expect(selector.items!.map((i) => i.value), ['en', 'pt-BR']);
+    expect(find.byKey(const Key('content-language-en')), findsOneWidget);
+    expect(find.byKey(const Key('content-language-pt-BR')), findsOneWidget);
+    expect(find.text('Português'), findsOneWidget);
+    expect(find.textContaining('ASODYA'), findsNothing);
+    expect(find.byKey(const Key('footer-about')), findsOneWidget);
+    expect(find.byKey(const Key('footer-api')), findsOneWidget);
   });
 }

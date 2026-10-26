@@ -30,7 +30,7 @@ const strings = <String, List<String>>{
     'Ideias merecem mais que uma aba aberta. Explore anotações, consulte as fontes e veja o trabalho por trás do aprendizado.',
     'แนวคิดควรเป็นมากกว่าแท็บที่เปิดไว้ สำรวจบันทึก อ่านแหล่งข้อมูล และดูเส้นทางการเรียนรู้',
   ],
-  'eyebrow': ['ASODYA / ANNOTATIONS', 'ASODYA / ANOTAÇÕES', 'ASODYA / บันทึก'],
+  'eyebrow': ['ANNOTATIONS', 'ANNOTATIONS', 'ANNOTATIONS'],
   'research': [
     'From curiosity to understanding',
     'Da curiosidade à compreensão',
@@ -145,6 +145,8 @@ const strings = <String, List<String>>{
   ],
   'download': ['Download', 'Baixar', 'ดาวน์โหลด'],
   'edit': ['Edit', 'Editar', 'แก้ไข'],
+  'remove': ['Remove', 'Remover', 'ลบ'],
+  'aboutUs': ['About us', 'Sobre nós', 'เกี่ยวกับเรา'],
   'save': ['Save', 'Salvar', 'บันทึก'],
   'cancel': ['Cancel', 'Cancelar', 'ยกเลิก'],
   'roomEmpty': [

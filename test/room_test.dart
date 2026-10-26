@@ -60,4 +60,37 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
   });
+  testWidgets('items added by mistake can be removed', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final deleted = <String>[];
+    final state = {
+      'code': 'transfer',
+      'revision': 1,
+      'expires_at': DateTime.now().millisecondsSinceEpoch ~/ 1000 + 900,
+      'items': [
+        {'id': 'typo', 'kind': 'text', 'text': 'wrong note'},
+      ],
+    };
+    final service = fixtureService(
+      handler: (request) async {
+        if (request.method == 'DELETE') {
+          deleted.add(request.url.path);
+          state['items'] = [];
+        }
+        return http.Response(jsonEncode(state), 200);
+      },
+    );
+    await tester.pumpWidget(
+      AnnotationsApp(service: service, initialLocation: '/v1/instant/transfer'),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('room-sheet')), findsOneWidget);
+    await tester.ensureVisible(find.byKey(const Key('remove-typo')));
+    await tester.tap(find.byKey(const Key('remove-typo')));
+    await tester.pumpAndSettle();
+    expect(deleted.single, endsWith('/instant/transfer/items/typo'));
+    expect(find.text('wrong note'), findsNothing);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+  });
 }
