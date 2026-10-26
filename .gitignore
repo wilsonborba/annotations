@@ -21,3 +21,5 @@ coverage/
 
 *.iml
 .metadata
+
+__pycache__/

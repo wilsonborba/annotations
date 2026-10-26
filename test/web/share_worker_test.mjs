@@ -1,0 +1,12 @@
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+const source=await readFile(new URL('../../web/_worker.js',import.meta.url),'utf8');
+const {default:worker}=await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
+const env={ASSETS:{fetch:async()=>new Response('<html><head><title>Annotations</title><meta name="description" content="default"></head><body>Flutter</body></html>')}};
+globalThis.fetch=async request=>{assert.match(String(request),/channel=wilson/);return Response.json({title:'RAG <script>',summary:'A "quoted" study',language:'en',cover_url:'javascript:alert(1)'});};
+let response=await worker.fetch(new Request('https://annotations.asodya.com/v1/menu/wilson/retrieval?lang=en'),env);
+let html=await response.text();
+assert.equal(response.status,200);assert.match(html,/RAG &lt;script&gt;/);assert.doesNotMatch(html,/javascript:alert/);assert.match(html,/og:url/);assert.match(html,/lang=en/);assert.equal(response.headers.get('cache-control'),'no-store');
+globalThis.fetch=async()=>new Response('{}',{status:404});
+response=await worker.fetch(new Request('https://annotations.asodya.com/v1/menu/wilson/private'),env);html=await response.text();assert.equal(response.status,404);assert.doesNotMatch(html,/RAG/);
+console.log('Public metadata, escaping, selected language and private fallback passed.');
