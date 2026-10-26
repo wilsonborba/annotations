@@ -22,7 +22,11 @@ void main() {
       },
     );
     await tester.pumpWidget(
-      AnnotationsApp(initialLocation: '/v1/home', service: service),
+      AnnotationsApp(
+        trackingEnabled: false,
+        initialLocation: '/v1/home',
+        service: service,
+      ),
     );
     await tester.pumpAndSettle();
     await tester.ensureVisible(find.byKey(const Key('waitlist-email')));
@@ -57,7 +61,11 @@ void main() {
           : http.Response('{"items":[]}', 200),
     );
     await tester.pumpWidget(
-      AnnotationsApp(initialLocation: '/v1/home', service: service),
+      AnnotationsApp(
+        trackingEnabled: false,
+        initialLocation: '/v1/home',
+        service: service,
+      ),
     );
     await tester.pumpAndSettle();
     await tester.ensureVisible(find.byKey(const Key('waitlist-email')));

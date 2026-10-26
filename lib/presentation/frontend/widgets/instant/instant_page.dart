@@ -1,3 +1,4 @@
+import 'package:annotations/core/tracking_manifest.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
@@ -58,16 +59,29 @@ class _InstantPageState extends State<InstantPage> {
         title: Text(context.tr('edit')),
         content: SizedBox(
           width: 440,
-          child: TextField(controller: value, maxLines: 6),
+          child: track(
+            'instant.edit.content',
+            TextField(controller: value, maxLines: 6),
+            controller: value,
+          ),
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(context.tr('cancel')),
+          track(
+            'instant.edit.cancel',
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(context.tr('cancel')),
+            ),
           ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, value.text),
-            child: Text(context.tr('save')),
+          track(
+            'instant.edit.save',
+            FilledButton(
+              onPressed: () {
+                trackSubmit(context, 'instant.edit.save');
+                Navigator.pop(context, value.text);
+              },
+              child: Text(context.tr('save')),
+            ),
           ),
         ],
       ),
@@ -77,6 +91,7 @@ class _InstantPageState extends State<InstantPage> {
   }
 
   void openCode(String value) {
+    trackSubmit(context, 'instant.room.open');
     if (value.trim().isNotEmpty) {
       context.go('/v1/instant/${Uri.encodeComponent(value.trim())}');
     }
@@ -86,11 +101,14 @@ class _InstantPageState extends State<InstantPage> {
     await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
   }
 
-  Widget removeButton(RoomHandler h, Data item) => IconButton(
-    key: Key('remove-${item['id']}'),
-    onPressed: h.busy ? null : () => h.remove(item['id']),
-    tooltip: context.tr('remove'),
-    icon: const Icon(Icons.delete_outline_rounded, size: 18),
+  Widget removeButton(RoomHandler h, Data item) => track(
+    'instant.item.remove',
+    IconButton(
+      key: Key('remove-${item['id']}'),
+      onPressed: h.busy ? null : () => h.remove(item['id']),
+      tooltip: context.tr('remove'),
+      icon: const Icon(Icons.delete_outline_rounded, size: 18),
+    ),
   );
 
   /// Open writing sheet: a plain page with the actions underneath.
@@ -110,24 +128,28 @@ class _InstantPageState extends State<InstantPage> {
         children: [
           Padding(
             padding: EdgeInsets.fromLTRB(margin, 36, margin, 28),
-            child: TextField(
-              key: const Key('room-text'),
+            child: track(
+              'instant.composer.text',
+              TextField(
+                key: const Key('room-text'),
+                controller: text,
+                minLines: 9,
+                maxLines: null,
+                keyboardType: TextInputType.multiline,
+                style: theme.textTheme.bodyLarge?.copyWith(
+                  fontSize: 17,
+                  height: 1.65,
+                ),
+                decoration: InputDecoration(
+                  hintText: context.tr('textLink'),
+                  border: InputBorder.none,
+                  enabledBorder: InputBorder.none,
+                  focusedBorder: InputBorder.none,
+                  filled: false,
+                  isCollapsed: true,
+                ),
+              ),
               controller: text,
-              minLines: 9,
-              maxLines: null,
-              keyboardType: TextInputType.multiline,
-              style: theme.textTheme.bodyLarge?.copyWith(
-                fontSize: 17,
-                height: 1.65,
-              ),
-              decoration: InputDecoration(
-                hintText: context.tr('textLink'),
-                border: InputBorder.none,
-                enabledBorder: InputBorder.none,
-                focusedBorder: InputBorder.none,
-                filled: false,
-                isCollapsed: true,
-              ),
             ),
           ),
           Divider(height: 1, color: theme.dividerColor),
@@ -138,19 +160,26 @@ class _InstantPageState extends State<InstantPage> {
               runSpacing: 12,
               crossAxisAlignment: WrapCrossAlignment.center,
               children: [
-                FilledButton.icon(
-                  onPressed: h.busy
-                      ? null
-                      : () async {
-                          if (await h.edit(text.text)) text.clear();
-                        },
-                  icon: const Icon(Icons.add_rounded),
-                  label: Text(context.tr('add')),
+                track(
+                  'instant.composer.add',
+                  FilledButton.icon(
+                    onPressed: h.busy
+                        ? null
+                        : () async {
+                            trackSubmit(context, 'instant.composer.add');
+                            if (await h.edit(text.text)) text.clear();
+                          },
+                    icon: const Icon(Icons.add_rounded),
+                    label: Text(context.tr('add')),
+                  ),
                 ),
-                OutlinedButton.icon(
-                  onPressed: h.uploadName != null ? null : h.choose,
-                  icon: const Icon(Icons.upload_file_rounded),
-                  label: Text(context.tr('upload')),
+                track(
+                  'instant.composer.upload',
+                  OutlinedButton.icon(
+                    onPressed: h.uploadName != null ? null : h.choose,
+                    icon: const Icon(Icons.upload_file_rounded),
+                    label: Text(context.tr('upload')),
+                  ),
                 ),
                 Text(context.tr('drop'), style: theme.textTheme.bodySmall),
               ],
@@ -175,9 +204,12 @@ class _InstantPageState extends State<InstantPage> {
           const SizedBox(height: 16),
           Text(context.tr('expired')),
           const SizedBox(height: 18),
-          OutlinedButton(
-            onPressed: () => context.go('/v1/instant'),
-            child: Text(context.tr('openRoom')),
+          track(
+            'instant.room.reopen',
+            OutlinedButton(
+              onPressed: () => context.go('/v1/instant'),
+              child: Text(context.tr('openRoom')),
+            ),
           ),
         ],
       );
@@ -232,26 +264,29 @@ class _InstantPageState extends State<InstantPage> {
                     '${seconds ~/ 60}:${(seconds % 60).toString().padLeft(2, '0')}',
                   ),
                   const SizedBox(width: 20),
-                  OutlinedButton.icon(
-                    onPressed: () async {
-                      await Clipboard.setData(
-                        ClipboardData(
-                          text: Uri.base
-                              .replace(
-                                path: '/v1/instant/${widget.code}',
-                                query: '',
-                              )
-                              .toString(),
-                        ),
-                      );
-                      if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text(context.tr('copied'))),
+                  track(
+                    'instant.room.copy',
+                    OutlinedButton.icon(
+                      onPressed: () async {
+                        await Clipboard.setData(
+                          ClipboardData(
+                            text: Uri.base
+                                .replace(
+                                  path: '/v1/instant/${widget.code}',
+                                  query: '',
+                                )
+                                .toString(),
+                          ),
                         );
-                      }
-                    },
-                    icon: const Icon(Icons.link_rounded, size: 16),
-                    label: Text(context.tr('copy')),
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text(context.tr('copied'))),
+                          );
+                        }
+                      },
+                      icon: const Icon(Icons.link_rounded, size: 16),
+                      label: Text(context.tr('copy')),
+                    ),
                   ),
                 ],
               ),
@@ -338,10 +373,13 @@ class _InstantPageState extends State<InstantPage> {
                           semanticsLabel: item['text'],
                         ),
                       ),
-                      IconButton(
-                        onPressed: () => editItem(item),
-                        tooltip: context.tr('edit'),
-                        icon: const Icon(Icons.edit_outlined, size: 18),
+                      track(
+                        'instant.item.edit',
+                        IconButton(
+                          onPressed: () => editItem(item),
+                          tooltip: context.tr('edit'),
+                          icon: const Icon(Icons.edit_outlined, size: 18),
+                        ),
                       ),
                       removeButton(h, item),
                     ],
@@ -352,20 +390,26 @@ class _InstantPageState extends State<InstantPage> {
                       const Icon(Icons.link_rounded, size: 20),
                       const SizedBox(width: 12),
                       Expanded(
-                        child: InkWell(
-                          onTap: () => open(item['text']),
-                          child: Text(
-                            item['text'],
-                            style: TextStyle(
-                              color: Theme.of(context).colorScheme.primary,
+                        child: track(
+                          'instant.item.link',
+                          InkWell(
+                            onTap: () => open(item['text']),
+                            child: Text(
+                              item['text'],
+                              style: TextStyle(
+                                color: Theme.of(context).colorScheme.primary,
+                              ),
                             ),
                           ),
                         ),
                       ),
-                      IconButton(
-                        onPressed: () => editItem(item),
-                        tooltip: context.tr('edit'),
-                        icon: const Icon(Icons.edit_outlined, size: 18),
+                      track(
+                        'instant.item.edit',
+                        IconButton(
+                          onPressed: () => editItem(item),
+                          tooltip: context.tr('edit'),
+                          icon: const Icon(Icons.edit_outlined, size: 18),
+                        ),
                       ),
                       removeButton(h, item),
                     ],
@@ -380,10 +424,13 @@ class _InstantPageState extends State<InstantPage> {
                           '${item['filename']} · ${((item['size_bytes'] as num) / 1000000).toStringAsFixed(2)} MB',
                         ),
                       ),
-                      IconButton(
-                        onPressed: () => open(h.fileUrl(item)),
-                        tooltip: context.tr('download'),
-                        icon: const Icon(Icons.download_rounded),
+                      track(
+                        'instant.item.download',
+                        IconButton(
+                          onPressed: () => open(h.fileUrl(item)),
+                          tooltip: context.tr('download'),
+                          icon: const Icon(Icons.download_rounded),
+                        ),
                       ),
                       removeButton(h, item),
                     ],
@@ -426,17 +473,29 @@ class _InstantPageState extends State<InstantPage> {
           Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              TextField(
+              track(
+                'instant.room.code',
+                TextField(
+                  controller: code,
+                  decoration: InputDecoration(
+                    labelText: context.tr('roomCode'),
+                  ),
+                  onSubmitted: openCode,
+                ),
                 controller: code,
-                decoration: InputDecoration(labelText: context.tr('roomCode')),
-                onSubmitted: openCode,
+                sensitive: true,
               ),
               const SizedBox(height: 16),
               Align(
                 alignment: Alignment.centerLeft,
-                child: FilledButton(
-                  onPressed: () => openCode(code.text),
-                  child: Text(context.tr('openRoom')),
+                child: track(
+                  'instant.room.open',
+                  FilledButton(
+                    onPressed: () {
+                      openCode(code.text);
+                    },
+                    child: Text(context.tr('openRoom')),
+                  ),
                 ),
               ),
               const SizedBox(height: 20),

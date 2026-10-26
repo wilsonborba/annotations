@@ -1,3 +1,13 @@
+## [unreleased]
+
+### 🚀 Features
+
+- *(telemetry)* Adopt shared tracking with mapped Annotations controls
+
+### 💼 Other
+
+- Back-merge v1.1.0 into feature/main
+
 ## [1.1.0] - 2026-10-27
 
 ### 🚀 Features

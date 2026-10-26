@@ -1,3 +1,4 @@
+import 'package:annotations/core/tracking_manifest.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../components/scope.dart';
@@ -76,20 +77,26 @@ class _LandingPageState extends State<LandingPage> {
                   spacing: 12,
                   runSpacing: 12,
                   children: [
-                    FilledButton(
-                      onPressed: () => context.go('/v1/menu'),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(context.tr('browse')),
-                          const SizedBox(width: 12),
-                          const Icon(Icons.arrow_forward_rounded, size: 18),
-                        ],
+                    track(
+                      'landing.browse.open',
+                      FilledButton(
+                        onPressed: () => context.go('/v1/menu'),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(context.tr('browse')),
+                            const SizedBox(width: 12),
+                            const Icon(Icons.arrow_forward_rounded, size: 18),
+                          ],
+                        ),
                       ),
                     ),
-                    OutlinedButton(
-                      onPressed: () => context.go('/v1/instant'),
-                      child: Text(context.tr('instant')),
+                    track(
+                      'landing.instant.open',
+                      OutlinedButton(
+                        onPressed: () => context.go('/v1/instant'),
+                        child: Text(context.tr('instant')),
+                      ),
                     ),
                   ],
                 ),
@@ -222,9 +229,12 @@ class _LandingPageState extends State<LandingPage> {
                     style: Theme.of(context).textTheme.headlineMedium,
                   ),
                 ),
-                TextButton(
-                  onPressed: () => context.go('/v1/menu'),
-                  child: Text(context.tr('all')),
+                track(
+                  'landing.catalog.all',
+                  TextButton(
+                    onPressed: () => context.go('/v1/menu'),
+                    child: Text(context.tr('all')),
+                  ),
                 ),
               ],
             ),
@@ -314,34 +324,51 @@ class _LandingPageState extends State<LandingPage> {
                     : Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          TextField(
-                            key: const Key('waitlist-email'),
-                            controller: email,
-                            keyboardType: TextInputType.emailAddress,
-                            decoration: InputDecoration(
-                              labelText: context.tr('email'),
+                          track(
+                            'landing.waitlist.email',
+                            TextField(
+                              key: const Key('waitlist-email'),
+                              controller: email,
+                              keyboardType: TextInputType.emailAddress,
+                              decoration: InputDecoration(
+                                labelText: context.tr('email'),
+                              ),
                             ),
+                            controller: email,
                           ),
                           const SizedBox(height: 12),
-                          TextField(
-                            key: const Key('waitlist-message'),
-                            controller: message,
-                            minLines: 2,
-                            maxLines: 3,
-                            decoration: InputDecoration(
-                              labelText: context.tr('message'),
+                          track(
+                            'landing.waitlist.message',
+                            TextField(
+                              key: const Key('waitlist-message'),
+                              controller: message,
+                              minLines: 2,
+                              maxLines: 3,
+                              decoration: InputDecoration(
+                                labelText: context.tr('message'),
+                              ),
                             ),
+                            controller: message,
                           ),
                           const SizedBox(height: 14),
-                          FilledButton(
-                            key: const Key('waitlist-submit'),
-                            onPressed: waitlist!.busy
-                                ? null
-                                : () => waitlist!.submit(
-                                    email.text,
-                                    message.text,
-                                  ),
-                            child: Text(context.tr('join')),
+                          track(
+                            'landing.waitlist.submit',
+                            FilledButton(
+                              key: const Key('waitlist-submit'),
+                              onPressed: waitlist!.busy
+                                  ? null
+                                  : () {
+                                      trackSubmit(
+                                        context,
+                                        'landing.waitlist.submit',
+                                      );
+                                      waitlist!.submit(
+                                        email.text,
+                                        message.text,
+                                      );
+                                    },
+                              child: Text(context.tr('join')),
+                            ),
                           ),
                           if (waitlist!.error != null)
                             Padding(

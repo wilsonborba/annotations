@@ -51,7 +51,11 @@ void main() {
       ),
     );
     await tester.pumpWidget(
-      AnnotationsApp(service: service, initialLocation: '/v1/instant/transfer'),
+      AnnotationsApp(
+        trackingEnabled: false,
+        service: service,
+        initialLocation: '/v1/instant/transfer',
+      ),
     );
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('room-text')), findsOneWidget);
@@ -81,7 +85,11 @@ void main() {
       },
     );
     await tester.pumpWidget(
-      AnnotationsApp(service: service, initialLocation: '/v1/instant/transfer'),
+      AnnotationsApp(
+        trackingEnabled: false,
+        service: service,
+        initialLocation: '/v1/instant/transfer',
+      ),
     );
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('room-sheet')), findsOneWidget);

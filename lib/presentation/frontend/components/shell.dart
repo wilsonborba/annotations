@@ -1,3 +1,4 @@
+import 'package:annotations/core/tracking_manifest.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -18,64 +19,88 @@ class PageShell extends StatelessWidget {
       appBar: AppBar(
         toolbarHeight: 80,
         titleSpacing: width > 740 ? 40 : 18,
-        title: InkWell(
-          onTap: () => context.go('/v1/home'),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Image.asset(
-                'lib/presentation/frontend/assets/images/asodya_logo.png',
-                height: 29,
-              ),
-              if (width >= 430) ...[
-                const SizedBox(width: 12),
-                const Text(
-                  'Annotations',
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+        title: track(
+          'shell.navigation.home',
+          InkWell(
+            onTap: () => context.go('/v1/home'),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Image.asset(
+                  'lib/presentation/frontend/assets/images/asodya_logo.png',
+                  height: 29,
                 ),
+                if (width >= 430) ...[
+                  const SizedBox(width: 12),
+                  const Text(
+                    'Annotations',
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+                  ),
+                ],
               ],
-            ],
+            ),
           ),
         ),
         actions: [
           if (wide) ...[
-            TextButton(
-              onPressed: () => context.go('/v1/menu'),
-              child: Text(context.tr('notes')),
+            track(
+              'shell.navigation.notes',
+              TextButton(
+                onPressed: () => context.go('/v1/menu'),
+                child: Text(context.tr('notes')),
+              ),
             ),
             const SizedBox(width: 12),
-            TextButton(
-              onPressed: () => context.go('/v1/instant'),
-              child: Text(context.tr('instant')),
+            track(
+              'shell.navigation.instant',
+              TextButton(
+                onPressed: () => context.go('/v1/instant'),
+                child: Text(context.tr('instant')),
+              ),
             ),
             const SizedBox(width: 16),
           ],
           LanguageSwitch(selected: prefs.locale, onChanged: prefs.language),
           const SizedBox(width: 4),
-          IconButton(
-            key: const Key('theme-toggle'),
-            tooltip: context.tr('theme'),
-            onPressed: () => prefs.toggle(dark),
-            icon: Icon(
-              dark ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
-              color: Theme.of(
-                context,
-              ).colorScheme.onSurface.withValues(alpha: 0.85),
+          track(
+            'shell.theme.toggle',
+            IconButton(
+              key: const Key('theme-toggle'),
+              tooltip: context.tr('theme'),
+              onPressed: () => prefs.toggle(dark),
+              icon: Icon(
+                dark ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
+                color: Theme.of(
+                  context,
+                ).colorScheme.onSurface.withValues(alpha: 0.85),
+              ),
             ),
           ),
           if (!wide)
-            PopupMenuButton<String>(
-              onSelected: context.go,
-              itemBuilder: (_) => [
-                PopupMenuItem(
-                  value: '/v1/menu',
-                  child: Text(context.tr('notes')),
-                ),
-                PopupMenuItem(
-                  value: '/v1/instant',
-                  child: Text(context.tr('instant')),
-                ),
-              ],
+            track(
+              'shell.navigation.menu',
+              PopupMenuButton<String>(
+                onSelected: (value) {
+                  trackChoice(context, 'shell.navigation.menu', value);
+                  context.go(value);
+                },
+                itemBuilder: (_) => [
+                  PopupMenuItem(
+                    value: '/v1/menu',
+                    child: track(
+                      'shell.navigation.notes',
+                      Text(context.tr('notes')),
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: '/v1/instant',
+                    child: track(
+                      'shell.navigation.instant',
+                      Text(context.tr('instant')),
+                    ),
+                  ),
+                ],
+              ),
             ),
           const SizedBox(width: 12),
         ],
@@ -120,32 +145,42 @@ class LanguageSwitch extends StatelessWidget {
               ('pt-BR', 'PT'),
               ('th', 'TH'),
             ])
-              InkWell(
-                key: Key('language-$code'),
-                onTap: () => onChanged(code),
-                borderRadius: BorderRadius.circular(14),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 150),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: code == selected
-                        ? scheme.primary
-                        : Colors.transparent,
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: Text(
-                    label,
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: code == selected
-                          ? FontWeight.bold
-                          : FontWeight.normal,
+              track(
+                code == 'en'
+                    ? 'shell.language.english'
+                    : code == 'th'
+                    ? 'shell.language.thai'
+                    : 'shell.language.portuguese',
+                InkWell(
+                  key: Key('language-$code'),
+                  onTap: () {
+                    trackChoice(context, 'shell.language.select', code);
+                    onChanged(code);
+                  },
+                  borderRadius: BorderRadius.circular(14),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 150),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
                       color: code == selected
-                          ? scheme.onPrimary
-                          : scheme.onSurface.withValues(alpha: 0.75),
+                          ? scheme.primary
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Text(
+                      label,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: code == selected
+                            ? FontWeight.bold
+                            : FontWeight.normal,
+                        color: code == selected
+                            ? scheme.onPrimary
+                            : scheme.onSurface.withValues(alpha: 0.75),
+                      ),
                     ),
                   ),
                 ),
@@ -234,15 +269,18 @@ class FooterLink extends StatelessWidget {
   final String label, url;
   const FooterLink({super.key, required this.label, required this.url});
   @override
-  Widget build(BuildContext context) => InkWell(
-    onTap: () => launchUrl(Uri.parse(url)),
-    child: Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Text(
-        label,
-        style: TextStyle(
-          fontWeight: FontWeight.w600,
-          color: Theme.of(context).colorScheme.primary,
+  Widget build(BuildContext context) => track(
+    url.contains('/docs') ? 'shell.footer.api' : 'shell.footer.about',
+    InkWell(
+      onTap: () => launchUrl(Uri.parse(url)),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontWeight: FontWeight.w600,
+            color: Theme.of(context).colorScheme.primary,
+          ),
         ),
       ),
     ),
@@ -261,9 +299,12 @@ class NotFoundState extends StatelessWidget {
         const SizedBox(height: 12),
         Text(context.tr('notFound'), key: const Key('not-found')),
         const SizedBox(height: 12),
-        OutlinedButton(
-          onPressed: () => context.go('/v1/menu'),
-          child: Text(context.tr('back')),
+        track(
+          'shell.error.back',
+          OutlinedButton(
+            onPressed: () => context.go('/v1/menu'),
+            child: Text(context.tr('back')),
+          ),
         ),
       ],
     ),
@@ -282,7 +323,10 @@ class LoadError extends StatelessWidget {
         const SizedBox(height: 12),
         Text(context.tr('error')),
         const SizedBox(height: 12),
-        OutlinedButton(onPressed: retry, child: Text(context.tr('retry'))),
+        track(
+          'shell.error.retry',
+          OutlinedButton(onPressed: retry, child: Text(context.tr('retry'))),
+        ),
       ],
     ),
   );

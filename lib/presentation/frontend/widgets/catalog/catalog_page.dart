@@ -1,3 +1,4 @@
+import 'package:annotations/core/tracking_manifest.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -88,21 +89,28 @@ class _CatalogPageState extends State<CatalogPage> {
           style: Theme.of(context).textTheme.headlineLarge,
         ),
         const SizedBox(height: 28),
-        TextField(
-          key: const Key('catalog-search'),
-          controller: search,
-          decoration: InputDecoration(
-            hintText: context.tr('search'),
-            prefixIcon: const Icon(Icons.search_rounded),
+        track(
+          'catalog.search.input',
+          TextField(
+            key: const Key('catalog-search'),
+            controller: search,
+            decoration: InputDecoration(
+              hintText: context.tr('search'),
+              prefixIcon: const Icon(Icons.search_rounded),
+            ),
+            onChanged: (value) {
+              debounce?.cancel();
+              debounce = Timer(
+                const Duration(milliseconds: 350),
+                () => navigate(query: value),
+              );
+            },
+            onSubmitted: (v) {
+              trackSubmit(context, 'catalog.search.input');
+              navigate(query: v);
+            },
           ),
-          onChanged: (value) {
-            debounce?.cancel();
-            debounce = Timer(
-              const Duration(milliseconds: 350),
-              () => navigate(query: value),
-            );
-          },
-          onSubmitted: (v) => navigate(query: v),
+          controller: search,
         ),
         const SizedBox(height: 22),
         FutureBuilder<List<Data>>(
@@ -128,58 +136,82 @@ class _CatalogPageState extends State<CatalogPage> {
                   children: [
                     SizedBox(
                       width: 260,
-                      child: DropdownButtonFormField<String>(
-                        isExpanded: true,
-                        initialValue:
-                            records(
-                              catalog['topics'],
-                            ).any((v) => v['id'] == widget.topic)
-                            ? widget.topic
-                            : '',
-                        decoration: InputDecoration(
-                          labelText: context.tr('topics'),
-                        ),
-                        items: [
-                          DropdownMenuItem(
-                            value: '',
-                            child: Text(context.tr('allTopics')),
+                      child: track(
+                        'catalog.topic.select',
+                        DropdownButtonFormField<String>(
+                          isExpanded: true,
+                          initialValue:
+                              records(
+                                catalog['topics'],
+                              ).any((v) => v['id'] == widget.topic)
+                              ? widget.topic
+                              : '',
+                          decoration: InputDecoration(
+                            labelText: context.tr('topics'),
                           ),
-                          ...records(catalog['topics']).map(
-                            (t) => DropdownMenuItem(
-                              value: t['id'].toString(),
-                              child: Text(t['name'].toString()),
+                          items: [
+                            DropdownMenuItem(
+                              value: '',
+                              child: track(
+                                'catalog.topic.select',
+                                Text(context.tr('allTopics')),
+                              ),
                             ),
-                          ),
-                        ],
-                        onChanged: (v) => navigate(topic: v),
+                            ...records(catalog['topics']).map(
+                              (t) => DropdownMenuItem(
+                                value: t['id'].toString(),
+                                child: track(
+                                  'catalog.topic.select',
+                                  Text(t['name'].toString()),
+                                ),
+                              ),
+                            ),
+                          ],
+                          onChanged: (v) {
+                            trackChoice(context, 'catalog.topic.select', v);
+                            navigate(topic: v);
+                          },
+                        ),
                       ),
                     ),
                     SizedBox(
                       width: 260,
-                      child: DropdownButtonFormField<String>(
-                        isExpanded: true,
-                        initialValue:
-                            records(
-                              catalog['channels'],
-                            ).any((v) => v['id'] == widget.channel)
-                            ? widget.channel
-                            : '',
-                        decoration: InputDecoration(
-                          labelText: context.tr('channels'),
-                        ),
-                        items: [
-                          DropdownMenuItem(
-                            value: '',
-                            child: Text(context.tr('allChannels')),
+                      child: track(
+                        'catalog.channel.select',
+                        DropdownButtonFormField<String>(
+                          isExpanded: true,
+                          initialValue:
+                              records(
+                                catalog['channels'],
+                              ).any((v) => v['id'] == widget.channel)
+                              ? widget.channel
+                              : '',
+                          decoration: InputDecoration(
+                            labelText: context.tr('channels'),
                           ),
-                          ...records(catalog['channels']).map(
-                            (t) => DropdownMenuItem(
-                              value: t['id'].toString(),
-                              child: Text(t['name'].toString()),
+                          items: [
+                            DropdownMenuItem(
+                              value: '',
+                              child: track(
+                                'catalog.channel.select',
+                                Text(context.tr('allChannels')),
+                              ),
                             ),
-                          ),
-                        ],
-                        onChanged: (v) => navigate(channel: v),
+                            ...records(catalog['channels']).map(
+                              (t) => DropdownMenuItem(
+                                value: t['id'].toString(),
+                                child: track(
+                                  'catalog.channel.select',
+                                  Text(t['name'].toString()),
+                                ),
+                              ),
+                            ),
+                          ],
+                          onChanged: (v) {
+                            trackChoice(context, 'catalog.channel.select', v);
+                            navigate(channel: v);
+                          },
+                        ),
                       ),
                     ),
                   ],
@@ -259,9 +291,12 @@ class _MoreNotesState extends State<MoreNotes> {
       const SizedBox(height: 22),
       if (error != null) Text(error!),
       if (!done)
-        OutlinedButton(
-          onPressed: busy ? null : more,
-          child: Text(context.tr('more')),
+        track(
+          'catalog.pagination.more',
+          OutlinedButton(
+            onPressed: busy ? null : more,
+            child: Text(context.tr('more')),
+          ),
         ),
     ],
   );
