@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../../core/settings.dart';
 import 'scope.dart';
 
@@ -60,10 +61,14 @@ class PageShell extends StatelessWidget {
             ),
           ),
           IconButton(
+            key: const Key('theme-toggle'),
             tooltip: context.tr('theme'),
             onPressed: () => prefs.toggle(dark),
             icon: Icon(
               dark ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
+              color: Theme.of(
+                context,
+              ).colorScheme.onSurface.withValues(alpha: 0.85),
             ),
           ),
           if (!wide)
@@ -133,17 +138,53 @@ class Footer extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            'ASODYA / ANNOTATIONS',
+            'ANNOTATIONS',
             style: TextStyle(fontWeight: FontWeight.w700, letterSpacing: 1.6),
           ),
           const SizedBox(height: 12),
           Text(context.tr('footer')),
+          const SizedBox(height: 16),
+          Wrap(
+            spacing: 24,
+            runSpacing: 8,
+            children: [
+              FooterLink(
+                key: const Key('footer-about'),
+                label: context.tr('aboutUs'),
+                url: 'https://asodya.com',
+              ),
+              const FooterLink(
+                key: Key('footer-api'),
+                label: 'API',
+                url: 'https://api.asodya.com/docs',
+              ),
+            ],
+          ),
           const SizedBox(height: 20),
           Text(
             'v${Settings.version} · ${Settings.buildTime}',
             style: Theme.of(context).textTheme.bodySmall,
           ),
         ],
+      ),
+    ),
+  );
+}
+
+class FooterLink extends StatelessWidget {
+  final String label, url;
+  const FooterLink({super.key, required this.label, required this.url});
+  @override
+  Widget build(BuildContext context) => InkWell(
+    onTap: () => launchUrl(Uri.parse(url)),
+    child: Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontWeight: FontWeight.w600,
+          color: Theme.of(context).colorScheme.primary,
+        ),
       ),
     ),
   );

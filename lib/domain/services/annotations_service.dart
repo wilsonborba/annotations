@@ -41,6 +41,10 @@ class AnnotationsService {
     '/instant/${Uri.encodeComponent(code)}',
     method: create ? 'PUT' : 'GET',
   );
+  Future<Data> remove(String code, String id) => api.request(
+    '/instant/${Uri.encodeComponent(code)}/items/${Uri.encodeComponent(id)}',
+    method: 'DELETE',
+  );
   Future<Data> edit(
     String code,
     String text, {

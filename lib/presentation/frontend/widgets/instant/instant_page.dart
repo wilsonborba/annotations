@@ -86,6 +86,81 @@ class _InstantPageState extends State<InstantPage> {
     await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
   }
 
+  Widget removeButton(RoomHandler h, Data item) => IconButton(
+    key: Key('remove-${item['id']}'),
+    onPressed: h.busy ? null : () => h.remove(item['id']),
+    tooltip: context.tr('remove'),
+    icon: const Icon(Icons.delete_outline_rounded, size: 18),
+  );
+
+  /// Open writing sheet: a plain page with the actions underneath.
+  Widget paper(RoomHandler h) {
+    final theme = Theme.of(context);
+    final dark = theme.brightness == Brightness.dark;
+    final margin = MediaQuery.sizeOf(context).width > 740 ? 48.0 : 22.0;
+    return Container(
+      key: const Key('room-sheet'),
+      decoration: BoxDecoration(
+        color: dark ? theme.colorScheme.surfaceContainerLow : Colors.white,
+        border: Border.all(color: theme.dividerColor),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: EdgeInsets.fromLTRB(margin, 36, margin, 28),
+            child: TextField(
+              key: const Key('room-text'),
+              controller: text,
+              minLines: 9,
+              maxLines: null,
+              keyboardType: TextInputType.multiline,
+              style: theme.textTheme.bodyLarge?.copyWith(
+                fontSize: 17,
+                height: 1.65,
+              ),
+              decoration: InputDecoration(
+                hintText: context.tr('textLink'),
+                border: InputBorder.none,
+                enabledBorder: InputBorder.none,
+                focusedBorder: InputBorder.none,
+                filled: false,
+                isCollapsed: true,
+              ),
+            ),
+          ),
+          Divider(height: 1, color: theme.dividerColor),
+          Padding(
+            padding: EdgeInsets.symmetric(horizontal: margin, vertical: 14),
+            child: Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                FilledButton.icon(
+                  onPressed: h.busy
+                      ? null
+                      : () async {
+                          if (await h.edit(text.text)) text.clear();
+                        },
+                  icon: const Icon(Icons.add_rounded),
+                  label: Text(context.tr('add')),
+                ),
+                OutlinedButton.icon(
+                  onPressed: h.uploadName != null ? null : h.choose,
+                  icon: const Icon(Icons.upload_file_rounded),
+                  label: Text(context.tr('upload')),
+                ),
+                Text(context.tr('drop'), style: theme.textTheme.bodySmall),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget roomView(RoomHandler h) {
     if (h.opening) {
       return const Padding(
@@ -189,36 +264,8 @@ class _InstantPageState extends State<InstantPage> {
           style: Theme.of(context).textTheme.bodySmall,
         ),
         const SizedBox(height: 28),
-        TextField(
-          key: const Key('room-text'),
-          controller: text,
-          minLines: 3,
-          maxLines: 6,
-          decoration: InputDecoration(hintText: context.tr('textLink')),
-        ),
-        const SizedBox(height: 12),
-        Wrap(
-          spacing: 12,
-          runSpacing: 12,
-          children: [
-            FilledButton.icon(
-              onPressed: h.busy
-                  ? null
-                  : () async {
-                      if (await h.edit(text.text)) text.clear();
-                    },
-              icon: const Icon(Icons.add_rounded),
-              label: Text(context.tr('add')),
-            ),
-            OutlinedButton.icon(
-              onPressed: h.uploadName != null ? null : h.choose,
-              icon: const Icon(Icons.upload_file_rounded),
-              label: Text(context.tr('upload')),
-            ),
-          ],
-        ),
-        const SizedBox(height: 14),
-        Text(context.tr('drop'), style: Theme.of(context).textTheme.bodySmall),
+        paper(h),
+        const SizedBox(height: 10),
         Text(context.tr('limit'), style: Theme.of(context).textTheme.bodySmall),
         if (h.uploadName != null)
           Container(
@@ -285,12 +332,18 @@ class _InstantPageState extends State<InstantPage> {
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Expanded(child: SelectableText(item['text'], semanticsLabel: item['text'])),
+                      Expanded(
+                        child: SelectableText(
+                          item['text'],
+                          semanticsLabel: item['text'],
+                        ),
+                      ),
                       IconButton(
                         onPressed: () => editItem(item),
                         tooltip: context.tr('edit'),
                         icon: const Icon(Icons.edit_outlined, size: 18),
                       ),
+                      removeButton(h, item),
                     ],
                   ),
                 if (item['kind'] == 'link')
@@ -314,6 +367,7 @@ class _InstantPageState extends State<InstantPage> {
                         tooltip: context.tr('edit'),
                         icon: const Icon(Icons.edit_outlined, size: 18),
                       ),
+                      removeButton(h, item),
                     ],
                   ),
                 if (item['kind'] == 'file' || item['kind'] == 'image')
@@ -331,6 +385,7 @@ class _InstantPageState extends State<InstantPage> {
                         tooltip: context.tr('download'),
                         icon: const Icon(Icons.download_rounded),
                       ),
+                      removeButton(h, item),
                     ],
                   ),
               ],
@@ -348,7 +403,7 @@ class _InstantPageState extends State<InstantPage> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'ASODYA / INSTANT',
+          'ANNOTATIONS',
           style: TextStyle(
             fontSize: 11,
             letterSpacing: 1.7,
