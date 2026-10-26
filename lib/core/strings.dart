@@ -1,4 +1,14 @@
 const strings = <String, List<String>>{
+  'noteSources': [
+    'Notes / Sources / Reports',
+    'Notas / Fontes / Reports',
+    'บันทึก / แหล่งข้อมูล / Reports',
+  ],
+  'ideaConnections': [
+    'One idea. More connections.',
+    'Uma ideia. Mais conexões.',
+    'หนึ่งแนวคิด หลายความเชื่อมโยง',
+  ],
   'notes': ['Notes', 'Anotações', 'บันทึก'],
   'browse': ['Explore notes', 'Explorar anotações', 'สำรวจบันทึก'],
   'instant': ['Instant share', 'Compartilhar agora', 'แชร์ชั่วคราว'],

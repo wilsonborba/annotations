@@ -76,6 +76,12 @@ class _InstantPageState extends State<InstantPage> {
     value.dispose();
   }
 
+  void openCode(String value) {
+    if (value.trim().isNotEmpty) {
+      context.go('/v1/instant/${Uri.encodeComponent(value.trim())}');
+    }
+  }
+
   Future<void> open(String url) async {
     await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
   }
@@ -279,7 +285,7 @@ class _InstantPageState extends State<InstantPage> {
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Expanded(child: SelectableText(item['text'])),
+                      Expanded(child: SelectableText(item['text'], semanticsLabel: item['text'])),
                       IconButton(
                         onPressed: () => editItem(item),
                         tooltip: context.tr('edit'),
@@ -368,16 +374,13 @@ class _InstantPageState extends State<InstantPage> {
               TextField(
                 controller: code,
                 decoration: InputDecoration(labelText: context.tr('roomCode')),
-                onSubmitted: (v) =>
-                    context.go('/v1/instant/${Uri.encodeComponent(v.trim())}'),
+                onSubmitted: openCode,
               ),
               const SizedBox(height: 16),
               Align(
                 alignment: Alignment.centerLeft,
                 child: FilledButton(
-                  onPressed: () => context.go(
-                    '/v1/instant/${Uri.encodeComponent(code.text.trim())}',
-                  ),
+                  onPressed: () => openCode(code.text),
                   child: Text(context.tr('openRoom')),
                 ),
               ),
