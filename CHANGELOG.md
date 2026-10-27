@@ -7,6 +7,11 @@
 ### 💼 Other
 
 - Back-merge v1.1.0 into feature/main
+- Add mapped frontend telemetry (#13)
+
+### 📚 Documentation
+
+- *(changelog)* Record frontend telemetry adoption
 
 ## [1.1.0] - 2026-10-27
 
