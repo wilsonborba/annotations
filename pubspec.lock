@@ -5,8 +5,8 @@ packages:
     dependency: "direct main"
     description:
       path: "."
-      ref: b01af5d41c10623bf02568a6db00f6beae3c4324
-      resolved-ref: b01af5d41c10623bf02568a6db00f6beae3c4324
+      ref: "48db2722b8e1017f33e5c5ae29475a4c6ef4ba3d"
+      resolved-ref: "48db2722b8e1017f33e5c5ae29475a4c6ef4ba3d"
       url: "https://github.com/wilsonborba/asodya_tracking.git"
     source: git
     version: "0.1.0"
