@@ -269,7 +269,11 @@ const annotationElements = <String, TrailElement>{
 
 /// Fields whose typed value never leaves the device. Add every field that
 /// holds note text, transcription drafts, credentials or room codes.
-const sensitiveElements = <String>{'instant.room.code'};
+const sensitiveElements = <String>{
+  'instant.room.code',
+  'instant.composer.text',
+  'instant.edit.content',
+};
 
 Widget track(
   String id,

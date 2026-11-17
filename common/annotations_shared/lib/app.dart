@@ -1,5 +1,6 @@
 import 'core/tracking_manifest.dart';
 import 'core/tracking.dart';
+import 'dal/remote/api_adapter.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'domain/services/preferences.dart';
@@ -47,8 +48,13 @@ class _AnnotationsAppState extends State<AnnotationsApp> {
     super.initState();
     preferences.load();
     if (widget.trackingEnabled) errors.install();
-    service.api.onError = (error, stack, operation) =>
-        errors.report(error, stack, operation: operation, type: 'ApiError');
+    service.api.onError = (error, stack, operation) => errors.report(
+      error,
+      stack,
+      operation: operation,
+      type: 'ApiError',
+      httpStatus: error is ApiError ? error.status : null,
+    );
     router = GoRouter(
       initialLocation: widget.initialLocation,
       observers: [ScreenTrailObserver(tracker)],
