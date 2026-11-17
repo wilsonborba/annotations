@@ -1,4 +1,5 @@
 import 'package:annotations_shared/core/tracking_manifest.dart';
+import 'package:annotations_shared/core/tracking.dart';
 import 'package:flutter/material.dart';
 import '../../../../dal/remote/api_adapter.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -59,7 +60,10 @@ class _ArticlePageState extends State<ArticlePage> {
           return const NotFoundState();
         }
         if (s.hasError) {
-          return LoadError(retry: () => setState(() => data = load()));
+          return LoadError(
+            reference: ClientErrors.referenceOf(s.error),
+            retry: () => setState(() => data = load()),
+          );
         }
         if (!s.hasData) {
           return const Padding(

@@ -1,4 +1,5 @@
 import 'package:annotations_shared/core/tracking_manifest.dart';
+import 'package:annotations_shared/core/tracking.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -117,7 +118,10 @@ class _CatalogPageState extends State<CatalogPage> {
           future: data,
           builder: (context, s) {
             if (s.hasError) {
-              return LoadError(retry: () => setState(() => data = load()));
+              return LoadError(
+                reference: ClientErrors.referenceOf(s.error),
+                retry: () => setState(() => data = load()),
+              );
             }
             if (!s.hasData) {
               return const Padding(

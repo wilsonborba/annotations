@@ -1,5 +1,5 @@
 import 'core/tracking_manifest.dart';
-import 'core/settings.dart';
+import 'core/tracking.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'domain/services/preferences.dart';
@@ -34,22 +34,11 @@ class _AnnotationsAppState extends State<AnnotationsApp> {
   HttpTrailTransport? _transport;
   late final tracker =
       widget.tracker ??
-      ScreenTrail(
-        appId: 'annotations',
-        buildVersion: '${Settings.version} (${Settings.buildTime})',
-        screens: annotationScreens,
-        transport: _transport = HttpTrailTransport(
-          eventsUri: Uri.parse(
-            '${Uri.parse(Settings.apiBase).origin}/apps/api/v1/telemetry/events',
-          ),
-          errorsUri: Uri.parse(
-            '${Uri.parse(Settings.apiBase).origin}/apps/api/v1/telemetry/errors',
-          ),
-          includeCredentials: true,
-        ),
-        recordTypedText: true,
+      createTracker(
+        transport: _transport = createTrailTransport(),
         autoFlush: widget.trackingEnabled,
       );
+  late final errors = ClientErrors(tracker);
   void trackRoute() =>
       tracker.view(router.routeInformationProvider.value.uri.path);
 
@@ -57,9 +46,9 @@ class _AnnotationsAppState extends State<AnnotationsApp> {
   void initState() {
     super.initState();
     preferences.load();
-    if (widget.trackingEnabled) tracker.installErrorCapture();
-    service.api.onError = (error, stack) =>
-        tracker.error(error, stack, type: 'ApiError');
+    if (widget.trackingEnabled) errors.install();
+    service.api.onError = (error, stack, operation) =>
+        errors.report(error, stack, operation: operation, type: 'ApiError');
     router = GoRouter(
       initialLocation: widget.initialLocation,
       observers: [ScreenTrailObserver(tracker)],
@@ -107,6 +96,7 @@ class _AnnotationsAppState extends State<AnnotationsApp> {
     router.routeInformationProvider.removeListener(trackRoute);
     router.dispose();
     service.api.onError = null;
+    errors.dispose();
     tracker.dispose();
     _transport?.close();
     preferences.dispose();

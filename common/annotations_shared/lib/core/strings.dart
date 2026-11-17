@@ -63,6 +63,7 @@ const strings = <String, List<String>>{
     'ไม่พบบันทึกนี้หรือบันทึกนี้ไม่ได้เผยแพร่',
   ],
   'retry': ['Try again', 'Tentar novamente', 'ลองอีกครั้ง'],
+  'reference': ['Reference', 'Referência', 'รหัสอ้างอิง'],
   'waitTitle': [
     'A little room for more voices.',
     'Espaço para novas vozes.',
