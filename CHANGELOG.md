@@ -7,6 +7,7 @@
 - *(core)* Share settings, logs, screen_trail tracking and client errors
 - *(domain)* Add lossless versioned note document models (#19)
 - *(domain)* Add offline editor placement rules with shared rule fixtures (#20)
+- *(domain)* Add one Notes command history with 100 steps and no history in Instant (#21)
 
 ### 🐛 Bug Fixes
 

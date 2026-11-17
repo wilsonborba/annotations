@@ -32,3 +32,19 @@ final class EditorSettings {
   /// group scale may produce. A drawing uses the larger side of its rectangle.
   final num minResizeExtent;
 }
+
+/// Undo and Redo settings of the Notes editor (B2 G2: 100 steps, confirmed by
+/// the owner). Instant has no history, so nothing here applies to it.
+final class HistorySettings {
+  const HistorySettings({
+    this.maxSteps = 100,
+    this.textMergeWindow = const Duration(seconds: 1),
+  });
+
+  /// Steps kept for Undo. A new step beyond this drops the oldest one.
+  final int maxSteps;
+
+  /// The longest pause between two typed inputs that still joins them into one
+  /// text step. One second is the delay that common rich text editors use.
+  final Duration textMergeWindow;
+}
