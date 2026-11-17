@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:annotations_shared/app.dart';
 import 'package:annotations_shared/core/logs.dart';
@@ -196,6 +197,160 @@ void main() {
     tracker.dispose();
   });
 
+  testWidgets(
+    'real Instant composer and editor exclude content and reflected errors',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      const code = 'PRIVATE-ROOM-17';
+      const composed = 'Private composer fragment unique';
+      const preloaded = 'Preloaded private original fragment';
+      const edited = 'Private edited draft fragment';
+      final submitted = <String>[];
+      Completer<http.Response>? pendingResponse;
+      String? reflectedError;
+      final gateway = Gateway();
+      final tracker = createTracker(
+        transport: gateway.transport,
+        autoFlush: false,
+      );
+      final room = {
+        'code': code,
+        'revision': 1,
+        'expires_at': DateTime.now().millisecondsSinceEpoch ~/ 1000 + 900,
+        'items': [
+          {'id': 'item-1', 'kind': 'text', 'text': preloaded},
+        ],
+      };
+      final service = fixtureService(
+        handler: (request) async {
+          if (request.method == 'POST') {
+            final text = (jsonDecode(request.body) as Map)['text'] as String;
+            submitted.add(text);
+            // Error bodies can echo only a fragment, or preloaded text that was
+            // never registered by the tracking input listener.
+            reflectedError = jsonEncode({
+              'error': 'Rejected: ${text.split(' ').last} $text',
+            });
+            pendingResponse = Completer<http.Response>();
+            return pendingResponse!.future;
+          }
+          return http.Response(jsonEncode(room), 200);
+        },
+      );
+      await tester.pumpWidget(
+        AnnotationsApp(
+          trackingEnabled: false,
+          tracker: tracker,
+          service: service,
+          initialLocation: '/v1/instant/$code',
+        ),
+      );
+      await tester.pumpAndSettle();
+      final composer = find.byKey(const Key('room-text'));
+      await tester.enterText(composer, composed);
+      await tester.pump();
+      await tester.ensureVisible(find.text('Add item'));
+      await tester.tap(find.text('Add item'));
+      await tester.pumpAndSettle();
+      pendingResponse!.complete(http.Response(reflectedError!, 422));
+      await tester.pumpAndSettle();
+      expect(tester.widget<TextField>(composer).controller!.text, composed);
+      for (final replacement in <String?>[null, edited]) {
+        await tester.ensureVisible(find.byTooltip('Edit'));
+        await tester.tap(find.byTooltip('Edit'));
+        await tester.pumpAndSettle();
+        final field = find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.byType(TextField),
+        );
+        expect(tester.widget<TextField>(field).controller!.text, preloaded);
+        if (replacement != null) {
+          await tester.enterText(field, replacement);
+          await tester.pump();
+        }
+        await tester.tap(find.text('Save'));
+        // Let the dialog finish its exit transition before the API responds.
+        // Controller disposal during that transition is a separate existing bug.
+        await tester.pumpAndSettle();
+        pendingResponse!.complete(http.Response(reflectedError!, 422));
+        await tester.pumpAndSettle();
+      }
+      expect(submitted, [composed, preloaded, edited]);
+      await drain(tracker);
+      for (final id in ['instant.composer.text', 'instant.edit.content']) {
+        final input = gateway.events.where(
+          (e) => e['element_id'] == id && e['event_type'] == 'input',
+        );
+        expect(input, isNotEmpty, reason: id);
+        expect(
+          input.every((e) => e['value'] == null && e['sensitive'] == true),
+          isTrue,
+        );
+      }
+      expect(gateway.events.any((e) => e['event_type'] == 'submit'), isTrue);
+      expect(gateway.errors, hasLength(3));
+      expect(
+        gateway.errors.every(
+          (e) => (e['message'] as String).contains('status=422'),
+        ),
+        isTrue,
+      );
+      expect(gateway.errors.every((e) => e['stack'] == ''), isTrue);
+      for (final value in [code, composed, preloaded, edited, 'fragment']) {
+        expect(gateway.bodies.join(), isNot(contains(value)));
+      }
+      await tester.pumpWidget(const SizedBox());
+      gateway.transport.close();
+    },
+  );
+
+  test(
+    'unregistered short content and fragments never enter error reports or logs',
+    () async {
+      final gateway = Gateway();
+      final tracker = createTracker(
+        transport: gateway.transport,
+        autoFlush: false,
+      );
+      final errors = ClientErrors(tracker, platform: 'linux');
+      final logs = <String>[];
+      final previous = debugPrint;
+      debugPrint = (message, {wrapWidth}) => logs.add(message ?? '');
+      const content = [
+        'xy',
+        'note-fragment',
+        'ink-strokes',
+        'transcription-draft',
+        'file-bytes',
+        'clipboard-value',
+        'credential-value',
+      ];
+      try {
+        for (final value in content) {
+          // No sensitive-value registration. A supplied stack can also contain
+          // user text, so exact-match redaction cannot establish privacy.
+          errors.report(
+            StateError(value),
+            StackTrace.fromString(value),
+            operation: 'note.save',
+          );
+        }
+        await drain(tracker);
+      } finally {
+        debugPrint = previous;
+      }
+      expect(gateway.errors, hasLength(content.length));
+      for (final value in content) {
+        expect(gateway.bodies.join(), isNot(contains(value)));
+        expect(logs.join(), isNot(contains(value)));
+      }
+      expect(gateway.errors.every((e) => e['stack'] == ''), isTrue);
+      expect(gateway.errors.first['message'], contains('error=StateError'));
+      tracker.dispose();
+      gateway.transport.close();
+    },
+  );
+
   test(
     'the installed app sends after reconnect and the queue stays bounded',
     () async {
@@ -207,16 +362,20 @@ void main() {
         now: () => clock,
       );
       final errors = ClientErrors(tracker, platform: 'linux');
+      final references = <String>[];
       final element = annotationElements['shell.theme.toggle']!;
       for (var i = 0; i < 260; i++) {
         tracker.event('click', element);
       }
       for (var i = 0; i < 25; i++) {
         // Reporting while offline returns at once and never throws.
-        expect(
-          errors.report(StateError('offline $i'), null, operation: 'sync'),
-          hasLength(8),
+        final reference = errors.report(
+          StateError('offline $i'),
+          null,
+          operation: 'sync',
         );
+        references.add(reference);
+        expect(reference, hasLength(8));
       }
       await tracker.flush();
       expect(gateway.bodies, isEmpty);
@@ -226,7 +385,7 @@ void main() {
       final clicks = gateway.events.where((e) => e['element_id'] == element.id);
       expect(clicks.length, 200);
       expect(gateway.errors.length, 20);
-      expect(gateway.errors.first['message'], contains('offline 5'));
+      expect(gateway.errors.first['message'], contains('ref=${references[5]}'));
       tracker.dispose();
     },
   );

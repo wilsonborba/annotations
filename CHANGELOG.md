@@ -6,6 +6,10 @@
 - *(core)* Add platform profiles and feature availability
 - *(core)* Share settings, logs, screen_trail tracking and client errors
 
+### 🐛 Bug Fixes
+
+- *(privacy)* Exclude Instant content from tracking and error reports (#17)
+
 ### 💼 Other
 
 - Back-merge v1.1.0 into feature/main

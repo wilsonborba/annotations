@@ -67,7 +67,7 @@ String stripPrivatePaths(String text) =>
 String get platformName => kIsWeb ? 'web' : defaultTargetPlatform.name;
 
 /// Reports client errors with build, platform, screen, operation and
-/// sanitized details, and gives the user a short reference code.
+/// safe technical metadata, and gives the user a short reference code.
 ///
 /// Reporting is synchronous, never throws and never waits for the network,
 /// so it never blocks editing, saving or opening notes. No note content or
@@ -98,30 +98,29 @@ class ClientErrors {
 
   /// Queues a report of [error] in [operation] and returns its reference.
   ///
-  /// Each value in [sensitive] (for example the note text of the operation)
-  /// is redacted from this and every later report.
+  /// Exception messages and supplied stacks can contain partial, preloaded or
+  /// short user content. They never enter a report. Only the exception type and
+  /// a typed HTTP status accompany the trusted operation and screen metadata.
+  /// Values in [sensitive] are also excluded from later tracked event values.
   String report(
     Object error,
     StackTrace? stack, {
     required String operation,
     String type = 'ClientError',
+    int? httpStatus,
     Iterable<String> sensitive = const [],
   }) {
     final reference = _newReference();
     try {
       sensitive.forEach(tracker.privacy.remember);
-      final detail = tracker.privacy.clean(stripPrivatePaths('$error'));
+      final detail =
+          'error=${error.runtimeType}'
+          '${httpStatus != null && httpStatus >= 100 && httpStatus <= 599 ? ' status=$httpStatus' : ''}';
       final message =
           'ref=$reference platform=$platform '
           'screen=${tracker.currentScreen.name} '
           'operation=${stripPrivatePaths(operation)}: $detail';
-      tracker.error(
-        message,
-        stack == null
-            ? null
-            : StackTrace.fromString(stripPrivatePaths(stack.toString())),
-        type: type,
-      );
+      tracker.error(message, null, type: type);
       if (referenceOf(error) == null &&
           error is! String &&
           error is! num &&
