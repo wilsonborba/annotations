@@ -1,4 +1,4 @@
-package com.asodya.annotations_local
+package com.asodya.annotations
 
 import io.flutter.embedding.android.FlutterActivity
 
