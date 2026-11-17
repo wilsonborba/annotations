@@ -5,6 +5,7 @@
 - *(telemetry)* Adopt shared tracking with mapped Annotations controls
 - *(core)* Add platform profiles and feature availability
 - *(core)* Share settings, logs, screen_trail tracking and client errors
+- *(domain)* Add lossless versioned note document models (#19)
 
 ### 🐛 Bug Fixes
 
