@@ -216,6 +216,23 @@ final class EditorRules {
     return _pasteOperation(document.schema, copies, dx, dy, newId);
   });
 
+  /// Deletes the items [ids]; a group goes with all its members (B2.6). Pass
+  /// whole objects: a member alone would leave its group incomplete, which
+  /// the schema check rejects.
+  EditDecision remove(NoteDocument document, List<String> ids) =>
+      _run(document, (layout) => _removeOperation(layout, ids));
+
+  /// Groups the items [ids] (at least two, none already in a group) under the
+  /// new group [id]. Members keep their positions; the outside rectangle of
+  /// the group must not overlap another block (B2.5).
+  EditDecision group(NoteDocument document, List<String> ids, String id) =>
+      _run(document, (layout) => _groupOperation(layout, ids, id));
+
+  /// Removes the groups [ids]. Each member keeps its current page position
+  /// and becomes an independent object again (B2.5).
+  EditDecision ungroup(NoteDocument document, List<String> ids) =>
+      _run(document, (layout) => _ungroupOperation(layout, ids));
+
   /// Builds an operation from the layout of a valid paper document and checks
   /// it. A builder failure is a rejection that keeps its operation if any.
   /// A builder that returns null changes nothing: the decision is accepted

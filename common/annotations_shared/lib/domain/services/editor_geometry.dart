@@ -300,3 +300,143 @@ JsonObject _mapBox(JsonObject it, _Map f) {
     'height': _round(_round(y1) - top),
   };
 }
+
+/// The read-only layout of a paper document for object selection: item
+/// rectangles computed like the rule engine, groups and the top-level units
+/// (free items and outermost groups) in document order.
+final class DocumentLayout {
+  DocumentLayout._(this._layout) {
+    for (final MapEntry(key: g, value: members) in _layout.members.entries) {
+      for (final m in members) {
+        _parent[m] = g;
+      }
+    }
+  }
+
+  /// The layout of [document]. Null for a document without free page items
+  /// (typed or unsupported documents).
+  static DocumentLayout? of(NoteDocument document) {
+    if (document is! PaperDocument) return null;
+    return DocumentLayout._(
+      _Layout(document.toJson()['items'] as List<Object?>),
+    );
+  }
+
+  final _Layout _layout;
+  final _parent = <int, int>{};
+
+  /// Every item id in document order (the drawing order: later is on top).
+  List<String> get ids => [for (final it in _layout.items) it['id'] as String];
+
+  /// The top-level units in document order.
+  List<String> get units => [
+    for (var i = 0; i < _layout.items.length; i++)
+      if (_parent[i] == null) _layout.items[i]['id'] as String,
+  ];
+
+  /// The top-level unit of [id]: its outermost group, or the item itself.
+  String? unitOf(String id) {
+    var i = _layout.index[id];
+    if (i == null) return null;
+    for (var depth = 0; _parent[i] != null; depth++) {
+      if (depth > _layout.items.length) return null;
+      i = _parent[i]!;
+    }
+    return _layout.items[i!]['id'] as String;
+  }
+
+  /// The item and every member of its groups at any depth, in document order.
+  List<String> withDescendants(String id) {
+    final i = _layout.index[id];
+    if (i == null) return const [];
+    return [
+      for (final n in _layout.withDescendants(i))
+        _layout.items[n]['id'] as String,
+    ];
+  }
+
+  /// The direct members of the group [id]; empty for other items.
+  List<String> membersOf(String id) => [
+    for (final m in _layout.members[_layout.index[id]] ?? const <int>[])
+      _layout.items[m]['id'] as String,
+  ];
+
+  String? kindOf(String id) => _layout.index[id] == null
+      ? null
+      : _layout.items[_layout.index[id]!]['kind'] as String?;
+
+  bool isGroup(String id) => kindOf(id) == 'group';
+
+  /// Whether [id] is drawing only: a stroke, a shape, or a group whose members
+  /// are all drawing. Free ink never takes part in collisions.
+  bool isDrawing(String id) {
+    final i = _layout.index[id];
+    return i != null && _layout.structured[i] == false;
+  }
+
+  /// The rectangle of [id]: the outside rectangle for a group, the point
+  /// rectangle for ink (without the line width).
+  EditorRect? rectOf(String id) => _layout.rectOf(id);
+
+  /// The outside rectangle of all [ids], or null when none has one.
+  EditorRect? boundsOf(Iterable<String> ids) {
+    EditorRect? out;
+    for (final id in ids) {
+      final r = rectOf(id);
+      if (r != null) out = out == null ? r : out.union(r);
+    }
+    return out;
+  }
+
+  /// The JSON of [id], a copy.
+  JsonObject? itemJson(String id) {
+    final i = _layout.index[id];
+    return i == null ? null : _jsonCopy(_layout.items[i]) as JsonObject;
+  }
+
+  /// Whether a point at [p] within [radius] touches the visible item [id]
+  /// (ink: its line with half the line width; blocks: the rectangle).
+  bool touches(
+    String id,
+    InkVec p,
+    double radius, {
+    InkSettings settings = const InkSettings(),
+  }) {
+    final i = _layout.index[id];
+    if (i == null || _role(_layout.items[i]) == _Role.group) return false;
+    return _touches(_layout.items[i], p, p, radius, settings);
+  }
+
+  /// The drawn line of a stroke or shape as points in page units, or null for
+  /// other items.
+  List<InkVec>? linePoints(
+    String id, {
+    InkSettings settings = const InkSettings(),
+  }) {
+    final i = _layout.index[id];
+    if (i == null) return null;
+    final it = _layout.items[i];
+    switch (it['kind']) {
+      case 'stroke':
+        final nodes = _nodesOf(it);
+        if (nodes.isEmpty) return const [];
+        return [
+          for (final p in flatten(
+            segmentsOf(nodes),
+            settings.flattenTolerance,
+            single: nodes.first.point,
+          ))
+            p.point,
+        ];
+      case 'shape':
+        final shape = DocumentItem.fromJson(
+          it,
+          family: DocumentFamily.original,
+        );
+        if (shape is! ShapeItem) return null;
+        return shapePolyline(shape, settings)?.$1;
+      default:
+        return null;
+    }
+  }
+}

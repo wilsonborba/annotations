@@ -240,3 +240,40 @@ JsonObject _pasteOperation(
       },
   ]);
 }
+
+/// Deletes the items [ids] with every member of their groups (B2.6: a group
+/// is removed as a whole).
+JsonObject _removeOperation(_Layout layout, List<String> ids) => _batch([
+  for (final i in _indexes(layout, ids, withDescendants: true))
+    {'op': 'delete', 'id': layout.items[i]['id']},
+]);
+
+/// Adds a group of the items [ids] (B2.5). The members keep their items and
+/// positions; the group lists them in document order.
+JsonObject _groupOperation(_Layout layout, List<String> ids, String id) {
+  final members = _indexes(layout, ids, withDescendants: false);
+  if (members.length < 2) throw _opError('invalid_operation', 'ids');
+  return {
+    'op': 'add',
+    'item': {
+      'id': id,
+      'kind': 'group',
+      'members': [for (final i in members) layout.items[i]['id']],
+    },
+  };
+}
+
+/// Removes the group items [ids]. Their members stay where they are (B2.5).
+JsonObject _ungroupOperation(_Layout layout, List<String> ids) {
+  final groups = _indexes(layout, ids, withDescendants: false);
+  for (final i in groups) {
+    if (_role(layout.items[i]) != _Role.group) {
+      throw _opError('invalid_operation', 'ids', [
+        layout.items[i]['id'] as String,
+      ]);
+    }
+  }
+  return _batch([
+    for (final i in groups) {'op': 'delete', 'id': layout.items[i]['id']},
+  ]);
+}
