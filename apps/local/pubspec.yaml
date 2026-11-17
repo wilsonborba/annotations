@@ -1,0 +1,15 @@
+name: annotations_local
+description: Annotations installed application for Android, iOS, Linux and macOS.
+publish_to: none
+version: 1.1.0+2
+environment:
+  sdk: ^3.11.1
+resolution: workspace
+dependencies:
+  annotations_shared:
+  flutter:
+    sdk: flutter
+dev_dependencies:
+  flutter_lints: ^6.0.0
+flutter:
+  uses-material-design: true
