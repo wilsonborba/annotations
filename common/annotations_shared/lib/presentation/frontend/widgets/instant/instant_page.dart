@@ -214,7 +214,9 @@ class _InstantPageState extends State<InstantPage> {
         ],
       );
     }
-    if (h.room == null) return LoadError(retry: h.open);
+    if (h.room == null) {
+      return LoadError(reference: h.reference, retry: h.open);
+    }
     final seconds =
         (((h.room!['expires_at'] as num).toInt() * 1000 -
                     DateTime.now().millisecondsSinceEpoch) /

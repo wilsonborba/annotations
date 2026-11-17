@@ -1,4 +1,5 @@
 import 'package:annotations_shared/core/tracking_manifest.dart';
+import 'package:annotations_shared/core/tracking.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../components/scope.dart';
@@ -245,6 +246,7 @@ class _LandingPageState extends State<LandingPage> {
               builder: (context, s) {
                 if (s.hasError) {
                   return LoadError(
+                    reference: ClientErrors.referenceOf(s.error),
                     retry: () => setState(
                       () => latest = ContentHandler(
                         AppScope.of(context).service,

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
+import '../../../core/tracking.dart';
 import '../../../dal/remote/api_adapter.dart';
 import '../../../dal/remote/browser/transfers.dart' as browser;
 import '../../../domain/models/content.dart';
@@ -10,7 +11,7 @@ class RoomHandler extends ChangeNotifier {
   final AnnotationsService service;
   final String code;
   Data? room;
-  String? error, uploadName;
+  String? error, uploadName, reference;
   bool opening = true, expired = false, busy = false;
   double progress = 0;
   Timer? _timer;
@@ -24,10 +25,12 @@ class RoomHandler extends ChangeNotifier {
     try {
       room = await service.room(code, create: true);
       error = null;
+      reference = null;
       if (_closed) return;
       _timer = Timer.periodic(const Duration(seconds: 3), (_) => refresh());
     } catch (e) {
       error = e.toString();
+      reference = ClientErrors.referenceOf(e);
     }
     opening = false;
     emit();

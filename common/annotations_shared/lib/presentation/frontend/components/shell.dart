@@ -257,7 +257,7 @@ class Footer extends StatelessWidget {
           ),
           const SizedBox(height: 20),
           Text(
-            'v${Settings.version} · ${Settings.buildTime}',
+            'v${Settings.current.version} · ${Settings.current.buildTime}',
             style: Theme.of(context).textTheme.bodySmall,
           ),
         ],
@@ -312,9 +312,13 @@ class NotFoundState extends StatelessWidget {
   );
 }
 
+/// A failed load: short message, the error reference code and Retry.
 class LoadError extends StatelessWidget {
   final VoidCallback retry;
-  const LoadError({super.key, required this.retry});
+
+  /// The reference code of the reported error, when one exists.
+  final String? reference;
+  const LoadError({super.key, required this.retry, this.reference});
   @override
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.symmetric(vertical: 48),
@@ -323,6 +327,14 @@ class LoadError extends StatelessWidget {
         const Icon(Icons.cloud_off_outlined, size: 32),
         const SizedBox(height: 12),
         Text(context.tr('error')),
+        if (reference != null) ...[
+          const SizedBox(height: 6),
+          Text(
+            '${context.tr('reference')}: $reference',
+            key: const Key('error-reference'),
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ],
         const SizedBox(height: 12),
         track(
           'shell.error.retry',
