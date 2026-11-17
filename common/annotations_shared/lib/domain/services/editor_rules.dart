@@ -9,12 +9,18 @@ library;
 import 'dart:convert';
 import 'dart:math' as math;
 
+import '../../core/ink_settings.dart';
 import '../../core/note_limits.dart';
+import '../models/ink.dart';
 import '../models/note_document.dart';
+import 'ink_geometry.dart';
+import 'ink_outline.dart';
 
 part 'editor_actions.dart';
 part 'editor_geometry.dart';
 part 'editor_validation.dart';
+part 'ink_edits.dart';
+part 'ink_erase.dart';
 
 typedef JsonObject = Map<String, Object?>;
 
@@ -212,9 +218,11 @@ final class EditorRules {
 
   /// Builds an operation from the layout of a valid paper document and checks
   /// it. A builder failure is a rejection that keeps its operation if any.
+  /// A builder that returns null changes nothing: the decision is accepted
+  /// with the unchanged document.
   EditDecision _run(
     NoteDocument document,
-    JsonObject Function(_Layout layout) build,
+    JsonObject? Function(_Layout layout) build,
   ) {
     if (document is! PaperDocument) {
       return _reject(document, _opError('invalid_operation', 'operation'));
@@ -225,7 +233,7 @@ final class EditorRules {
     } on DocumentFormatException catch (e) {
       return _reject(document, _schemaError(e, current));
     }
-    final JsonObject operation;
+    final JsonObject? operation;
     try {
       operation = build(_Layout(current['items'] as List<Object?>));
     } on _Rejected catch (r) {
@@ -233,6 +241,7 @@ final class EditorRules {
     } on EditorRuleError catch (e) {
       return _reject(document, e);
     }
+    if (operation == null) return EditDecision._(document, null, current, null);
     return check(document, operation);
   }
 
