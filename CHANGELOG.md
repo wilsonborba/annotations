@@ -4,6 +4,7 @@
 
 - *(telemetry)* Adopt shared tracking with mapped Annotations controls
 - *(core)* Add platform profiles and feature availability
+- *(core)* Share settings, logs, screen_trail tracking and client errors
 
 ### 💼 Other
 
@@ -11,6 +12,7 @@
 - Add mapped frontend telemetry (#13)
 - Split the app into a Dart workspace (#15)
 - Add platform profiles and feature availability (#16)
+- Share settings, logs, tracking and client errors (#17)
 
 ### 🚜 Refactor
 
@@ -20,6 +22,7 @@
 
 - *(changelog)* Record frontend telemetry adoption
 - *(changelog)* Record platform profiles
+- *(changelog)* Record shared settings, logs and tracking
 
 ## [1.1.0] - 2026-10-27
 
