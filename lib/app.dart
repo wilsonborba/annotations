@@ -14,7 +14,7 @@ import 'presentation/frontend/widgets/instant/instant_page.dart';
 class AnnotationsApp extends StatefulWidget {
   final AnnotationsService? service;
   final String? initialLocation;
-  final AsodyaTracker? tracker;
+  final ScreenTrail? tracker;
   final bool trackingEnabled;
   const AnnotationsApp({
     super.key,
@@ -31,13 +31,23 @@ class _AnnotationsAppState extends State<AnnotationsApp> {
   late final service = widget.service ?? AnnotationsService();
   final preferences = Preferences();
   late final GoRouter router;
+  HttpTrailTransport? _transport;
   late final tracker =
       widget.tracker ??
-      AsodyaTracker(
+      ScreenTrail(
         appId: 'annotations',
-        baseUrl: Uri.parse(Settings.apiBase).origin,
         buildVersion: '${Settings.version} (${Settings.buildTime})',
         screens: annotationScreens,
+        transport: _transport = HttpTrailTransport(
+          eventsUri: Uri.parse(
+            '${Uri.parse(Settings.apiBase).origin}/apps/api/v1/telemetry/events',
+          ),
+          errorsUri: Uri.parse(
+            '${Uri.parse(Settings.apiBase).origin}/apps/api/v1/telemetry/errors',
+          ),
+          includeCredentials: true,
+        ),
+        recordTypedText: true,
         autoFlush: widget.trackingEnabled,
       );
   void trackRoute() =>
@@ -52,7 +62,7 @@ class _AnnotationsAppState extends State<AnnotationsApp> {
         tracker.error(error, stack, type: 'ApiError');
     router = GoRouter(
       initialLocation: widget.initialLocation,
-      observers: [TrackingNavigatorObserver(tracker)],
+      observers: [ScreenTrailObserver(tracker)],
       routes: [
         GoRoute(path: '/', redirect: (_, _) => '/v1/home'),
         ShellRoute(
@@ -98,6 +108,7 @@ class _AnnotationsAppState extends State<AnnotationsApp> {
     router.dispose();
     service.api.onError = null;
     tracker.dispose();
+    _transport?.close();
     preferences.dispose();
     super.dispose();
   }
@@ -188,7 +199,7 @@ class _AnnotationsAppState extends State<AnnotationsApp> {
         darkTheme: theme(Brightness.dark),
         themeMode: preferences.theme,
         routerConfig: router,
-        builder: (context, child) => TrackingRoot(
+        builder: (context, child) => ScreenTrailRoot(
           tracker: tracker,
           child: child ?? const SizedBox.shrink(),
         ),

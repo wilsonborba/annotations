@@ -59,8 +59,8 @@ helper and the existing local Cloudflare credential configuration.
 
 ## Telemetry
 
-The pinned `asodya_tracking` package sends errors and mapped usage to separate
-SQL-backed gateway routes. `tracking_manifest.json` lists screens, actions,
+The [`screen_trail`](https://pub.dev/packages/screen_trail) package sends
+errors and mapped usage to separate SQL-backed gateway routes. `tracking_manifest.json` lists screens, actions,
 labels, tree paths and descriptions. The matching Dart constants live in
 `lib/core/tracking_manifest.dart`.
 
