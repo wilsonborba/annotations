@@ -11,21 +11,37 @@ editor, administrative dashboard, login requirement for public reading, comments
 or automatic translation. Article language and interface language are independent.
 An author can distribute the same post through multiple channels.
 
+## Workspace layout
+
+The repository is a Dart workspace (root `pubspec.yaml`) with one lock file:
+
+- `apps/cloud`: browser application (web target, `web/`, `_worker.js`, routes and
+  Cloudflare scripts).
+- `apps/local`: installed application for Android, iOS (iPhone and iPad), Linux and
+  macOS.
+- `common/annotations_shared`: shared code in `lib/` with `core`, `dal`, `domain` and
+  `presentation`, its assets and its tests.
+
+The entry points in `apps/cloud/lib/main.dart` and `apps/local/lib/main.dart` stay thin.
+
 ## Development and verification
 
-Run `flutter pub get`, `flutter analyze` and `flutter test`. To use the isolated
+Run `flutter pub get` and `flutter analyze` at the workspace root. Run the shared
+tests from the package folder: `cd common/annotations_shared && flutter test`. Flutter
+builds the test asset bundle from the current package, so tests do not run from the
+root. To use the isolated
 backend, run `cargo run --example browser_fixture` in the sibling `annotations_api`
 repository, then explicitly populate its localhost API with `scripts/populate_demo.py`.
 Build this frontend with:
 
 ```
-API_BASE_URL=http://127.0.0.1:18111 scripts/build_cloudflare.sh
+API_BASE_URL=http://127.0.0.1:18111 apps/cloud/scripts/build_cloudflare.sh
 ```
 
-Serve `build/web` with an SPA fallback to `index.html` for browser checks. Production
+Serve `apps/cloud/build/web` with an SPA fallback to `index.html` for browser checks. Production
 builds default to the central gateway and set `DEVELOPMENT_MODE=false`. They include
 an explicit Bangkok build timestamp in the footer. To verify initial HTML metadata,
-run `node test/web/share_worker_test.mjs` with an available Node runtime.
+run `node apps/cloud/test/web/share_worker_test.mjs` with an available Node runtime.
 
 ## Routes and media
 
@@ -48,7 +64,7 @@ are downloaded through expiry-checked service URLs, not permanent storage links.
 
 ## Cloudflare Pages
 
-Run `scripts/deploy_cloudflare.sh`. It follows the existing Asodya Pages API upload
+Run `apps/cloud/scripts/deploy_cloudflare.sh`. It follows the existing Asodya Pages API upload
 protocol, loads credentials through the established workspace helper, attaches the
 Pages advanced-mode worker, and configures `annotations.asodya.com`. No credentials
 are included in browser assets. `_worker.js` is uploaded as a worker, not a public
@@ -60,9 +76,9 @@ helper and the existing local Cloudflare credential configuration.
 ## Telemetry
 
 The [`screen_trail`](https://pub.dev/packages/screen_trail) package sends
-errors and mapped usage to separate SQL-backed gateway routes. `tracking_manifest.json` lists screens, actions,
+errors and mapped usage to separate SQL-backed gateway routes. `common/annotations_shared/tracking_manifest.json` lists screens, actions,
 labels, tree paths and descriptions. The matching Dart constants live in
-`lib/core/tracking_manifest.dart`.
+`common/annotations_shared/lib/core/tracking_manifest.dart`.
 
 Navigation uses the router observer and concrete-route listener. The root listener
 records mapped clicks and scrolling. Existing field controllers supply typed input.

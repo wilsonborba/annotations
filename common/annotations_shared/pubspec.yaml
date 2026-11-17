@@ -1,0 +1,32 @@
+name: annotations_shared
+description: Shared Annotations code for the browser and installed applications.
+publish_to: none
+version: 1.1.0+2
+environment:
+  sdk: ^3.11.1
+resolution: workspace
+dependencies:
+  screen_trail: ^0.1.0
+  flutter:
+    sdk: flutter
+  http: ^1.6.0
+  go_router: ^17.5.0
+  shared_preferences: ^2.5.6
+  url_launcher: ^6.3.3
+  web: ^1.1.1
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+flutter:
+  assets:
+    - lib/presentation/frontend/assets/images/
+  fonts:
+    - family: Ubuntu Sans
+      fonts:
+        - asset: lib/presentation/frontend/assets/fonts/UbuntuSans-Variable.ttf
+        - asset: lib/presentation/frontend/assets/fonts/UbuntuSans-Italic-Variable.ttf
+          style: italic
+    - family: IBM Plex Sans Thai
+      fonts:
+        - asset: lib/presentation/frontend/assets/fonts/IBMPlexSansThai-Regular.ttf
