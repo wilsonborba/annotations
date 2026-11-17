@@ -43,16 +43,24 @@ void main() {
     (tester) async {
       SharedPreferences.setMockInitialValues({});
       final sent = <Map<String, dynamic>>[];
-      final tracker = AsodyaTracker(
+      final tracker = ScreenTrail(
         appId: 'annotations',
-        baseUrl: 'http://tracking.test',
         buildVersion: 'test',
         screens: annotationScreens,
+        transport: HttpTrailTransport(
+          eventsUri: Uri.parse(
+            'http://tracking.test/apps/api/v1/telemetry/events',
+          ),
+          errorsUri: Uri.parse(
+            'http://tracking.test/apps/api/v1/telemetry/errors',
+          ),
+          client: MockClient((r) async {
+            sent.add(jsonDecode(r.body) as Map<String, dynamic>);
+            return http.Response('{}', 202);
+          }),
+        ),
+        recordTypedText: true,
         autoFlush: false,
-        client: MockClient((r) async {
-          sent.add(jsonDecode(r.body) as Map<String, dynamic>);
-          return http.Response('{}', 202);
-        }),
       );
       await tester.pumpWidget(
         AnnotationsApp(
@@ -107,16 +115,24 @@ void main() {
   ) async {
     SharedPreferences.setMockInitialValues({});
     final sent = <String>[];
-    final tracker = AsodyaTracker(
+    final tracker = ScreenTrail(
       appId: 'annotations',
-      baseUrl: 'http://tracking.test',
       buildVersion: 'test',
       screens: annotationScreens,
+      transport: HttpTrailTransport(
+        eventsUri: Uri.parse(
+          'http://tracking.test/apps/api/v1/telemetry/events',
+        ),
+        errorsUri: Uri.parse(
+          'http://tracking.test/apps/api/v1/telemetry/errors',
+        ),
+        client: MockClient((r) async {
+          sent.add(r.body);
+          return http.Response('{}', 202);
+        }),
+      ),
+      recordTypedText: true,
       autoFlush: false,
-      client: MockClient((r) async {
-        sent.add(r.body);
-        return http.Response('{}', 202);
-      }),
     );
     await tester.pumpWidget(
       AnnotationsApp(

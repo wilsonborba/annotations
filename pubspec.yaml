@@ -5,10 +5,7 @@ version: 1.1.0+2
 environment:
   sdk: ^3.11.1
 dependencies:
-  asodya_tracking:
-    git:
-      url: https://github.com/wilsonborba/asodya_tracking.git
-      ref: 48db2722b8e1017f33e5c5ae29475a4c6ef4ba3d
+  screen_trail: ^0.1.0
   flutter:
     sdk: flutter
   flutter_web_plugins:
