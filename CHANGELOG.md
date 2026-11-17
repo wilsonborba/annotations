@@ -3,12 +3,24 @@
 ### 🚀 Features
 
 - *(telemetry)* Adopt shared tracking with mapped Annotations controls
+- *(core)* Add platform profiles and feature availability
+
+### 🐛 Bug Fixes
+
+- *(local)* Set the installed app identifier to com.asodya.annotations
+- *(local)* Show Annotations as the installed app name
 
 ### 💼 Other
 
 - Back-merge v1.1.0 into feature/main
 - Add mapped frontend telemetry (#13)
+- Align Annotations shared tracking revision (#13)
+- Replace asodya_tracking with screen_trail (#14)
 - Split the app into a Dart workspace (#15)
+- Record the workspace split in the changelog (#15)
+- Set the installed app identifier (#15)
+- Show Annotations as the installed app name (#15)
+- Add platform profiles and feature availability (#16)
 
 ### 🚜 Refactor
 
@@ -17,8 +29,9 @@
 ### 📚 Documentation
 
 - *(changelog)* Record frontend telemetry adoption
-
-## [1.1.0] - 2026-10-27
+- *(changelog)* Record the shared tracking revision alignment
+- *(changelog)* Record the workspace split
+## [1.1.0] - 2026-10-26
 
 ### 🚀 Features
 
@@ -40,12 +53,16 @@
 
 - Promote release/v1.0.0 to development
 - Promote feature/main to development for v1.1.0
+- Promote v1.1.0
 
 ### 🧪 Testing
 
 - Cover waitlist error, empty and failing catalog, and preview fallback (#10)
 - Merge acceptance state coverage (#10)
 
+### ⚙️ Miscellaneous Tasks
+
+- *(release)* V1.1.0
 ## [1.0.0] - 2026-10-26
 
 ### 🚀 Features
@@ -77,3 +94,4 @@
 - Initialise repository root
 - Add project baseline and ignore local context (#1)
 - Merge repository bootstrap (#1)
+- *(release)* Document Annotations v1.0.0
