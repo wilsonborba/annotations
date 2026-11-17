@@ -24,6 +24,17 @@ The repository is a Dart workspace (root `pubspec.yaml`) with one lock file:
 
 The entry points in `apps/cloud/lib/main.dart` and `apps/local/lib/main.dart` stay thin.
 
+## Platform profiles
+
+Each app decides its profile once at start: full writer (macOS, Linux, iPad, Android
+tablet), phone (Android phone, iPhone) or browser (`apps/cloud`). iOS uses the iPad
+interface idiom from the runner. Android uses the shortest display side, 600 dp or
+more for a tablet. Window resize and rotation never change the profile.
+`common/annotations_shared/lib/core/features.dart` maps each feature to available,
+read-only or absent per profile. Code asks `AppFeatures.current.isAvailable(feature)`
+and `isReadOnly(feature)`. Transcription stays off in `FeatureSwitches` until a model
+release exists. Hidden features give no authorization; the server checks access.
+
 ## Development and verification
 
 Run `flutter pub get` and `flutter analyze` at the workspace root. Run the shared
