@@ -6,6 +6,7 @@
 - *(core)* Add platform profiles and feature availability
 - *(core)* Share settings, logs, screen_trail tracking and client errors
 - *(domain)* Add lossless versioned note document models (#19)
+- *(domain)* Add offline editor placement rules with shared rule fixtures (#20)
 
 ### 🐛 Bug Fixes
 
