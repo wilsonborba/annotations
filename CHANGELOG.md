@@ -8,6 +8,11 @@
 
 - Back-merge v1.1.0 into feature/main
 - Add mapped frontend telemetry (#13)
+- Split the app into a Dart workspace (#15)
+
+### 🚜 Refactor
+
+- *(workspace)* Split the app into apps/cloud, apps/local and common/annotations_shared
 
 ### 📚 Documentation
 
