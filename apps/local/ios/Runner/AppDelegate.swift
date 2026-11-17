@@ -12,5 +12,16 @@ import UIKit
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+    let profileChannel = FlutterMethodChannel(
+      name: "annotations/platform_profile",
+      binaryMessenger: engineBridge.applicationRegistrar.messenger()
+    )
+    profileChannel.setMethodCallHandler { call, result in
+      if call.method == "isPad" {
+        result(UIDevice.current.userInterfaceIdiom == .pad)
+      } else {
+        result(FlutterMethodNotImplemented)
+      }
+    }
   }
 }
