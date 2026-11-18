@@ -65,15 +65,14 @@ Never _fail(String code, String path) =>
 
 /// Checks a document body like the backend schema validator. Throws
 /// [DocumentFormatException] with the backend code and path.
-void _checkDocument(DocumentSchema schema, Object? body, NoteLimits limits) {
+_Ctx _checkDocument(DocumentSchema schema, Object? body, NoteLimits limits) {
   final family = schema.family;
   if (family == null || schema.version != 1) {
     _fail('unsupported_schema_version', '');
   }
-  if (utf8.encode(jsonEncode(body)).length > limits.maxDocumentBytes) {
-    _fail('document_too_large', '');
-  }
-  final ctx = _Ctx(family, limits);
+  final bytes = _byteLength(body);
+  if (bytes > limits.maxDocumentBytes) _fail('document_too_large', '');
+  final ctx = _Ctx(family, limits)..bytes = bytes;
   final root = _Obj(body, '');
   if (family == DocumentFamily.typed) {
     root.allow(['blocks']);
@@ -82,7 +81,7 @@ void _checkDocument(DocumentSchema schema, Object? body, NoteLimits limits) {
     for (var i = 0; i < blocks.length; i++) {
       ctx.typedBlock(blocks[i], 'blocks[$i]');
     }
-    return;
+    return ctx;
   }
   root.allow(['page', 'items']);
   final width = _checkPage(_Obj(root.req('page'), 'page'));
@@ -93,6 +92,7 @@ void _checkDocument(DocumentSchema schema, Object? body, NoteLimits limits) {
     ctx.paperItem(items[i], 'items[$i]', area);
   }
   ctx.checkGroups();
+  return ctx;
 }
 
 num _checkPage(_Obj page) {
@@ -129,6 +129,9 @@ final class _Ctx {
   final DocumentFamily family;
   final NoteLimits limits;
   final ids = <String, String>{};
+
+  /// UTF-8 bytes of the checked document.
+  var bytes = 0;
 
   /// Group id, group path, and members with their paths.
   final groups = <(String, String, List<(String, String)>)>[];

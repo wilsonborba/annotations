@@ -103,8 +103,64 @@ sealed class PaperDocument extends NoteDocument {
       (o) => DocumentItem._decode(o, typed: false),
     );
   }
+  PaperDocument._with(super.object, super.schema, List<DocumentItem> items)
+    : super._() {
+    page = PageSettings._(_object.object('page'));
+    this.items = List<DocumentItem>.unmodifiable(items);
+  }
+
   late final PageSettings page;
   late final List<DocumentItem> items;
+
+  /// The stored item objects, read-only. [withItems] keeps the same objects
+  /// for unchanged items, so an unchanged item is found by identity.
+  List<Map<String, Object?>> get itemsJson =>
+      (_object.values['items'] as List).cast<Map<String, Object?>>();
+
+  /// The same kind of document with the same page and [items]
+  /// (annotations#62). An entry identical to one of [itemsJson] keeps its
+  /// decoded item; any other entry is new JSON, frozen and decoded here, so
+  /// an edit costs its changed items and not the whole note. It does not
+  /// check editor rules: the caller has.
+  PaperDocument withItems(List<Object?> items) {
+    final raw = _object.values['items'] as List<Object?>;
+    Map<Object?, DocumentItem>? byObject;
+    final frozen = List<Object?>.filled(items.length, null);
+    final models = <DocumentItem>[];
+    var j = 0;
+    for (var i = 0; i < items.length; i++) {
+      final item = items[i];
+      DocumentItem? known;
+      if (j < raw.length && identical(item, raw[j])) {
+        known = this.items[j++];
+      } else {
+        byObject ??= Map.identity()
+          ..addEntries([
+            for (var k = 0; k < raw.length; k++)
+              MapEntry(raw[k], this.items[k]),
+          ]);
+        known = byObject[item];
+      }
+      if (known != null) {
+        frozen[i] = item;
+        models.add(known);
+      } else {
+        final f = frozen[i] = _freeze(item);
+        models.add(DocumentItem._decode(_Object(f, 'items[$i]'), typed: false));
+      }
+    }
+    final root = _Object(
+      Map<String, Object?>.unmodifiable({
+        ..._object.values,
+        'items': List<Object?>.unmodifiable(frozen),
+      }),
+      '',
+    );
+    return switch (this) {
+      OriginalDocument() => OriginalDocument._with(root, schema, models),
+      InstantRoomDocument() => InstantRoomDocument._with(root, schema, models),
+    };
+  }
 
   /// The document without its items, for stores that keep items apart.
   Map<String, Object?> toJsonWithoutItems() => {
@@ -115,10 +171,14 @@ sealed class PaperDocument extends NoteDocument {
 
 final class OriginalDocument extends PaperDocument {
   OriginalDocument._(super.object, super.schema) : super._();
+  OriginalDocument._with(super.object, super.schema, super.items)
+    : super._with();
 }
 
 final class InstantRoomDocument extends PaperDocument {
   InstantRoomDocument._(super.object, super.schema) : super._();
+  InstantRoomDocument._with(super.object, super.schema, super.items)
+    : super._with();
 }
 
 final class TypedDocument extends NoteDocument {
