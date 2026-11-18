@@ -18,6 +18,7 @@
 ### 🐛 Bug Fixes
 
 - *(privacy)* Exclude Instant content from tracking and error reports (#17)
+- *(editor)* Resolve the text engine font family to the package fonts so notes use Ubuntu Sans with the Thai fallback (#59)
 
 ### 💼 Other
 
