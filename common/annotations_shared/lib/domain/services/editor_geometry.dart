@@ -78,12 +78,10 @@ final class _Layout {
       }
       members[g] = list;
     }
+    // Rectangles are computed when first asked for (annotations#62): an edit
+    // of one block does not decode every stroke of a long note.
     rects = List.filled(items.length, null);
     structured = List.filled(items.length, null);
-    for (var i = 0; i < items.length; i++) {
-      _rect(i, 0);
-      _hasBlock(i, 0);
-    }
   }
 
   final List<JsonObject> items;
@@ -93,7 +91,13 @@ final class _Layout {
   late final List<EditorRect?> rects;
   late final List<bool?> structured;
 
-  EditorRect? rectOf(String id) => index[id] == null ? null : rects[index[id]!];
+  EditorRect? rectOf(String id) => index[id] == null ? null : rect(index[id]!);
+
+  /// The rectangle of item [i].
+  EditorRect? rect(int i) => _rect(i, 0);
+
+  /// Whether item [i] is or contains a structured block.
+  bool hasBlock(int i) => _hasBlock(i, 0);
 
   /// The item and every member of its groups, at any depth, in document order.
   List<int> withDescendants(int i) {
@@ -109,8 +113,7 @@ final class _Layout {
     return out.toList()..sort();
   }
 
-  bool _collides(int i) =>
-      _role(items[i]) != _Role.ink && structured[i] == true;
+  bool _collides(int i) => _role(items[i]) != _Role.ink && hasBlock(i);
 
   /// The grid of every structured block in document order, then the first
   /// overlapping pair: the top level first, then each group.
@@ -148,10 +151,10 @@ final class _Layout {
   void _level(List<int> units) {
     for (var n = 0; n < units.length; n++) {
       final a = units[n];
-      final ra = rects[a]?.cells;
+      final ra = rect(a)?.cells;
       if (ra == null) continue;
       for (final b in units.skip(n + 1)) {
-        final rb = rects[b]?.cells;
+        final rb = rect(b)?.cells;
         if (rb == null || !ra.overlaps(rb)) continue;
         final group =
             _role(items[a]) == _Role.group || _role(items[b]) == _Role.group;
@@ -411,7 +414,7 @@ final class DocumentLayout {
   /// are all drawing. Free ink never takes part in collisions.
   bool isDrawing(String id) {
     final i = _layout.index[id];
-    return i != null && _layout.structured[i] == false;
+    return i != null && !_layout.hasBlock(i);
   }
 
   /// The rectangle of [id]: the outside rectangle for a group, the point
@@ -447,7 +450,7 @@ final class DocumentLayout {
     final it = _layout.items[i];
     // A quick rejection far from the item. The rectangle holds every sample,
     // node and curve handle, so the curve itself lies inside it.
-    final r = _layout.rects[i];
+    final r = _layout.rect(i);
     if (_role(it) == _Role.ink && r != null) {
       final reach =
           radius +

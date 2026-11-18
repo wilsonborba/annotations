@@ -258,12 +258,19 @@ final class NotesEditor extends EditorSession implements UndoRedo {
       return HistoryMove._(false, null, stepsBack, stepsForward);
     }
     final step = from.last;
-    final decision = rules.check(
-      NoteDocument.fromJson(
-        step.applyTo(_document.toJson(), forward: forward),
-        schema: _document.schema,
-      ),
-    );
+    final document = _document;
+    // A step of items only is checked from its changed items (annotations#62).
+    final decision = document is PaperDocument && step.fields.isEmpty
+        ? rules.checkItems(
+            document,
+            step.itemsAt(document.itemsJson, forward: forward),
+          )
+        : rules.check(
+            NoteDocument.fromJson(
+              step.applyTo(document.toJson(), forward: forward),
+              schema: document.schema,
+            ),
+          );
     if (!decision.accepted) {
       return HistoryMove._(false, decision.error, stepsBack, stepsForward);
     }
@@ -279,7 +286,7 @@ final class NotesEditor extends EditorSession implements UndoRedo {
   void _record(HistoryCommand command, NoteDocument before, NoteDocument next) {
     _document = next;
     final now = _clock();
-    final step = _Step.diff(command, before.toJson(), next.toJson(), now);
+    final step = _Step.diff(command, _view(before), _view(next), now);
     if (step == null) return;
     _redo.clear();
     if (_textOpen && _undo.isNotEmpty && _joins(_undo.last, command, now)) {
@@ -429,6 +436,26 @@ final class _Step {
     at = next.at;
   }
 
+  /// The item list after this step is applied ([forward]) or taken back to
+  /// [current], the items at the other end of the step. Unchanged items stay
+  /// the same objects.
+  List<Object?> itemsAt(List<Object?> current, {required bool forward}) {
+    final byId = _byId(current);
+    if (byId == null) throw StateError('The document has no keyed items.');
+    for (final MapEntry(:key, value: change) in items.entries) {
+      if (!_same(byId[key], forward ? change.before : change.after)) {
+        throw StateError('The document changed outside its history.');
+      }
+    }
+    final order = (forward ? orderAfter : orderBefore) ?? byId.keys.toList();
+    return [
+      for (final id in order)
+        items.containsKey(id)
+            ? (forward ? items[id]!.after : items[id]!.before)
+            : byId[id],
+    ];
+  }
+
   /// The document JSON after this step is applied ([forward]) or taken back
   /// to [current], which must be the state at the other end of the step.
   Map<String, Object?> applyTo(
@@ -497,8 +524,16 @@ Map<String, Map<String, Object?>>? _byId(Object? items) {
   return out;
 }
 
+/// The document JSON for a diff. A paper document shows its stored item
+/// objects: they are read-only, and an unchanged item is the same object in
+/// both documents, so a step costs its changed items (annotations#62).
+Map<String, Object?> _view(NoteDocument document) => document is PaperDocument
+    ? {...document.toJsonWithoutItems(), 'items': document.itemsJson}
+    : document.toJson();
+
 /// Deep JSON equality that keeps int and double apart, as the document does.
 bool _same(Object? a, Object? b) {
+  if (identical(a, b)) return true;
   if (a is Map && b is Map) {
     if (a.length != b.length) return false;
     for (final MapEntry(:key, :value) in a.entries) {

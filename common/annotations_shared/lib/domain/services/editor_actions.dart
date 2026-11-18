@@ -88,7 +88,7 @@ JsonObject _resizeOperation(
 }) {
   final i = _indexes(layout, [id], withDescendants: false).single;
   final item = layout.items[i];
-  final rect = layout.rects[i];
+  final rect = layout.rect(i);
   final min = settings.minResizeExtent;
   final kind = item['kind'];
   if (kind == 'group' || kind == 'stroke' || kind == 'shape') {
