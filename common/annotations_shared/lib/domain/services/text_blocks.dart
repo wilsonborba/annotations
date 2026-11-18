@@ -8,6 +8,7 @@ library;
 
 import 'dart:math' as math;
 
+import '../../core/note_limits.dart';
 import '../models/ink.dart';
 import '../models/note_document.dart';
 import 'editor_rules.dart';
@@ -36,9 +37,11 @@ final class TextBlocks {
   bool isEmptyPaper(DocumentLayout layout, InkVec point) =>
       selector.hitIn(layout, point, SelectionTool.type) == null;
 
-  /// The place of a new text block [id] with its top left corner at [x], [y].
+  /// The place of a new text block [id] with its top left corner in the grid
+  /// cell that holds [x], [y] (B2.1).
   ///
-  /// The block is [width] wide at most and ends at the page edge. When the
+  /// The block is [width] wide at most, in whole cells, and ends at the page
+  /// edge. When the
   /// editor rules reject the empty block because blocks to the right are in
   /// the way, the width ends where the nearest of them starts. Returns null
   /// when no block of at least [minWidth] fits there. [lineHeight] is the
@@ -54,8 +57,8 @@ final class TextBlocks {
     required num Function(num width) lineHeight,
   }) {
     if (document is! PaperDocument) return null;
-    final left = _round(x), top = _round(y);
-    var w = _round(math.min(width, document.page.width - left));
+    final left = EditorGrid.floor(x), top = EditorGrid.floor(y);
+    num w = EditorGrid.floor(math.min(width, document.page.width - left));
     final layout = DocumentLayout.of(document);
     while (w >= minWidth) {
       final decision = rules.check(document, {
@@ -84,12 +87,10 @@ final class TextBlocks {
         end = math.min(end ?? rect.left, rect.left);
       }
       if (end == null) return null;
-      final next = _round(end - left);
+      final next = EditorGrid.floor(end - left);
       if (next >= w) return null;
       w = next;
     }
     return null;
   }
 }
-
-num _round(num v) => (v * 100).floor() / 100;

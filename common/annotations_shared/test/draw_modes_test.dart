@@ -45,7 +45,7 @@ NoteDocument drawNote() => NoteDocument.fromJson({
     text('title', 40, 40, 520, 32, [
       {'text': 'Cell structure', 'size': 24, 'bold': true},
     ]),
-    text('body', 40, 100, 420, 48, [
+    text('body', 40, 104, 424, 48, [
       {'text': 'The membrane controls what enters the cell.'},
     ]),
     stroke('ink1', 40, 260, length: 300, width: 4),

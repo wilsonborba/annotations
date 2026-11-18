@@ -115,7 +115,7 @@ NoteDocument studyNote({Map<String, Object?>? background}) =>
         text('title', 40, 40, 560, 48, [
           {'text': 'Photosynthesis', 'size': 32, 'bold': true},
         ]),
-        text('body', 40, 110, 420, 120, [
+        text('body', 40, 112, 424, 120, [
           {'text': 'Plants turn light, water and carbon dioxide into '},
           {'text': 'glucose', 'bold': true, 'color': '#1E40AFFF'},
           {'text': ' and oxygen.\nIt happens in the chloroplasts.'},
@@ -139,8 +139,8 @@ NoteDocument studyNote({Map<String, Object?>? background}) =>
           'id': 'img',
           'kind': 'image',
           'x': 600,
-          'y': 300,
-          'width': 300,
+          'y': 304,
+          'width': 304,
           'height': 180,
           'file_id': 'file-image-1',
         },

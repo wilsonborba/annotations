@@ -27,6 +27,7 @@ typedef JsonObject = Map<String, Object?>;
 /// Rule ids shared with the backend fixtures, plus [editor]
 /// for app-side preconditions of a gesture.
 abstract final class EditorRule {
+  static const grid = 'grid';
   static const blockOverlap = 'block_overlap';
   static const groupOverlap = 'group_overlap';
   static const freeInkOverlap = 'free_ink_overlap';

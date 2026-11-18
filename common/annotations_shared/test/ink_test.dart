@@ -627,7 +627,7 @@ void main() {
     final doc = paper([
       line('a', 100, 300, 300),
       stroke,
-      text('t', 500, 500, 100, 50),
+      text('t', 504, 504, 104, 50),
     ]);
 
     test('partial erase splits with new ids and keeps pressure and tilt', () {
@@ -745,7 +745,7 @@ void main() {
 
     test('the normal eraser never touches text, cards or grouped ink', () {
       final grouped = paper([
-        text('t', 100, 100, 200, 100),
+        text('t', 104, 104, 200, 100),
         line('g', 120, 200, 150),
         {
           'id': 'grp',
@@ -757,7 +757,7 @@ void main() {
           'kind': 'link_card',
           'url': 'https://example.org/',
           'x': 400,
-          'y': 100,
+          'y': 104,
           'width': 200,
           'height': 100,
         },
@@ -783,9 +783,9 @@ void main() {
       () {
         // Ink lies over the text block; the eraser touches both.
         final start = paper([
-          text('t', 100, 100, 200, 100),
+          text('t', 104, 104, 192, 100),
           line('ink', 100, 300, 150),
-          text('other', 400, 130, 100, 50),
+          text('other', 400, 128, 104, 50),
         ]);
         final editor = NotesEditor(start);
         final gesture = InkEraseGesture.begin(
@@ -817,14 +817,14 @@ void main() {
 
     test('dangerous erase removes a whole group', () {
       final start = paper([
-        text('t', 100, 100, 200, 100),
+        text('t', 104, 104, 200, 100),
         line('g', 120, 200, 300),
         {
           'id': 'grp',
           'kind': 'group',
           'members': ['t', 'g'],
         },
-        text('u', 400, 400, 100, 50),
+        text('u', 400, 400, 104, 50),
       ]);
       final d = rules.eraseObjects(
         start,

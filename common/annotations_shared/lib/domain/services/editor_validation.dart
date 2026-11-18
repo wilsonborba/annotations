@@ -26,6 +26,8 @@ const _instantKinds = [
   'link_card',
   'website_card',
   'youtube_card',
+  'csv_table',
+  'pdf_preview',
   'reports_embed',
   'group',
   'stroke',

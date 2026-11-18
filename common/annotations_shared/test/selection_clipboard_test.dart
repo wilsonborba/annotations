@@ -38,7 +38,7 @@ Map<String, Object?> image(String id, num x, num y) => {
   'kind': 'image',
   'x': x,
   'y': y,
-  'width': 100,
+  'width': 104,
   'height': 100,
   'file_id': 'f_$id',
 };
@@ -268,7 +268,7 @@ void main() {
       text('t1', 0, 0),
       stroke('s1', 20, 120, 180, 150),
       groupItem('g1', ['t1', 's1']),
-      text('t2', 500, 0),
+      text('t2', 504, 0),
     ]);
 
     test('a group keeps member layout and gets new ids', () async {
@@ -278,16 +278,17 @@ void main() {
       expect(system.text, 'Block t1');
       final edit = await clipboard.paste(
         session,
-        const InkVec(0, 300),
+        const InkVec(3, 307),
         ObjectSelection.empty,
       );
       expect(edit.accepted, isTrue, reason: '${edit.error}');
       expect(edit.selection.ids, ['n3']);
       final d = session.document;
       expect(itemOf(d, 'n3')['members'], ['n1', 'n2']);
-      expect(itemOf(d, 'n1'), containsPair('y', 300));
+      // The paste starts in the grid cell of the paste point.
+      expect(itemOf(d, 'n1'), containsPair('y', 304));
       expect(itemOf(d, 'n1'), containsPair('x', 0));
-      expect((itemOf(d, 'n2')['samples'] as Map)['y'], [42000, 45000]);
+      expect((itemOf(d, 'n2')['samples'] as Map)['y'], [42400, 45400]);
       expect((itemOf(d, 'n2')['nodes'] as List).first, containsPair('x', 2000));
       // The copy is still editable ink with the same fields.
       final source = itemOf(doc, 's1'), copy = itemOf(d, 'n2');
@@ -378,7 +379,7 @@ void main() {
 
   group('cut', () {
     test('cut copies and deletes as one step; undo restores', () async {
-      final doc = paper([text('t1', 0, 0), text('t2', 300, 0)]);
+      final doc = paper([text('t1', 0, 0), text('t2', 304, 0)]);
       final session = NotesEditor(doc);
       final edit = await clipboard.cut(session, ObjectSelection(['t1']));
       expect(edit.accepted, isTrue);
@@ -413,8 +414,8 @@ void main() {
     test('text goes as plain text in reading order', () async {
       final session = NotesEditor(
         paper([
-          text('b', 300, 200, body: 'third'),
-          text('a', 300, 0, body: 'second'),
+          text('b', 304, 200, body: 'third'),
+          text('a', 304, 0, body: 'second'),
           text('c', 0, 0, body: 'first'),
           stroke('s1', 10, 400, 50, 400),
         ]),
@@ -615,7 +616,7 @@ void main() {
       final doc = paper([
         text('t1', 0, 0),
         stroke('s1', 20, 120, 300, 150),
-        text('t2', 250, 0),
+        text('t2', 248, 0),
       ]);
       final session = NotesEditor(doc);
       // The outside rectangle of t1 and s1 would overlap t2.
@@ -628,7 +629,7 @@ void main() {
       final ok = paper([
         text('t1', 0, 0),
         stroke('s1', 20, 120, 180, 150),
-        text('t2', 250, 0),
+        text('t2', 248, 0),
       ]);
       final s2 = NotesEditor(ok);
       final edit = actions.group(s2, ObjectSelection(['s1', 't1']));
@@ -645,7 +646,7 @@ void main() {
         text('t1', 0, 0),
         stroke('s1', 20, 120, 180, 150),
         groupItem('g1', ['t1', 's1']),
-        text('t2', 500, 0),
+        text('t2', 504, 0),
       ]);
       final session = NotesEditor(doc);
       final edit = actions.ungroup(session, ObjectSelection(['g1', 't2']));
@@ -665,7 +666,7 @@ void main() {
         text('t1', 0, 0),
         stroke('s1', 20, 120, 180, 150),
         groupItem('g1', ['t1', 's1']),
-        text('t2', 500, 0),
+        text('t2', 504, 0),
       ]);
       final session = NotesEditor(doc);
       final edit = actions.delete(session, ObjectSelection(['g1']));
@@ -685,11 +686,11 @@ void main() {
       final edit = actions.duplicate(session, ObjectSelection(['g1']));
       expect(edit.accepted, isTrue);
       expect(edit.selection.ids, ['n3']);
-      // Bounds height 150 plus the 16 unit gap.
-      expect(itemOf(session.document, 'n1'), containsPair('y', 166));
+      // Bounds height 150 plus the 16 unit gap, on the nearest grid line.
+      expect(itemOf(session.document, 'n1'), containsPair('y', 168));
       expect(itemOf(session.document, 'n3')['members'], ['n1', 'n2']);
 
-      final full = paper([text('t1', 0, 0), text('t2', 0, 110)]);
+      final full = paper([text('t1', 0, 0), text('t2', 0, 112)]);
       final s2 = NotesEditor(full);
       final blocked = actions.duplicate(s2, ObjectSelection(['t1']));
       expect(blocked.accepted, isFalse);

@@ -133,13 +133,14 @@ void main() {
           ..sort((a, b) => a.path.compareTo(b.path));
 
     test('the copy holds every backend case', () {
-      expect(files, hasLength(75));
+      expect(files, hasLength(92));
       final rulesSeen = <String>{};
       for (final f in files) {
         final c = jsonDecode(f.readAsStringSync()) as Map<String, dynamic>;
         rulesSeen.add(c['rule_id'] as String);
       }
       expect(rulesSeen, {
+        'grid',
         'block_overlap',
         'group_overlap',
         'free_ink_overlap',
@@ -202,11 +203,12 @@ void main() {
           c['schema_version'] as int,
         ),
       );
-      // These cases test the schema only; some of them overlap on purpose.
+      // These cases test the schema only; some of them overlap or sit off
+      // the placement grid on purpose.
       final error = rules.check(document).error;
       expect(
         error?.rule,
-        anyOf(isNull, 'block_overlap', 'group_overlap'),
+        anyOf(isNull, 'grid', 'block_overlap', 'group_overlap'),
         reason: '${f.path}: $error',
       );
     }
@@ -214,12 +216,12 @@ void main() {
 
   group('check', () {
     test('a rejection carries no content, only rule, code, path and ids', () {
-      final doc = paper([text('t1', 0, 0), text('t2', 0, 100)]);
+      final doc = paper([text('t1', 0, 0), text('t2', 0, 104)]);
       final d = rules.check(doc, {
         'op': 'update',
         'id': 't1',
         'changes': {
-          'height': 101,
+          'height': 105,
           'spans': [
             {'text': 'private words'},
           ],
@@ -233,7 +235,7 @@ void main() {
       expect(itemOf(d.document, 't1')['height'], 100);
       expect(
         (d.candidate!['items'] as List).first,
-        containsPair('height', 101),
+        containsPair('height', 105),
       );
     });
 
@@ -269,28 +271,29 @@ void main() {
     test('a valid drop moves only the named item', () {
       final doc = paper([
         text('t1', 0, 0),
-        text('t2', 300, 0),
+        text('t2', 304, 0),
         stroke('s1', 10, 10, 90, 90),
       ]);
-      final d = rules.move(doc, ['t1'], 20.004, 300);
+      // A block moves by whole grid cells (B2.1).
+      final d = rules.move(doc, ['t1'], 20.004, 301);
       expect(d.accepted, isTrue);
-      expect(itemOf(d.document, 't1'), containsPair('x', 20));
-      expect(itemOf(d.document, 't1'), containsPair('y', 300));
+      expect(itemOf(d.document, 't1'), containsPair('x', 24));
+      expect(itemOf(d.document, 't1'), containsPair('y', 304));
       // Free ink does not follow the block.
       expectNeighborsKept(doc, d.document, {'t1'});
     });
 
     test('an invalid drop is red: the candidate shows it, nothing changes', () {
-      final doc = paper([text('t1', 0, 0), text('t2', 300, 0)]);
+      final doc = paper([text('t1', 0, 0), text('t2', 304, 0)]);
       final d = rules.move(doc, ['t1'], 150, 50);
       expect(d, rejected('block_overlap', 'block_overlap', ['t1', 't2']));
       expect(itemOf(d.document, 't1')['x'], 0);
-      expect((d.candidate!['items'] as List).first, containsPair('x', 150));
+      expect((d.candidate!['items'] as List).first, containsPair('x', 152));
     });
 
     test('touching edges are allowed', () {
-      final doc = paper([text('t1', 0, 0), text('t2', 300, 0)]);
-      expect(rules.move(doc, ['t1'], 100, 0).accepted, isTrue);
+      final doc = paper([text('t1', 0, 0), text('t2', 304, 0)]);
+      expect(rules.move(doc, ['t1'], 104, 0).accepted, isTrue);
     });
 
     test('a group moves with every member, ink included', () {
@@ -300,14 +303,16 @@ void main() {
         groupItem('g1', ['t1', 's1']),
         text('t2', 0, 400),
       ]);
-      final d = rules.move(doc, ['g1'], 10, 20);
+      // The block snaps the delta to whole cells; its ink moves by the same.
+      final d = rules.move(doc, ['g1'], 9, 23);
       expect(d.accepted, isTrue);
-      expect(itemOf(d.document, 't1'), containsPair('x', 10));
+      expect(itemOf(d.document, 't1'), containsPair('x', 8));
+      expect(itemOf(d.document, 't1'), containsPair('y', 24));
       final samples = itemOf(d.document, 's1')['samples'] as Map;
-      expect(samples['x'], [3000, 19000]);
-      expect(samples['y'], [14000, 17000]);
+      expect(samples['x'], [2800, 18800]);
+      expect(samples['y'], [14400, 17400]);
       final nodes = itemOf(d.document, 's1')['nodes'] as List;
-      expect(nodes.first, containsPair('x', 3000));
+      expect(nodes.first, containsPair('x', 2800));
       expectNeighborsKept(doc, d.document, {'t1', 's1'});
       // Its ink makes the group rectangle larger.
       expect(
@@ -421,12 +426,13 @@ void main() {
           measuredHeight: 150,
         );
         final t = itemOf(left.document, 't1');
-        expect([t['x'], t['y'], t['width'], t['height']], [50, 0, 150, 150]);
+        // The width snaps to whole cells (150 to 152).
+        expect([t['x'], t['y'], t['width'], t['height']], [48, 0, 152, 150]);
       },
     );
 
     test('an image keeps its proportions from any corner', () {
-      final doc = paper([box('i1', 'image', 100, 100, 200, 100)]);
+      final doc = paper([box('i1', 'image', 104, 104, 200, 100)]);
       final d = rules.resize(
         doc,
         'i1',
@@ -434,30 +440,38 @@ void main() {
         height: 999,
         anchor: ResizeAnchor.bottomRight,
       );
-      expect(d.accepted, isTrue);
+      expect(d.accepted, isTrue, reason: '${d.error}');
       final i1 = itemOf(d.document, 'i1');
-      expect([i1['x'], i1['y'], i1['width'], i1['height']], [0, 50, 300, 150]);
+      // Width 304 on the grid, height in proportion, top on the nearest line.
+      expect([i1['x'], i1['y'], i1['width'], i1['height']], [0, 56, 304, 152]);
     });
 
     test('a CSV table resizes its area freely; a card needs a measurement', () {
       final doc = paper([
-        box('c1', 'csv_table', 0, 0, 200, 100),
-        box('l1', 'link_card', 300, 0, 200, 100),
+        box('c1', 'csv_table', 0, 0, 200, 104),
+        box('l1', 'link_card', 304, 0, 200, 100),
       ]);
       final c1 = itemOf(
         rules.resize(doc, 'c1', width: 250, height: 60).document,
         'c1',
       );
-      expect([c1['width'], c1['height']], [250, 60]);
+      // The area of a CSV table snaps to whole cells.
+      expect([c1['width'], c1['height']], [248, 64]);
       expect(
         rules.resize(doc, 'l1', width: 120),
         rejected('editor', 'measurement_required', ['l1']),
       );
-      final l1 = itemOf(
-        rules.resize(doc, 'l1', width: 120, measuredHeight: 140).document,
-        'l1',
-      );
+      final resized = rules.resize(doc, 'l1', width: 120, measuredHeight: 140);
+      expect(resized.accepted, isTrue, reason: '${resized.error}');
+      final l1 = itemOf(resized.document, 'l1');
       expect([l1['width'], l1['height']], [120, 140]);
+      expect(
+        rules.resize(doc, 'l1', width: 123),
+        rejected('editor', 'measurement_required', ['l1']),
+      );
+      // The app measures at the snapped width that the operation carries.
+      final asked = rules.resize(doc, 'l1', width: 123).operation as Map;
+      expect((asked['changes'] as Map)['width'], 120);
     });
 
     test('a drawing scales its points and its line width', () {
@@ -508,7 +522,7 @@ void main() {
       // The resolver is asked only for the span without a stored size.
       expect(asked, [('t1', 1)]);
       final t1 = itemOf(d.document, 't1');
-      expect([t1['width'], t1['height']], [300, 150]);
+      expect([t1['width'], t1['height']], [304, 150]);
       expect((t1['spans'] as List).map((s) => (s as Map)['size']), [30, 24]);
       final s1 = itemOf(d.document, 's1');
       expect(s1['width'], 3.75);
@@ -539,7 +553,8 @@ void main() {
       );
       expect(d.accepted, isTrue, reason: '${d.error}');
       final l1 = itemOf(d.document, 'l1');
-      expect([l1['x'], l1['y'], l1['width'], l1['height']], [0, 180, 300, 90]);
+      // Scaled edges go to the nearest grid line: 180 to 184, 300 to 304.
+      expect([l1['x'], l1['y'], l1['width'], l1['height']], [0, 184, 304, 90]);
     });
 
     test('a member resize uses its own rule and grows the group rectangle', () {
@@ -547,14 +562,14 @@ void main() {
         text('t1', 0, 0),
         stroke('s1', 20, 120, 180, 150),
         groupItem('g1', ['t1', 's1']),
-        text('t2', 300, 0),
+        text('t2', 304, 0),
       ]);
       final ok = rules.resize(doc, 't1', width: 300, measuredHeight: 60);
-      expect(ok.accepted, isTrue);
+      expect(ok.accepted, isTrue, reason: '${ok.error}');
       // The member text wraps; the ink is not stretched.
       expectNeighborsKept(doc, ok.document, {'t1'});
       expect(
-        rules.resize(doc, 't1', width: 301, measuredHeight: 60),
+        rules.resize(doc, 't1', width: 309, measuredHeight: 60),
         rejected('group_overlap', 'group_overlap', ['g1', 't2']),
       );
     });
@@ -576,9 +591,10 @@ void main() {
 
     test('a paste in free space adds copies with new ids', () {
       final doc = paper([text('t1', 0, 0)]);
-      final d = rules.paste(doc, [text('c1', 0, 0)], dy: 100, newId: newId);
+      final d = rules.paste(doc, [text('c1', 0, 0)], dy: 101, newId: newId);
       expect(d.accepted, isTrue);
-      expect(itemOf(d.document, 'p1'), containsPair('y', 100));
+      // A block lands on the grid.
+      expect(itemOf(d.document, 'p1'), containsPair('y', 104));
       expectNeighborsKept(doc, d.document, {'p1'});
     });
 
@@ -588,13 +604,13 @@ void main() {
         stroke('s1', 20, 120, 180, 150),
         groupItem('g1', ['t1', 's1']),
       ]);
-      final d = rules.duplicate(doc, ['g1'], dx: 300, newId: newId);
+      final d = rules.duplicate(doc, ['g1'], dx: 304, newId: newId);
       expect(d.accepted, isTrue, reason: '${d.error}');
       final items = itemsOf(d.document);
       expect(items, hasLength(6));
       expect(itemOf(d.document, 'p3')['members'], ['p1', 'p2']);
-      expect(itemOf(d.document, 'p1'), containsPair('x', 300));
-      expect((itemOf(d.document, 'p2')['samples'] as Map)['x'], [32000, 48000]);
+      expect(itemOf(d.document, 'p1'), containsPair('x', 304));
+      expect((itemOf(d.document, 'p2')['samples'] as Map)['x'], [32400, 48400]);
       expectNeighborsKept(doc, d.document, {'p1', 'p2', 'p3'});
       // Without space nothing is added.
       final blocked = rules.duplicate(doc, ['g1'], dx: 100, newId: newId);
@@ -611,10 +627,34 @@ void main() {
         'items': [],
       }, schema: DocumentSchema('instant-room', 1));
       final d = rules.paste(room, [
-        {...box('q1', 'task_card', 0, 0, 100, 100), 'task_id': 'task1'},
+        {...box('q1', 'task_card', 0, 0, 104, 104), 'task_id': 'task1'},
       ], newId: newId);
       expect(d.error?.code, 'kind_not_allowed');
       expect(d.accepted, isFalse);
+      // CSV tables and PDF previews need no account, so Instant allows them.
+      final cards = rules.paste(room, [
+        box('c1', 'csv_table', 0, 0, 320, 160),
+        {...box('p1', 'pdf_preview', 320, 0, 160, 226.5), 'file_id': 'f_p1'},
+      ], newId: newId);
+      expect(cards.accepted, isTrue, reason: '${cards.error}');
+    });
+
+    test('an off-grid block is rejected and ink never snaps', () {
+      expect(
+        rules.check(paper([text('t1', 4, 0)])),
+        rejected('grid', 'off_grid', ['t1']),
+      );
+      expect(
+        rules.check(paper([box('c1', 'csv_table', 0, 0, 200, 100)])),
+        rejected('grid', 'off_grid', ['c1']),
+      );
+      final ink = paper([text('t1', 0, 0), stroke('s1', 3.21, 7.5, 91.13, 9)]);
+      final moved = rules.move(ink, ['s1'], 1.234, 0.5);
+      expect(moved.accepted, isTrue);
+      expect((itemOf(moved.document, 's1')['samples'] as Map)['x'], [
+        444,
+        9236,
+      ]);
     });
 
     test('a typed document has no placement edits', () {

@@ -17,6 +17,17 @@ final class EditorRect {
     math.max(right, o.right),
     math.max(bottom, o.bottom),
   );
+
+  /// The occupied cells: the rectangle widened outward to whole grid cells.
+  /// Collisions compare these, so a measured height or grouped ink takes
+  /// every cell that it touches.
+  EditorRect get cells => EditorRect(
+    EditorGrid.floor(left),
+    EditorGrid.floor(top),
+    EditorGrid.ceil(right),
+    EditorGrid.ceil(bottom),
+  );
+
   static EditorRect? ofPoints(Iterable<(num, num)> points) {
     EditorRect? result;
     for (final (x, y) in points) {
@@ -101,8 +112,12 @@ final class _Layout {
   bool _collides(int i) =>
       _role(items[i]) != _Role.ink && structured[i] == true;
 
-  /// The first overlapping pair: the top level first, then each group.
+  /// The grid of every structured block in document order, then the first
+  /// overlapping pair: the top level first, then each group.
   void check() {
+    for (var i = 0; i < items.length; i++) {
+      if (_role(items[i]) == _Role.block) _checkGrid(i);
+    }
     _level([
       for (var i = 0; i < items.length; i++)
         if (!grouped[i] && _collides(i)) i,
@@ -112,13 +127,31 @@ final class _Layout {
     }
   }
 
+  /// B2.1: `x`, `y` and `width` on whole cells, and the height of the kinds
+  /// whose height the user sets.
+  void _checkGrid(int i) {
+    final it = items[i];
+    for (final key in [
+      'x',
+      'y',
+      'width',
+      if (EditorGrid.areaKinds.contains(it['kind'])) 'height',
+    ]) {
+      if (it[key] case final num v when !EditorGrid.isOn(v)) {
+        throw EditorRuleError(EditorRule.grid, 'off_grid', 'items[$i].$key', [
+          it['id'] as String,
+        ]);
+      }
+    }
+  }
+
   void _level(List<int> units) {
     for (var n = 0; n < units.length; n++) {
       final a = units[n];
-      final ra = rects[a];
+      final ra = rects[a]?.cells;
       if (ra == null) continue;
       for (final b in units.skip(n + 1)) {
-        final rb = rects[b];
+        final rb = rects[b]?.cells;
         if (rb == null || !ra.overlaps(rb)) continue;
         final group =
             _role(items[a]) == _Role.group || _role(items[b]) == _Role.group;

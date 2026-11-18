@@ -4,7 +4,7 @@ import 'package:annotations_shared/domain/models/note_document.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 // Unchanged valid fixtures from wilsonborba/annotations_api at
-// 5317abb5e5ec5f68bdf42d84e18a8c8d7440ade6, tests/fixtures/document_schema/valid.
+// d69ed4fc998080e60878856cab253de4200c5f88, tests/fixtures/document_schema/valid.
 // Schema1 includes compact stroke encoding (decision b593b780).
 final fixtureDirectory = Directory('test/fixtures/document_schema/valid');
 Map<String, dynamic> fixture(String name) =>
@@ -91,6 +91,8 @@ void main() {
       'link_card',
       'website_card',
       'youtube_card',
+      'csv_table',
+      'pdf_preview',
       'reports_embed',
       'group',
       'stroke',

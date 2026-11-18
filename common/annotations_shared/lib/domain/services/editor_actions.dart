@@ -14,10 +14,18 @@ const _wrappingCards = [
   'quiz_card',
 ];
 const _proportional = ['image', 'pdf_preview'];
-const _freeArea = ['csv_table', 'reports_embed'];
+const _freeArea = EditorGrid.areaKinds;
 
 /// A delta in page units at the 1/100 resolution of stored ink.
 num _quantize(num v) => (v * 100).round() / 100;
+
+/// The delta of a gesture: whole grid cells when a structured block moves
+/// with it (B2.1), so blocks stay on the grid and ink keeps its place next to
+/// them; otherwise free at the ink resolution, because ink never snaps.
+(num, num) _delta(Iterable<JsonObject> moved, num dx, num dy) =>
+    moved.any((it) => _role(it) == _Role.block)
+    ? (EditorGrid.round(dx), EditorGrid.round(dy))
+    : (_quantize(dx), _quantize(dy));
 
 /// Item indexes of [ids] in document order, with group members if asked.
 List<int> _indexes(
@@ -43,10 +51,11 @@ JsonObject _update(String id, JsonObject changes) => {
 JsonObject _batch(List<JsonObject> steps) => {'op': 'batch', 'steps': steps};
 
 JsonObject _moveOperation(_Layout layout, List<String> ids, num dx, num dy) {
-  final (qx, qy) = (_quantize(dx), _quantize(dy));
+  final moved = _indexes(layout, ids, withDescendants: true);
+  final (qx, qy) = _delta([for (final i in moved) layout.items[i]], dx, dy);
   (num, num) shift(num x, num y) => (x + qx, y + qy);
   return _batch([
-    for (final i in _indexes(layout, ids, withDescendants: true))
+    for (final i in moved)
       if (_role(layout.items[i]) != _Role.group)
         _update(
           layout.items[i]['id'] as String,
@@ -107,6 +116,9 @@ JsonObject _resizeOperation(
       if (_role(member) == _Role.group) continue;
       final memberId = member['id'] as String;
       final changes = _mapGeometry(member, f, scale);
+      if (_role(member) == _Role.block && _snapMember(member, changes) < min) {
+        throw _editorError('below_minimum_size', m, memberId);
+      }
       if (member['kind'] == 'text') {
         // B3.2: whole-group resize scales text size too.
         final spans = [
@@ -140,12 +152,14 @@ JsonObject _resizeOperation(
     return operation;
   }
   if (rect == null) throw _editorError('not_resizable', i, id);
-  final num w = width;
+  // B2.1: the width snaps to whole cells, and so does a height that the user
+  // sets. The app measures wrapping text at this snapped width.
+  final num w = EditorGrid.round(width);
   final num h;
   if (_proportional.contains(kind)) {
     h = w * rect.height / rect.width;
   } else if (_freeArea.contains(kind)) {
-    h = height ?? rect.height;
+    h = EditorGrid.round(height ?? rect.height);
   } else if (kind == 'text' || _wrappingCards.contains(kind)) {
     // Width changes, font size stays, the text wraps: the app measures it.
     if (measuredHeight == null) {
@@ -172,11 +186,32 @@ JsonObject _resizeOperation(
     _ => fy - h,
   };
   return _update(id, {
-    'x': _round(left),
-    'y': _round(top),
-    'width': _round(w),
+    'x': EditorGrid.round(left),
+    'y': EditorGrid.round(top),
+    'width': w,
     'height': measured ? h : _round(h),
   });
+}
+
+/// Puts a structured member of a scaled group back on whole cells: each edge
+/// goes to its nearest grid line, so members that touched still touch and
+/// members apart stay apart. A proportional kind keeps its proportions and
+/// a measured height comes from the app. Returns the new width.
+num _snapMember(JsonObject member, JsonObject changes) {
+  final x = changes['x'] as num, y = changes['y'] as num;
+  final w = changes['width'] as num, h = changes['height'] as num;
+  final left = EditorGrid.round(x), top = EditorGrid.round(y);
+  final width = EditorGrid.round(x + w) - left;
+  changes['x'] = left;
+  changes['y'] = top;
+  changes['width'] = width;
+  if (_freeArea.contains(member['kind'])) {
+    changes['height'] = EditorGrid.round(y + h) - top;
+  } else if (_proportional.contains(member['kind'])) {
+    final ow = member['width'] as num, oh = member['height'] as num;
+    changes['height'] = _round(width * oh / ow);
+  }
+  return width;
 }
 
 JsonObject _textOperation(
@@ -223,7 +258,7 @@ JsonObject _pasteOperation(
     }
     ids[(copies[n] as Map)['id'] as String] = newId();
   }
-  final (qx, qy) = (_quantize(dx), _quantize(dy));
+  final (qx, qy) = _delta(copies.cast<JsonObject>(), dx, dy);
   (num, num) shift(num x, num y) => (x + qx, y + qy);
   return _batch([
     for (final copy in copies.cast<JsonObject>())
