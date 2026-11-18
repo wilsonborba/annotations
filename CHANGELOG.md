@@ -10,6 +10,7 @@
 - *(domain)* Place structured blocks on the invisible 8-unit grid, snap moves, resizes, pastes and new text blocks to it, and allow CSV tables and PDF previews in Instant (#20)
 - *(domain)* Add one Notes command history with 100 steps and no history in Instant (#21)
 - *(domain)* Add the ink model with four versioned brushes, editable nodes, shapes and partial erasing (#22)
+- *(domain)* Erase part of a shape in partial mode: the untouched outline stays as editable open paths (#22)
 - *(editor)* Pin flutter_quill 11.5.0 behind the Annotations text adapter with the type C guard and the one Notes history (#23)
 - *(domain)* Add the selection and clipboard model for blocks, ink and groups (#24)
 - *(dal)* Add the durable local note store with managed attachments, autosave states and crash recovery (#25)
