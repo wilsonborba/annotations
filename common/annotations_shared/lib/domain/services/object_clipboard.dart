@@ -22,6 +22,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../core/note_limits.dart';
 import '../../core/selection_settings.dart';
+import '../../dal/local/picture_composer.dart';
 import '../../dal/local/system_clipboard.dart';
 import '../../dal/local/text_engine.dart';
 import '../models/ink.dart';
@@ -116,12 +117,21 @@ final class ClipboardContent {
     ].join('\n\n');
   }
 
-  /// The file of the first picture, for copy to other apps when there is no
-  /// text.
-  String? get pictureFile => [
+  /// The pictures in document order (drawing order) with their rectangles,
+  /// for copy to other apps.
+  List<(String, EditorRect)> get pictures => [
     for (final it in _items)
-      if (it['kind'] == 'image') it['file_id'] as String,
-  ].firstOrNull;
+      if (it['kind'] == 'image')
+        (
+          it['file_id'] as String,
+          EditorRect(
+            it['x'] as num,
+            it['y'] as num,
+            (it['x'] as num) + (it['width'] as num),
+            (it['y'] as num) + (it['height'] as num),
+          ),
+        ),
+  ];
 }
 
 /// Selection actions that need no clipboard.
@@ -149,14 +159,16 @@ final class ObjectActions {
     );
   }
 
-  /// Copies the selection directly below itself, with the gap of
-  /// [SelectionSettings.duplicateGap]. Copies that do not fit add nothing;
-  /// no free space is searched and nothing else moves.
+  /// Copies the selection to the first free grid position below itself at
+  /// the same x (annotations#24): the copy starts at the first whole cell
+  /// under the selection and moves down past each block in its way. The page
+  /// grows downward, so a place is always found; nothing else moves.
   ObjectEdit duplicate(EditorSession session, ObjectSelection selection) {
     final layout = DocumentLayout.of(session.document);
     final bounds = layout?.boundsOf(selection.ids);
     if (layout == null || bounds == null) return ObjectEdit._(null, selection);
     final copied = _withMembers(layout, selection.ids);
+    final dy = _freeBelow(session, selection, bounds);
     final assigned = <String>[];
     final decision = _apply(
       session,
@@ -164,7 +176,7 @@ final class ObjectActions {
       (rules, document) => rules.duplicate(
         document,
         selection.ids,
-        dy: bounds.height + settings.duplicateGap,
+        dy: dy,
         newId: () => _record(assigned, newId()),
       ),
     );
@@ -223,10 +235,14 @@ final class ObjectClipboard {
     required this.engine,
     required this.newId,
     this.settings = const SelectionSettings(),
+    this.composer = const UiPictureComposer(),
   });
 
   final SystemClipboard system;
   final ClipboardFiles files;
+
+  /// Renders several selected pictures as laid out into one picture.
+  final PictureComposer composer;
 
   /// Measures the height of pasted text, like every text edit (type C).
   final TextEngine engine;
@@ -323,23 +339,49 @@ final class ObjectClipboard {
     );
   }
 
+  /// Copy to other apps (B2 G1): text goes as plain text, pictures go as
+  /// pictures. A selection with both gives one clipboard item with the text
+  /// and the selected pictures rendered as laid out.
   Future<void> _write(ClipboardContent content) async {
     _content = content;
     final text = content.plainText;
-    final picture = content.pictureFile;
     _writtenText = text;
     _writtenPicture = null;
-    if (text.isEmpty && picture != null) {
-      final bytes = await _guard(() => files.pictureBytes(picture));
-      if (bytes != null &&
-          await _guard(() => system.writeImage(bytes)) == true) {
-        _writtenText = null;
-        _writtenPicture = bytes;
+    final picture = await _picture(content);
+    if (picture != null) {
+      if (text.isEmpty) {
+        if (await _guard(() => system.writeImage(picture)) == true) {
+          _writtenText = null;
+          _writtenPicture = picture;
+          return;
+        }
+      } else if (await _guard(() => system.writeTextAndImage(text, picture)) ==
+          true) {
         return;
       }
     }
     // An empty text also replaces what another app copied before.
     await _guard(() => system.writeText(text));
+  }
+
+  /// One picture for the selected pictures: the stored bytes of a single
+  /// picture, or the pictures rendered as laid out. Null without pictures.
+  Future<Uint8List?> _picture(ClipboardContent content) async {
+    final placed = <PlacedPicture>[];
+    for (final (fileId, r) in content.pictures) {
+      final bytes = await _guard(() => files.pictureBytes(fileId));
+      if (bytes == null) continue;
+      placed.add((
+        bytes: bytes,
+        left: r.left.toDouble(),
+        top: r.top.toDouble(),
+        width: r.width.toDouble(),
+        height: r.height.toDouble(),
+      ));
+    }
+    if (placed.isEmpty) return null;
+    if (placed.length == 1) return placed.single.bytes;
+    return _guard<Uint8List?>(() => composer.compose(placed));
   }
 
   Future<bool> _ownsSystemClipboard() async {
@@ -524,6 +566,53 @@ EditDecision _apply(
   final NotesEditor notes => notes.apply(HistoryCommand(kind), build),
   final InstantEditor instant => instant.apply(build),
 };
+
+/// The first downward shift in whole cells at which a copy of [selection]
+/// fits. A rejected try names the block in the way; the next try starts
+/// the blocked copy below that block's cells.
+num _freeBelow(
+  EditorSession session,
+  ObjectSelection selection,
+  EditorRect bounds,
+) {
+  final document = session.document;
+  final rules = session.rules;
+  final first = math.max(EditorGrid.cell, EditorGrid.ceil(bounds.height));
+  final all = DocumentLayout.of(document);
+  final end = all?.boundsOf(all.ids);
+  final limit = (end?.bottom ?? bounds.bottom) - bounds.top + EditorGrid.cell;
+  num dy = first;
+  var probe = 0;
+  while (dy <= limit) {
+    final d = rules.duplicate(
+      document,
+      selection.ids,
+      dy: dy,
+      newId: () => '__duplicate_probe_${probe++}',
+    );
+    if (d.accepted) return dy;
+    final error = d.error!;
+    final candidate = d.candidate;
+    if (candidate == null ||
+        (error.code != EditorRule.blockOverlap &&
+            error.code != EditorRule.groupOverlap)) {
+      return first;
+    }
+    final after = DocumentLayout.of(
+      NoteDocument.fromJson(candidate, schema: document.schema),
+    );
+    final copy = error.items.firstWhere(
+      (id) => id.startsWith('__duplicate_probe_'),
+      orElse: () => '',
+    );
+    final blocker = error.items.firstWhere((id) => id != copy);
+    final copyRect = after?.rectOf(copy)?.cells;
+    final blockRect = after?.rectOf(blocker)?.cells;
+    if (copyRect == null || blockRect == null) return first;
+    dy += math.max(EditorGrid.cell, blockRect.bottom - copyRect.top);
+  }
+  return dy;
+}
 
 /// The selected objects with all their group members, in document order,
 /// the order in which the rules copy them.
