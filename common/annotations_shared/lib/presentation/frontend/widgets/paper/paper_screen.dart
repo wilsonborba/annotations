@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../../components/controls.dart';
 import '../../components/draw_controls.dart';
+import '../../components/icons.dart';
 import '../../components/paper_controls.dart';
 import '../../components/save_state.dart';
 import '../../components/scope.dart';
@@ -9,9 +11,11 @@ import '../../components/theme.dart';
 import '../../components/tokens.dart';
 import '../../handlers/draw_handler.dart';
 import '../../handlers/paper_handler.dart';
+import '../../handlers/point_edit_handler.dart';
 import '../../handlers/text_handler.dart';
 import 'draw_toolbar.dart';
 import 'paper_canvas.dart';
+import 'point_edit_layer.dart';
 import 'text_block_editor.dart';
 
 /// The writing surface of one note: the paper canvas with its status panel
@@ -39,12 +43,16 @@ class PaperScreen extends StatefulWidget {
 
   /// The modes and drawing tools; the screen makes one when null.
   final DrawHandler? draw;
+
+  /// Point editing of one drawing; the screen makes one when null.
+  final PointEditHandler? points;
   const PaperScreen({
     super.key,
     required this.handler,
     this.foreground,
     this.text,
     this.draw,
+    this.points,
   });
 
   @override
@@ -54,9 +62,11 @@ class PaperScreen extends StatefulWidget {
 class _PaperScreenState extends State<PaperScreen> {
   TextHandler? _own;
   DrawHandler? _ownDraw;
+  PointEditHandler? _ownPoints;
 
   TextHandler get text => widget.text ?? _own!;
   DrawHandler get draw => widget.draw ?? _ownDraw!;
+  PointEditHandler get points => widget.points ?? _ownPoints!;
 
   @override
   void didChangeDependencies() {
@@ -72,10 +82,14 @@ class _PaperScreenState extends State<PaperScreen> {
         onDrawMode: () => text.end(),
       );
     }
+    if (widget.points == null && _ownPoints == null) {
+      _ownPoints = PointEditHandler(draw: draw);
+    }
   }
 
   @override
   void dispose() {
+    _ownPoints?.dispose();
     _own?.dispose();
     _ownDraw?.dispose();
     super.dispose();
@@ -88,11 +102,12 @@ class _PaperScreenState extends State<PaperScreen> {
       PaperCanvas(
         handler: widget.handler,
         onTap: (local, global) => text.tapAt(local, global: global),
-        input: draw,
+        input: points,
         foreground: (context, view) => Stack(
           fit: StackFit.expand,
           children: [
             TextBlockLayer(text: text, view: view),
+            PointEditLayer(points: points, view: view),
             if (widget.foreground != null) widget.foreground!(context, view),
           ],
         ),
@@ -103,16 +118,33 @@ class _PaperScreenState extends State<PaperScreen> {
         right: 12,
         child: Center(
           child: ListenableBuilder(
-            listenable: Listenable.merge([draw, text]),
+            listenable: Listenable.merge([draw, text, points, widget.handler]),
             builder: (context, _) => Wrap(
               alignment: WrapAlignment.center,
               spacing: 8,
               runSpacing: 8,
               children: [
                 ModeSwitch(mode: draw.mode, onChanged: draw.setMode),
-                if (draw.isDrawMode)
-                  DrawToolbar(draw: draw)
-                else if (text.controller case final controller?)
+                if (draw.isDrawMode && points.active)
+                  PointEditPanel(points: points)
+                else if (draw.isDrawMode) ...[
+                  DrawToolbar(draw: draw),
+                  if (points.selectedTarget case final id?)
+                    Container(
+                      decoration: BoxDecoration(
+                        color: context.colors.surface,
+                        borderRadius: BorderRadius.circular(appPanelRadius),
+                        border: Border.all(color: context.colors.border),
+                      ),
+                      padding: const EdgeInsets.all(2),
+                      child: AppButton.subtle(
+                        key: const Key('edit-points'),
+                        label: context.tr('editPoints'),
+                        icon: AppIcons.path,
+                        onPressed: () => points.start(id),
+                      ),
+                    ),
+                ] else if (text.controller case final controller?)
                   ListenableBuilder(
                     listenable: controller,
                     builder: (context, _) => TextTools(

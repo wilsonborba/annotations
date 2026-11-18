@@ -20,6 +20,7 @@
 - *(ui)* Add typed text blocks with the text tools and the type C limit feedback (#27)
 - *(ui)* Make ink transparent to input in Type mode, offer the pen palette and a custom color for text, and play the space-limit shake also with reduced motion (#27, #60)
 - *(ui)* Add Type and Draw modes, the four pens with remembered settings, color choices with a custom picker, and shapes with Edit as path (#28)
+- *(ui)* Add Edit points: drag points and curve handles, add, remove, corner, smooth and handle modes, with buttons and keys, one Undo step per change (#29)
 - *(ui)* Add the explicit Apply pen style action that reshapes only the selected strokes in one step (#28)
 
 ### 🐛 Bug Fixes
