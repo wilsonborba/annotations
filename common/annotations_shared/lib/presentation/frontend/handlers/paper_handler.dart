@@ -141,8 +141,26 @@ class PaperHandler extends ChangeNotifier {
   /// A background shown while its control is dragged, not saved yet.
   final preview = ValueNotifier<PaperGuides?>(null);
 
-  /// True while the view lock blocks navigation (annotations#33).
-  bool locked = false;
+  /// The view lock (B8, annotations#33): page position and zoom stay as
+  /// they are for every input kind; writing and editing go on. It starts
+  /// unlocked and ends with the editor.
+  bool get locked => _locked;
+  bool _locked = false;
+  set locked(bool value) {
+    if (value == _locked) return;
+    _locked = value;
+    notifyListeners();
+  }
+
+  /// Fingers move and zoom the page (B8). Off: one finger does not pan and
+  /// two fingers do not pinch; the pen, the mouse and the toolbar stay.
+  bool get fingerNavigation => _fingerNavigation;
+  bool _fingerNavigation = true;
+  set fingerNavigation(bool value) {
+    if (value == _fingerNavigation) return;
+    _fingerNavigation = value;
+    notifyListeners();
+  }
 
   /// True while a selection gesture holds the page: a touch and hold, a
   /// move or a resize (annotations#32).
@@ -313,7 +331,8 @@ class PaperHandler extends ChangeNotifier {
       ),
     );
     final v = view.value;
-    if (v != null) view.value = _clamped(v.scroll, v.zoom, v.size);
+    // A locked view never follows an edit (B8).
+    if (v != null && !_locked) view.value = _clamped(v.scroll, v.zoom, v.size);
     notifyListeners();
   }
 
@@ -343,7 +362,8 @@ class PaperHandler extends ChangeNotifier {
     final before = _insets;
     _insets = value;
     final v = view.value;
-    if (v == null) return;
+    // A locked paper stays where it is (B8): only the toolbar moves.
+    if (v == null || _locked) return;
     // The page moves by the room the toolbar takes or gives back.
     final shift = Offset(value.left - before.left, value.top - before.top);
     view.value = _clamped(v.scroll - shift / v.zoom, v.zoom, v.size);
