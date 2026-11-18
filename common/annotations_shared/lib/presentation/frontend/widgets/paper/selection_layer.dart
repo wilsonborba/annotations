@@ -4,6 +4,8 @@
 /// the selection.
 library;
 
+import 'dart:math' as math;
+
 import 'package:flutter/widgets.dart';
 
 import '../../components/controls.dart';
@@ -73,13 +75,21 @@ class SelectionLayer extends StatelessWidget {
       bounds = bounds == null ? s : bounds.expandToInclude(s);
     }
     if (bounds == null) return const SizedBox.shrink();
+    // Out of the room of a docked toolbar: above the selection when it
+    // fits there, else below it.
     const height = 52.0, gap = 12.0;
-    final above = bounds.top - height - gap >= 0;
+    final insets = selection.paper.toolbarInsets;
+    final minTop = insets.top + 8;
+    final maxTop = math.max(
+      minTop,
+      view.size.height - insets.bottom - height - 8,
+    );
+    final above = bounds.top - height - gap >= minTop;
     final top = above ? bounds.top - height - gap : bounds.bottom + gap;
     return Positioned(
-      left: 0,
-      right: 0,
-      top: top.clamp(0, view.size.height - height),
+      left: insets.left,
+      right: insets.right,
+      top: top.clamp(minTop, maxTop),
       child: Center(child: SelectionMenu(selection: selection)),
     );
   }

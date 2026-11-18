@@ -114,7 +114,7 @@ class SelectionHandler extends ChangeNotifier implements PaperInput {
   bool get menuShown =>
       selection.isNotEmpty &&
       paper.pointer.value == PointerDeviceKind.touch &&
-      _press == null &&
+      !_dragging &&
       paper.editingText == null;
 
   // Pointer state of the current press.
