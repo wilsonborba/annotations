@@ -8,7 +8,8 @@
 /// Hooks for later issues: [apply] runs every edit of a tool (text #27, pens
 /// #28, points #29, erasers #30, selection #32, attachments #34) and saves an
 /// accepted result; [select] sets the selection (#32); [activeInk] carries the
-/// stroke being drawn (#28); [locked] is read by the view lock (#33).
+/// stroke being drawn (#28, the draw handler); [locked] is read by the view lock
+/// (#33).
 library;
 
 import 'dart:math' as math;
@@ -133,9 +134,19 @@ class PaperHandler extends ChangeNotifier {
   /// Navigation never starts during an active ink stroke (B8).
   bool get navigationBlocked => locked || activeInk.value != null;
 
-  /// Which objects a pointer reaches: Type mode until annotations#28 adds
-  /// the Draw mode.
-  SelectionTool tool = SelectionTool.type;
+  SelectionTool _tool = SelectionTool.type;
+
+  /// The editing mode of this editor: Type or Draw (B5). It decides which
+  /// objects a pointer reaches. Local state of this editor, never note
+  /// data: each Instant participant keeps their own mode. Editing starts in
+  /// Type mode; the draw handler switches it.
+  SelectionTool get tool => _tool;
+  set tool(SelectionTool value) {
+    if (value == _tool) return;
+    _tool = value;
+    hover.value = null;
+    notifyListeners();
+  }
 
   ValueListenable<SaveState> get saveState => autosave.state;
 

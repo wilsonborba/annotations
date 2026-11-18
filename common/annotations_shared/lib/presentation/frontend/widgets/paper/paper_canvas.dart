@@ -6,8 +6,10 @@ import 'package:flutter/physics.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 
+import '../../../../domain/services/object_selection.dart';
 import '../../components/paper_guides.dart';
 import '../../components/tokens.dart';
+import '../../handlers/draw_handler.dart';
 import '../../handlers/paper_handler.dart';
 import 'paper_layers.dart';
 
@@ -20,6 +22,9 @@ import 'paper_layers.dart';
 /// zooms. A mouse drag and the pen never move the page: they are kept for
 /// selection (annotations#32) and writing (annotations#28).
 ///
+/// [input] gets every pointer event of the page (the Draw mode pens and
+/// shapes). A stroke in progress blocks navigation (B8).
+///
 /// [foreground] is the hook for widgets placed on the page by later tools
 /// (a live text editor, cards); it gets the current view. [onTap] gets a
 /// click or tap on the page that no foreground widget took, in screen
@@ -28,11 +33,13 @@ class PaperCanvas extends StatefulWidget {
   final PaperHandler handler;
   final Widget Function(BuildContext context, PaperView view)? foreground;
   final void Function(Offset local, Offset global)? onTap;
+  final PaperInput? input;
   const PaperCanvas({
     super.key,
     required this.handler,
     this.foreground,
     this.onTap,
+    this.input,
   });
 
   @override
@@ -48,6 +55,9 @@ class _PaperCanvasState extends State<PaperCanvas>
   Offset _flingLast = Offset.zero;
   Offset? _lastFocal;
   double _lastScale = 1;
+
+  /// True when a stroke blocked this gesture: it ends without momentum.
+  bool _blocked = false;
 
   @override
   void initState() {
@@ -99,9 +109,11 @@ class _PaperCanvasState extends State<PaperCanvas>
     _fling.stop();
     _lastFocal = d.localFocalPoint;
     _lastScale = 1;
+    _blocked = handler.navigationBlocked;
   }
 
   void _scaleUpdate(ScaleUpdateDetails d) {
+    if (handler.navigationBlocked) _blocked = true;
     final last = _lastFocal ?? d.localFocalPoint;
     if (d.scale != _lastScale && d.scale > 0) {
       handler.zoomBy(d.scale / _lastScale, focal: d.localFocalPoint);
@@ -114,7 +126,10 @@ class _PaperCanvasState extends State<PaperCanvas>
   void _scaleEnd(ScaleEndDetails d) {
     _lastFocal = null;
     final v = d.velocity.pixelsPerSecond;
-    if (d.pointerCount > 1 || v.distance < 50 || handler.navigationBlocked) {
+    if (d.pointerCount > 1 ||
+        v.distance < 50 ||
+        handler.navigationBlocked ||
+        _blocked) {
       return;
     }
     final friction = handler.settings.flingFriction;
@@ -177,10 +192,20 @@ class _PaperCanvasState extends State<PaperCanvas>
           autofocus: true,
           onKeyEvent: _key,
           child: MouseRegion(
+            // Draw mode shows a precise pointer over the page.
+            cursor: handler.tool == SelectionTool.draw
+                ? SystemMouseCursors.precise
+                : MouseCursor.defer,
             onHover: (e) => handler.hoverAt(e.localPosition, e.kind),
             onExit: (_) => handler.endHover(),
             child: Listener(
-              onPointerDown: (e) => handler.pointerDown(e.kind),
+              onPointerDown: (e) {
+                handler.pointerDown(e.kind);
+                widget.input?.pointerDown(e);
+              },
+              onPointerMove: widget.input?.pointerMove,
+              onPointerUp: widget.input?.pointerUp,
+              onPointerCancel: widget.input?.pointerCancel,
               onPointerSignal: _signal,
               child: RawGestureDetector(
                 gestures: {
