@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import '../../dal/local/preferences_adapter.dart';
+import '../models/toolbar_placement.dart';
 import 'draw_tools.dart';
 
 class Preferences extends ChangeNotifier {
@@ -20,6 +21,9 @@ class Preferences extends ChangeNotifier {
   /// The active drawing tool and the settings that each tool remembers
   /// (B6.2), kept on this device. Never note data.
   DrawTools drawTools = DrawTools.initial();
+
+  /// Where the editor toolbar sits (B7 rule 7), kept on this device.
+  ToolbarPlacement toolbar = const ToolbarPlacement();
   Preferences({PreferencesAdapter? storage})
     : storage = storage ?? PreferencesAdapter();
   Future<void> load() async {
@@ -33,6 +37,14 @@ class Preferences extends ChangeNotifier {
         : ThemeMode.system;
     spaceLimitMessage = await storage.read('spaceLimitMessage') != 'off';
     fingerDrawing = await storage.read('fingerDrawing') == 'on';
+    final toolbarValue = await storage.read('toolbar');
+    if (toolbarValue != null) {
+      try {
+        toolbar = ToolbarPlacement.fromJson(jsonDecode(toolbarValue));
+      } on FormatException {
+        toolbar = const ToolbarPlacement();
+      }
+    }
     final tools = await storage.read('drawTools');
     if (tools != null) {
       try {
@@ -66,6 +78,11 @@ class Preferences extends ChangeNotifier {
     fingerDrawing = on;
     notifyListeners();
     await storage.write('fingerDrawing', on ? 'on' : 'off');
+  }
+
+  Future<void> saveToolbar(ToolbarPlacement value) async {
+    toolbar = value;
+    await storage.write('toolbar', jsonEncode(value.toJson()));
   }
 
   Future<void> _drawWrites = Future.value();

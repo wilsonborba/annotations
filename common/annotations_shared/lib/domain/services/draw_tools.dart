@@ -22,9 +22,10 @@ enum DrawTool {
   brush,
   highlighter,
   shapes,
-  eraser;
+  eraser,
+  select;
 
-  /// The pen of this tool, or null for the shapes and the eraser.
+  /// The pen of this tool, or null for the shapes, the eraser and select.
   InkTool? get pen => InkTool.parse(name);
 
   static DrawTool? parse(Object? value) {
@@ -218,7 +219,7 @@ final class DrawTools {
   /// The settings of [tool] with [change]. Other tools keep theirs.
   DrawTools changed(DrawTool tool, InkStyleChange change) {
     final pen = tool.pen;
-    if (tool == DrawTool.eraser) return this;
+    if (tool == DrawTool.eraser || tool == DrawTool.select) return this;
     if (pen == null) {
       return DrawTools(
         active: active,

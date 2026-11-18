@@ -437,6 +437,18 @@ class DrawHandler extends ChangeNotifier implements PaperInput {
       _beginErase(e, p);
       return;
     }
+    if (_tools.active == DrawTool.select) {
+      // The selection tool selects the drawing under the pointer (B7 rule 3);
+      // box and lasso gestures come with annotations#32.
+      final hit = paper.selector.hit(paper.document, p, SelectionTool.draw);
+      paper.select(
+        hit == null ? ObjectSelection.empty : ObjectSelection([hit]),
+      );
+      _pointer = null;
+      _kind = null;
+      notifyListeners();
+      return;
+    }
     final pen = _tools.active.pen;
     if (pen == null) {
       _shapeStart = p;

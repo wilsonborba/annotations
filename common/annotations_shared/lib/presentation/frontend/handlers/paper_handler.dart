@@ -189,6 +189,29 @@ class PaperHandler extends ChangeNotifier {
     return decision;
   }
 
+  /// Notes Undo and Redo (B2 G2); Instant has neither.
+  bool get hasHistory => session is NotesEditor;
+  bool get canUndo => switch (session) {
+    final NotesEditor notes => notes.canUndo,
+    _ => false,
+  };
+  bool get canRedo => switch (session) {
+    final NotesEditor notes => notes.canRedo,
+    _ => false,
+  };
+
+  void undo() {
+    if (session case final NotesEditor notes when notes.undo().moved) {
+      _changed();
+    }
+  }
+
+  void redo() {
+    if (session case final NotesEditor notes when notes.redo().moved) {
+      _changed();
+    }
+  }
+
   /// Keeps an edit that a tool committed to [session] itself: the live text
   /// editor commits through its text binding (annotations#27).
   void edited() => _changed();

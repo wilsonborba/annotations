@@ -1,21 +1,18 @@
 import 'package:flutter/material.dart';
 
-import '../../components/controls.dart';
-import '../../components/draw_controls.dart';
-import '../../components/icons.dart';
 import '../../components/paper_controls.dart';
 import '../../components/save_state.dart';
 import '../../components/scope.dart';
-import '../../components/text_tools.dart';
 import '../../components/theme.dart';
 import '../../components/tokens.dart';
+import '../../../../domain/models/toolbar_placement.dart';
 import '../../handlers/draw_handler.dart';
 import '../../handlers/paper_handler.dart';
 import '../../handlers/point_edit_handler.dart';
 import '../../handlers/text_handler.dart';
-import 'draw_toolbar.dart';
 import 'eraser_layer.dart';
 import 'paper_canvas.dart';
+import 'paper_toolbar.dart';
 import 'point_edit_layer.dart';
 import 'text_block_editor.dart';
 
@@ -64,6 +61,101 @@ class _PaperScreenState extends State<PaperScreen> {
   TextHandler? _own;
   DrawHandler? _ownDraw;
   PointEditHandler? _ownPoints;
+
+  ToolbarPlacement? _placement;
+
+  /// The toolbar position while its move handle drags it (local offset).
+  Offset? _dragAt;
+
+  ToolbarPlacement get placement =>
+      _placement ?? AppScope.of(context).preferences.toolbar;
+
+  void _place(ToolbarPlacement value) {
+    setState(() {
+      _placement = value;
+      _dragAt = null;
+    });
+    AppScope.of(context).preferences.saveToolbar(value);
+  }
+
+  /// The margin between the toolbar and the screen edges.
+  static const _margin = 12.0;
+
+  /// A drop this close to an edge docks the toolbar there.
+  static const _dock = 56.0;
+
+  Offset _local(Offset global) {
+    final box = context.findRenderObject() as RenderBox?;
+    return box == null ? global : box.globalToLocal(global);
+  }
+
+  void _drop(Offset global, Size size) {
+    final p = _local(global);
+    final edge = p.dy < _dock
+        ? ToolbarEdge.top
+        : p.dy > size.height - _dock
+        ? ToolbarEdge.bottom
+        : p.dx < _dock
+        ? ToolbarEdge.left
+        : p.dx > size.width - _dock
+        ? ToolbarEdge.right
+        : ToolbarEdge.floating;
+    _place(
+      edge == ToolbarEdge.floating
+          ? placement.floating(p.dx / size.width, p.dy / size.height)
+          : placement.docked(edge),
+    );
+  }
+
+  /// The toolbar at its placement, inside the screen. A keyboard that would
+  /// cover it moves it up; the stored placement stays, so it comes back
+  /// (B7 rule 8).
+  Widget _toolbar(BuildContext context, Size size) {
+    final keyboard = MediaQuery.viewInsetsOf(context).bottom;
+    final p = placement;
+    final vertical = p.edge.vertical;
+    final bar = PaperToolbar(
+      paper: widget.handler,
+      draw: draw,
+      text: text,
+      points: points,
+      placement: p,
+      onPlacement: _place,
+      onDrag: (g) => setState(() => _dragAt = _local(g)),
+      onDrop: (g) => _drop(g, size),
+      extent: (vertical ? size.height : size.width) - 2 * _margin,
+    );
+    final drag = _dragAt;
+    final Alignment align;
+    if (drag != null) {
+      align = Alignment(
+        (drag.dx / size.width * 2 - 1).clamp(-1.0, 1.0),
+        (drag.dy / size.height * 2 - 1).clamp(-1.0, 1.0),
+      );
+    } else {
+      align = switch (p.edge) {
+        ToolbarEdge.top => Alignment.topCenter,
+        ToolbarEdge.bottom => Alignment.bottomCenter,
+        ToolbarEdge.left => Alignment.centerLeft,
+        ToolbarEdge.right => Alignment.centerRight,
+        ToolbarEdge.floating => Alignment(p.x * 2 - 1, p.y * 2 - 1),
+      };
+    }
+    final lowHalf = align.y > 0;
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+        _margin,
+        _margin,
+        _margin,
+        _margin + (keyboard > 0 && lowHalf ? keyboard : 0),
+      ),
+      child: Align(
+        key: const Key('toolbar-place'),
+        alignment: align,
+        child: bar,
+      ),
+    );
+  }
 
   TextHandler get text => widget.text ?? _own!;
   DrawHandler get draw => widget.draw ?? _ownDraw!;
@@ -114,52 +206,17 @@ class _PaperScreenState extends State<PaperScreen> {
           ],
         ),
       ),
-      Positioned(
-        top: 12,
-        left: 12,
-        right: 12,
-        child: Center(
-          child: ListenableBuilder(
-            listenable: Listenable.merge([draw, text, points, widget.handler]),
-            builder: (context, _) => Wrap(
-              alignment: WrapAlignment.center,
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                ModeSwitch(mode: draw.mode, onChanged: draw.setMode),
-                if (draw.isDrawMode && points.active)
-                  PointEditPanel(points: points)
-                else if (draw.isDrawMode) ...[
-                  DrawToolbar(draw: draw),
-                  if (points.selectedTarget case final id?)
-                    Container(
-                      decoration: BoxDecoration(
-                        color: context.colors.surface,
-                        borderRadius: BorderRadius.circular(appPanelRadius),
-                        border: Border.all(color: context.colors.border),
-                      ),
-                      padding: const EdgeInsets.all(2),
-                      child: AppButton.subtle(
-                        key: const Key('edit-points'),
-                        label: context.tr('editPoints'),
-                        icon: AppIcons.path,
-                        onPressed: () => points.start(id),
-                      ),
-                    ),
-                ] else if (text.controller case final controller?)
-                  ListenableBuilder(
-                    listenable: controller,
-                    builder: (context, _) => TextTools(
-                      format: text.format,
-                      baseSize: widget.handler.textStyle.fontSize ?? 16,
-                      settings: widget.handler.settings,
-                      onToggle: text.toggle,
-                      onSize: text.size,
-                      onColor: text.color,
-                    ),
-                  ),
-              ],
-            ),
+      Positioned.fill(
+        child: LayoutBuilder(
+          builder: (context, box) => ListenableBuilder(
+            listenable: Listenable.merge([
+              draw,
+              text,
+              points,
+              widget.handler,
+              widget.handler.selection,
+            ]),
+            builder: (context, _) => _toolbar(context, box.biggest),
           ),
         ),
       ),
