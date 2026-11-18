@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 
+import 'package:annotations_shared/dal/local/picture_composer.dart';
 import 'package:annotations_shared/dal/local/quill_text_engine.dart';
 import 'package:annotations_shared/dal/local/system_clipboard.dart';
 import 'package:annotations_shared/dal/local/text_engine.dart';
@@ -96,6 +98,16 @@ final class FakeSystemClipboard implements SystemClipboard {
     writes++;
     picture = bytes;
     text = null;
+    html = null;
+    return true;
+  }
+
+  /// One item with both formats, as the platform plugin writes it.
+  @override
+  Future<bool> writeTextAndImage(String value, Uint8List png) async {
+    writes++;
+    text = value;
+    picture = png;
     html = null;
     return true;
   }
@@ -461,6 +473,58 @@ void main() {
       expect(files.checked, 1);
     });
 
+    test('text with a picture goes as one item with both', () async {
+      final bytes = Uint8List.fromList([1, 2, 3]);
+      files.pictures['f_i1'] = bytes;
+      final session = NotesEditor(
+        paper([text('t1', 0, 0, body: 'Notes'), image('i1', 304, 0)]),
+      );
+      await clipboard.copy(session, ObjectSelection(['t1', 'i1']));
+      // A text editor reads the text, an image app reads the picture.
+      expect(system.text, 'Notes');
+      expect(system.picture, bytes);
+      expect(system.writes, 1);
+      // The app still pastes its own copy.
+      final edit = await clipboard.paste(
+        session,
+        const InkVec(0, 400),
+        ObjectSelection.empty,
+      );
+      expect(edit.accepted, isTrue);
+      expect(files.stored, isEmpty);
+    });
+
+    test('several pictures are rendered as laid out', () async {
+      Future<Uint8List> png(int w, int h, ui.Color color) async {
+        final recorder = ui.PictureRecorder();
+        ui.Canvas(recorder).drawRect(
+          ui.Rect.fromLTWH(0, 0, w.toDouble(), h.toDouble()),
+          ui.Paint()..color = color,
+        );
+        final image = await recorder.endRecording().toImage(w, h);
+        final data = await image.toByteData(format: ui.ImageByteFormat.png);
+        return data!.buffer.asUint8List();
+      }
+
+      final red = await png(10, 10, const ui.Color(0xFFFF0000));
+      final blue = await png(10, 10, const ui.Color(0xFF0000FF));
+      const composer = UiPictureComposer();
+      final picture = await composer.compose([
+        (bytes: red, left: 100, top: 100, width: 104, height: 100),
+        (bytes: blue, left: 304, top: 200, width: 104, height: 100),
+      ]);
+      expect(picture, isNotNull);
+      final codec = await ui.instantiateImageCodec(picture!);
+      final image = (await codec.getNextFrame()).image;
+      // The outside rectangle of both pictures, one pixel per page unit.
+      expect([image.width, image.height], [308, 200]);
+      final pixels = (await image.toByteData())!;
+      int at(int x, int y) => pixels.getUint32((y * image.width + x) * 4);
+      expect(at(50, 50), 0xFF0000FF, reason: 'red on the left, top');
+      expect(at(250, 150), 0x0000FFFF, reason: 'blue on the right, below');
+      expect(at(250, 50) & 0xFF, 0, reason: 'empty space stays transparent');
+    });
+
     test('ink alone writes empty text and pastes internally', () async {
       final session = NotesEditor(paper([stroke('s1', 10, 10, 50, 10)]));
       system.external(text: 'old');
@@ -695,7 +759,7 @@ void main() {
       expect(jsonEncode(session.document.toJson()), jsonEncode(doc.toJson()));
     });
 
-    test('duplicate places copies below; without space adds nothing', () {
+    test('duplicate takes the first free grid place below; nothing moves', () {
       final doc = paper([
         text('t1', 0, 0),
         stroke('s1', 20, 120, 180, 150),
@@ -705,16 +769,30 @@ void main() {
       final edit = actions.duplicate(session, ObjectSelection(['g1']));
       expect(edit.accepted, isTrue);
       expect(edit.selection.ids, ['n3']);
-      // Bounds height 150 plus the 16 unit gap, on the nearest grid line.
-      expect(itemOf(session.document, 'n1'), containsPair('y', 168));
+      // Bounds height 150: the copy starts at the next whole cell, 152.
+      expect(itemOf(session.document, 'n1'), containsPair('y', 152));
+      expect(itemOf(session.document, 'n1'), containsPair('x', 0));
       expect(itemOf(session.document, 'n3')['members'], ['n1', 'n2']);
 
-      final full = paper([text('t1', 0, 0), text('t2', 0, 112)]);
+      // A block right below: the copy goes past it at the same x.
+      final full = paper([
+        text('t1', 0, 0),
+        text('t2', 0, 112),
+        text('t3', 0, 320),
+      ]);
       final s2 = NotesEditor(full);
-      final blocked = actions.duplicate(s2, ObjectSelection(['t1']));
-      expect(blocked.accepted, isFalse);
-      expect(jsonEncode(s2.document.toJson()), jsonEncode(full.toJson()));
-      expect(s2.stepsBack, 0);
+      final moved = actions.duplicate(s2, ObjectSelection(['t1']));
+      expect(moved.accepted, isTrue, reason: '${moved.error}');
+      final copy = itemOf(s2.document, moved.selection.ids.single);
+      expect([copy['x'], copy['y']], [0, 216]);
+      for (final id in ['t1', 't2', 't3']) {
+        expect(itemOf(s2.document, id), itemOf(full, id));
+      }
+      expect(s2.stepsBack, 1);
+      // The page grows: a copy below the lowest block also fits.
+      final again = actions.duplicate(s2, ObjectSelection(['t3']));
+      expect(again.accepted, isTrue);
+      expect(itemOf(s2.document, again.selection.ids.single)['y'], 424);
     });
   });
 }

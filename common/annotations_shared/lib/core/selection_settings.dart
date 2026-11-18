@@ -5,7 +5,6 @@ final class SelectionSettings {
   const SelectionSettings({
     this.inkHitRadius = 6,
     this.lassoCoverage = 1.0,
-    this.duplicateGap = 16,
     this.externalTextWidth = 400,
   });
 
@@ -16,10 +15,6 @@ final class SelectionSettings {
   /// The part of the drawn line of a drawing object that must be inside the
   /// lasso to select it: 1.0 means the whole line.
   final double lassoCoverage;
-
-  /// Duplicate places the copies directly below the selection, with this gap.
-  /// It never searches for free space: copies that do not fit are rejected.
-  final num duplicateGap;
 
   /// The widest text block that an external text paste creates. A narrower
   /// space to the right edge of the page makes the block narrower.

@@ -13,6 +13,7 @@
 - *(domain)* Erase part of a shape in partial mode: the untouched outline stays as editable open paths (#22)
 - *(editor)* Pin flutter_quill 11.5.0 behind the Annotations text adapter with the type C guard and the one Notes history (#23)
 - *(domain)* Add the selection and clipboard model for blocks, ink and groups (#24)
+- *(domain)* Copy text and pictures to other apps as one clipboard item, render several pictures as laid out, and duplicate to the first free grid place below (#24)
 - *(dal)* Add the durable local note store with managed attachments, autosave states and crash recovery (#25)
 - *(ui)* Build the Annotations design system with tokens, typography, Spectrum 2 icons and solid surfaces (#18)
 - *(canvas)* Build the long paper canvas with zoom and pan, paper backgrounds, hover borders and honest save states (#26)
