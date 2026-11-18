@@ -168,6 +168,20 @@ const strings = <String, List<String>>{
     'พื้นที่ Asodya สำหรับบันทึก แหล่งข้อมูล และการเชื่อมโยงที่มีประโยชน์',
   ],
   'more': ['Load more', 'Carregar mais', 'โหลดเพิ่มเติม'],
+  'saveSaving': ['Saving', 'Salvando', 'กำลังบันทึก'],
+  'saveSaved': ['Saved', 'Salvo', 'บันทึกแล้ว'],
+  'saveFailed': ['Not saved', 'Não salvo', 'บันทึกไม่สำเร็จ'],
+  'saveRetry': ['Retry', 'Tentar de novo', 'ลองใหม่'],
+  'paper': ['Paper', 'Papel', 'กระดาษ'],
+  'paperBlank': ['Blank', 'Em branco', 'ว่างเปล่า'],
+  'paperRuled': ['Ruled lines', 'Pautado', 'มีเส้นบรรทัด'],
+  'paperGrid': ['Square grid', 'Quadriculado', 'ตารางสี่เหลี่ยม'],
+  'paperDots': ['Dots', 'Pontilhado', 'จุด'],
+  'paperSpacing': ['Spacing', 'Espaçamento', 'ระยะห่าง'],
+  'paperVisibility': ['Visibility', 'Visibilidade', 'ความชัดเจน'],
+  'zoomIn': ['Zoom in', 'Aumentar zoom', 'ซูมเข้า'],
+  'zoomOut': ['Zoom out', 'Diminuir zoom', 'ซูมออก'],
+  'zoomLevel': ['Zoom', 'Zoom', 'การซูม'],
 };
 String translate(String key, String locale) {
   final index = locale == 'pt-BR'

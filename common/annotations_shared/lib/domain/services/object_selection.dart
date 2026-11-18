@@ -91,7 +91,13 @@ final class ObjectSelector {
   /// drawing. Draw mode takes only units that are drawing.
   String? hit(NoteDocument document, InkVec point, SelectionTool tool) {
     final layout = DocumentLayout.of(document);
-    if (layout == null) return null;
+    return layout == null ? null : hitIn(layout, point, tool);
+  }
+
+  /// [hit] in a [DocumentLayout] that the caller keeps for one document
+  /// state, so that pointer hover does not build the layout again on every
+  /// move (annotations#26).
+  String? hitIn(DocumentLayout layout, InkVec point, SelectionTool tool) {
     final ids = layout.ids.reversed.toList();
     if (tool == SelectionTool.type) {
       for (final id in ids) {

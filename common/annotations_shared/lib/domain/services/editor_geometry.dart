@@ -404,7 +404,25 @@ final class DocumentLayout {
   }) {
     final i = _layout.index[id];
     if (i == null || _role(_layout.items[i]) == _Role.group) return false;
-    return _touches(_layout.items[i], p, p, radius, settings);
+    final it = _layout.items[i];
+    // A quick rejection far from the item. The rectangle holds every sample,
+    // node and curve handle, so the curve itself lies inside it.
+    final r = _layout.rects[i];
+    if (_role(it) == _Role.ink && r != null) {
+      final reach =
+          radius +
+          settings.flattenTolerance +
+          (it['kind'] == 'stroke'
+              ? _halfWidth(it)
+              : ((it['line_width'] as num?) ?? 0) / 2);
+      if (p.x < r.left - reach ||
+          p.x > r.right + reach ||
+          p.y < r.top - reach ||
+          p.y > r.bottom + reach) {
+        return false;
+      }
+    }
+    return _touches(it, p, p, radius, settings);
   }
 
   /// The drawn line of a stroke or shape as points in page units, or null for

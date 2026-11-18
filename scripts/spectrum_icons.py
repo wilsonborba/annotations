@@ -33,6 +33,7 @@ ICONS = {
     "Edit": "edit",
     "File": "file",
     "FileText": "fileText",
+    "GridTypeLines": "paper",
     "Image": "image",
     "InfoCircle": "infoCircle",
     "Link": "link",
@@ -44,6 +45,8 @@ ICONS = {
     "Upload": "upload",
     "UserAdd": "userAdd",
     "Video": "video",
+    "ZoomIn": "zoomIn",
+    "ZoomOut": "zoomOut",
 }
 
 SVG = "{http://www.w3.org/2000/svg}"
