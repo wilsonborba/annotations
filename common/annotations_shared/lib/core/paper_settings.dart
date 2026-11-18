@@ -37,6 +37,7 @@ final class PaperSettings {
     ],
     this.limitShake = const Duration(milliseconds: 360),
     this.limitShakeDistance = 4,
+    this.limitMessageMinWidth = 320,
   });
 
   /// The smallest and the largest zoom. Zoom changes only the view.
@@ -107,4 +108,8 @@ final class PaperSettings {
   /// the largest sideways offset in screen pixels. Reduced motion has none.
   final Duration limitShake;
   final double limitShakeDistance;
+
+  /// The narrowest space limit message in screen pixels, so its text stays
+  /// readable over a narrow block (manager decision beba260d).
+  final double limitMessageMinWidth;
 }

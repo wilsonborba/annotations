@@ -97,21 +97,32 @@ class TextBlockLayer extends StatelessWidget {
                         ),
                       ),
                     ),
-                  if (text.messageShown)
-                    Positioned(
-                      left: pad,
-                      top: pad,
-                      width: screen.width,
-                      height: screen.height,
-                      child: SpaceLimitMessage(
-                        onOk: text.ok,
-                        onDontShowAgain: text.dontShowAgain,
-                      ),
-                    ),
                 ],
               ),
             ),
           ),
+          // The message is a temporary overlay anchored at the block (Hippo
+          // beba260d): it covers the block area and, when the block is too
+          // small for readable text, it extends over the paper below and to
+          // the right. It never takes page space or moves a neighbor.
+          if (text.messageShown)
+            Positioned(
+              left: screen.left,
+              top: screen.top,
+              width: math.max(screen.width, settings.limitMessageMinWidth),
+              child: _Shake(
+                ticks: text.shakes,
+                duration: settings.limitShake,
+                distance: settings.limitShakeDistance,
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(minHeight: screen.height),
+                  child: SpaceLimitMessage(
+                    onOk: text.ok,
+                    onDontShowAgain: text.dontShowAgain,
+                  ),
+                ),
+              ),
+            ),
         ],
       );
     },
@@ -134,9 +145,9 @@ Widget _editorTheme(BuildContext context, Widget child) {
   );
 }
 
-/// The short message inside the block area. It covers the text on a solid
-/// surface and never deletes it. It fits the area: a low block gets one row,
-/// and the content scales down when the area is smaller still.
+/// The short space limit message on a solid surface. It covers the text and
+/// never deletes it, and its text keeps the normal UI size (never scaled
+/// down).
 class SpaceLimitMessage extends StatelessWidget {
   final VoidCallback onOk;
   final VoidCallback onDontShowAgain;
@@ -167,52 +178,28 @@ class SpaceLimitMessage extends StatelessWidget {
       label: context.tr('dontShowAgain'),
       onPressed: onDontShowAgain,
     );
-    return LayoutBuilder(
-      builder: (context, box) {
-        final low = box.maxHeight < 56;
-        final width = math.max(box.maxWidth - 12, low ? 560.0 : 320.0);
-        final content = SizedBox(
-          width: width,
-          child: low
-              ? Row(
-                  children: [
-                    Expanded(child: message),
-                    const SizedBox(width: 8),
-                    ok,
-                    const SizedBox(width: 4),
-                    never,
-                  ],
-                )
-              : Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    message,
-                    const SizedBox(height: 6),
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [ok, const SizedBox(width: 4), never],
-                    ),
-                  ],
-                ),
-        );
-        return Semantics(
-          key: const Key('text-limit-message'),
-          liveRegion: true,
-          container: true,
-          child: ColoredBox(
-            color: c.surface,
-            child: Padding(
-              padding: const EdgeInsets.all(6),
-              child: FittedBox(
-                fit: BoxFit.scaleDown,
-                alignment: Alignment.topLeft,
-                child: content,
-              ),
-            ),
+    return Semantics(
+      key: const Key('text-limit-message'),
+      liveRegion: true,
+      container: true,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: c.surface,
+          border: Border.all(color: c.border),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              message,
+              const SizedBox(height: 6),
+              Wrap(spacing: 4, runSpacing: 4, children: [ok, never]),
+            ],
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 }

@@ -23,6 +23,7 @@ import 'package:annotations_shared/presentation/frontend/handlers/text_handler.d
 import 'package:annotations_shared/presentation/frontend/widgets/paper/paper_screen.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter/services.dart';
 import 'package:flutter_quill/flutter_quill.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -404,33 +405,91 @@ void main() {
       await finish(tester);
     });
 
-    testWidgets('the message never moves neighbors or adds page space', (
-      tester,
-    ) async {
-      await pump(tester);
-      await startBlocked(tester);
-      final items = jsonEncode(paper.document.toJson()['items']);
-      final height = paper.pageHeight;
-      final below = tester.getRect(find.byType(PaperScreen));
-      await input(tester, 'a\nb');
-      await tester.pump(const Duration(milliseconds: 100));
-      expect(byKey('text-limit-message'), findsOneWidget);
-      expect(jsonEncode(paper.document.toJson()['items']), items);
-      expect(paper.pageHeight, height);
-      expect(tester.getRect(find.byType(PaperScreen)), below);
-      // The message lies inside the block area on screen.
-      await tester.pumpAndSettle();
-      final b = item('new0')!;
-      final block = Rect.fromPoints(
+    Rect blockOnScreen(String id) {
+      final b = item(id)!;
+      return Rect.fromPoints(
         screenOf((b['x'] as num).toDouble(), (b['y'] as num).toDouble()),
         screenOf(
           (b['x'] as num) + (b['width'] as num) * 1.0,
           (b['y'] as num) + (b['height'] as num) * 1.0,
         ),
       );
+    }
+
+    testWidgets('a one-line block keeps a readable message as an overlay', (
+      tester,
+    ) async {
+      await pump(tester);
+      await startBlocked(tester);
+      final items = jsonEncode(paper.document.toJson()['items']);
+      final height = paper.pageHeight;
+      final screenRect = tester.getRect(find.byType(PaperScreen));
+      await input(tester, 'a\nb');
+      await tester.pumpAndSettle();
+      expect(byKey('text-limit-message'), findsOneWidget);
+      // Nothing moves and the page does not grow (manager decision
+      // beba260dbd7145ae8d1086ea833dc585).
+      expect(jsonEncode(paper.document.toJson()['items']), items);
+      expect(paper.pageHeight, height);
+      expect(tester.getRect(find.byType(PaperScreen)), screenRect);
+      // The text has the normal small UI size and is not scaled down: its
+      // rectangle on screen is its laid out size.
+      final context = tester.element(byKey('text-limit-text'));
+      final small = Theme.of(context).textTheme.bodySmall!.fontSize!;
+      final paragraph = tester.renderObject<RenderParagraph>(
+        find.descendant(
+          of: byKey('text-limit-text'),
+          matching: find.byType(RichText),
+        ),
+      );
+      expect(paragraph.text.style!.fontSize, greaterThanOrEqualTo(small));
+      final shown = tester.getRect(byKey('text-limit-text'));
+      expect(shown.height, closeTo(paragraph.size.height, 0.01));
+      expect(shown.width, closeTo(paragraph.size.width, 0.01));
+      // The overlay starts at the block, is at least as wide as the block
+      // and extends below the short block.
+      final block = blockOnScreen('new0');
       final message = tester.getRect(byKey('text-limit-message'));
-      expect(block.inflate(0.01).contains(message.topLeft), isTrue);
-      expect(block.inflate(0.01).contains(message.bottomRight), isTrue);
+      expect(message.topLeft, offsetMoreOrLessEquals(block.topLeft));
+      expect(message.width, greaterThanOrEqualTo(block.width));
+      expect(message.bottom, greaterThan(block.bottom));
+      // The buttons outside the block area still work.
+      await tester.tap(byKey('text-limit-ok'));
+      await tester.pump();
+      expect(byKey('text-limit-message'), findsNothing);
+      expect(jsonEncode(paper.document.toJson()['items']), items);
+      await finish(tester);
+    });
+
+    testWidgets('a tall block keeps the message inside its area', (
+      tester,
+    ) async {
+      await pump(
+        tester,
+        document: NoteDocument.fromJson({
+          'page': {
+            'width': 1000,
+            'background': {'kind': 'blank'},
+          },
+          'items': [
+            text('next', 40, 400, 440, 24, [
+              {'text': 'Next section'},
+            ]),
+          ],
+        }, schema: schema),
+      );
+      await clickAt(tester, 40, 100);
+      var value = 'line 0';
+      await input(tester, value);
+      for (var i = 1; i < 40 && !texts.limited; i++) {
+        value = '$value\nline $i';
+        await input(tester, value);
+      }
+      expect(texts.limited, isTrue);
+      await tester.pumpAndSettle();
+      final block = blockOnScreen('new0');
+      final message = tester.getRect(byKey('text-limit-message'));
+      expect(message, rectMoreOrLessEquals(block));
       await finish(tester);
     });
 
