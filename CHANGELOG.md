@@ -22,6 +22,7 @@
 - *(ui)* Add Type and Draw modes, the four pens with remembered settings, color choices with a custom picker, and shapes with Edit as path (#28)
 - *(ui)* Add Edit points: drag points and curve handles, add, remove, corner, smooth and handle modes, with buttons and keys, one Undo step per change (#29)
 - *(ui)* Add the eraser: live partial and whole-line erasing of drawings, the pen eraser end, and the red Delete anything mode that removes whole objects and turns off when the eraser is left (#30)
+- *(ui)* Hide the eraser line choice while Delete anything is on and bring back the previous choice after (#30)
 - *(ui)* Add the editor toolbar: dock at any edge or float with a move handle and a position menu, contextual tools, collapse with the active tool and the Delete anything mark, a More menu on narrow screens, Notes Undo and Redo, placement kept on the device, keyboard avoidance and long-press names on touch (#31)
 - *(ui)* Add the explicit Apply pen style action that reshapes only the selected strokes in one step (#28)
 

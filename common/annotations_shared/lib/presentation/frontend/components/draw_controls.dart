@@ -765,11 +765,8 @@ class EraserSettingsPanel extends StatelessWidget {
       child: _Choice(
         key: Key('eraser-mode-${mode.name}'),
         label: context.tr(label),
-        selected: !dangerous && eraser.mode == mode,
-        onTap: () {
-          if (dangerous) onDangerous(false);
-          onMode(mode);
-        },
+        selected: eraser.mode == mode,
+        onTap: () => onMode(mode),
       ),
     );
     return Padding(
@@ -798,17 +795,19 @@ class EraserSettingsPanel extends StatelessWidget {
               onChanged: (v) => onRadius(v.round(), false),
               onEnd: (v) => onRadius(v.round(), true),
             ),
-            const SizedBox(height: 4),
-            Text(context.tr('eraserMode'), style: text.labelMedium),
-            const SizedBox(height: 6),
-            Row(
-              children: [
-                choice(EraserMode.partialStroke, 'eraserPartial'),
-                const SizedBox(width: 4),
-                choice(EraserMode.wholeStroke, 'eraserWhole'),
-              ],
-            ),
+            // Delete anything removes whole objects, so the line choice is
+            // hidden while it is on; the previous choice comes back after.
             if (!dangerous) ...[
+              const SizedBox(height: 4),
+              Text(context.tr('eraserMode'), style: text.labelMedium),
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  choice(EraserMode.partialStroke, 'eraserPartial'),
+                  const SizedBox(width: 4),
+                  choice(EraserMode.wholeStroke, 'eraserWhole'),
+                ],
+              ),
               const SizedBox(height: 4),
               Text(
                 context.tr('eraserNormalHint'),

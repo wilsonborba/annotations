@@ -771,6 +771,26 @@ void main() {
       await finish(tester);
     });
 
+    testWidgets('delete anything hides the line choice and restores it', (
+      tester,
+    ) async {
+      await pump(tester);
+      await toDraw(tester);
+      draw.setEraser(mode: EraserMode.wholeStroke);
+      await eraserPanel(tester);
+      expect(byKey('eraser-mode-wholeStroke'), findsOneWidget);
+      await tester.tap(byKey('eraser-dangerous-on'));
+      await tester.pumpAndSettle();
+      expect(byKey('eraser-mode-wholeStroke'), findsNothing);
+      expect(byKey('eraser-mode-partialStroke'), findsNothing);
+      await tester.tap(byKey('eraser-dangerous-off'));
+      await tester.pumpAndSettle();
+      expect(byKey('eraser-mode-wholeStroke'), findsOneWidget);
+      // The previous choice comes back.
+      expect(draw.tools.eraser.mode, EraserMode.wholeStroke);
+      await finish(tester);
+    });
+
     testWidgets('Instant: the delete anything warning promises no Undo', (
       tester,
     ) async {
