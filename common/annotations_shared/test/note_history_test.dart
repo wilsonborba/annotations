@@ -83,15 +83,15 @@ void main() {
     test('101 commands keep the last 100', () {
       final editor = NotesEditor(paper([text('a', 0, 0)]));
       for (var i = 0; i < 101; i++) {
-        expect(moveBy(editor, 'a', 1).accepted, isTrue);
+        expect(moveBy(editor, 'a', 0, 8).accepted, isTrue);
       }
       expect(editor.stepsBack, 100);
-      expect(itemOf(editor.document, 'a')['x'], 101);
+      expect(itemOf(editor.document, 'a')['y'], 808);
       for (var i = 0; i < 100; i++) {
         expect(editor.undo().moved, isTrue);
       }
       // The first command was dropped: Undo stops at its result.
-      expect(itemOf(editor.document, 'a')['x'], 1);
+      expect(itemOf(editor.document, 'a')['y'], 8);
       expect(editor.canUndo, isFalse);
       expect(editor.undo().moved, isFalse);
       expect(editor.stepsForward, 100);
@@ -103,18 +103,18 @@ void main() {
         settings: const HistorySettings(maxSteps: 3),
       );
       for (var i = 0; i < 5; i++) {
-        moveBy(editor, 'a', 1);
+        moveBy(editor, 'a', 8);
       }
       expect(editor.stepsBack, 3);
     });
 
     test('a new command clears redo', () {
       final editor = NotesEditor(paper([text('a', 0, 0)]));
-      moveBy(editor, 'a', 1);
-      moveBy(editor, 'a', 1);
+      moveBy(editor, 'a', 8);
+      moveBy(editor, 'a', 8);
       editor.undo();
       expect(editor.stepsForward, 1);
-      moveBy(editor, 'a', 0, 5);
+      moveBy(editor, 'a', 0, 8);
       expect(editor.stepsForward, 0);
       expect(editor.canRedo, isFalse);
       expect(editor.stepsBack, 2);
@@ -123,7 +123,7 @@ void main() {
     test('steps back and forward are reported for the notice', () {
       final editor = NotesEditor(paper([text('a', 0, 0)]));
       for (var i = 0; i < 3; i++) {
-        moveBy(editor, 'a', 1);
+        moveBy(editor, 'a', 8);
       }
       final back = editor.undo();
       expect((back.moved, back.stepsBack, back.stepsForward), (true, 2, 1));
@@ -137,7 +137,7 @@ void main() {
 
   group('committed edits only', () {
     test('a rejected candidate never creates a step', () {
-      final editor = NotesEditor(paper([text('a', 0, 0), text('b', 300, 0)]));
+      final editor = NotesEditor(paper([text('a', 0, 0), text('b', 304, 0)]));
       final before = json(editor.document);
       final decision = moveBy(editor, 'a', 250);
       expect(decision.accepted, isFalse);
@@ -168,7 +168,7 @@ void main() {
         paper([
           text('a', 0, 0),
           stroke('s', 10, 300, 90, 320),
-          text('b', 0, 500),
+          text('b', 0, 496),
         ]),
       );
       final states = [json(editor.document)];
@@ -208,7 +208,7 @@ void main() {
     });
 
     test('group and ungroup are steps', () {
-      final editor = NotesEditor(paper([text('a', 0, 0), text('b', 0, 300)]));
+      final editor = NotesEditor(paper([text('a', 0, 0), text('b', 0, 304)]));
       final start = json(editor.document);
       editor.apply(
         HistoryCommand(CommandKind.group),
@@ -304,7 +304,7 @@ void main() {
       final editor = NotesEditor(
         paper([
           stroke('s1', 0, 0, 50, 0),
-          text('t', 0, 100),
+          text('t', 0, 96),
           stroke('s2', 0, 300, 50, 300),
         ]),
       );
@@ -383,7 +383,7 @@ void main() {
       clock = Clock();
       body = '';
       editor = NotesEditor(
-        paper([text('t', 0, 0), text('u', 0, 300)]),
+        paper([text('t', 0, 0), text('u', 0, 304)]),
         clock: clock.call,
       );
     });
@@ -481,7 +481,7 @@ void main() {
       body = '';
       type('a');
       expect(editor.stepsBack, 1);
-      moveBy(editor, 'u', 1);
+      moveBy(editor, 'u', 8);
       type('b');
       expect(editor.stepsBack, 3);
     });
@@ -539,8 +539,8 @@ void main() {
     test('the history is empty when the note is opened again', () {
       final original = paper([text('a', 0, 0)]);
       final editor = EditorSession.open(original) as NotesEditor;
-      moveBy(editor, 'a', 10);
-      moveBy(editor, 'a', 10);
+      moveBy(editor, 'a', 8);
+      moveBy(editor, 'a', 8);
       editor.undo();
       expect((editor.stepsBack, editor.stepsForward), (1, 1));
       // Close: only the document is saved. It holds no history field.
@@ -548,7 +548,7 @@ void main() {
       expect(saved.keys.toSet(), original.toJson().keys.toSet());
       expect(
         jsonEncode(saved),
-        json(editor.rules.move(original, ['a'], 10, 0).document),
+        json(editor.rules.move(original, ['a'], 8, 0).document),
       );
       final reopened =
           EditorSession.open(

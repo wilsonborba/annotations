@@ -16,9 +16,11 @@
 library;
 
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 
+import '../../core/note_limits.dart';
 import '../../core/selection_settings.dart';
 import '../../dal/local/system_clipboard.dart';
 import '../../dal/local/text_engine.dart';
@@ -414,11 +416,12 @@ final class ObjectClipboard {
     final page = document.page.width;
     final spans = await readExternalText();
     if (spans != null) {
-      final width = page < settings.externalTextWidth
-          ? page
-          : settings.externalTextWidth;
+      final width = EditorGrid.floor(
+        page < settings.externalTextWidth ? page : settings.externalTextWidth,
+      );
       final target = _place(at, width, page);
-      final w = page - target.x < width ? page - target.x : width;
+      final room = EditorGrid.floor(page - target.x);
+      final w = room < width ? room : width;
       final num height;
       try {
         height = engine.measureHeight(spans, w);
@@ -443,10 +446,10 @@ final class ObjectClipboard {
     if (bytes == null) return ObjectEdit._(null, selection);
     final picture = await _guard(() => files.storePicture(document, bytes));
     if (picture == null) return ObjectEdit._(null, selection);
-    final target = _place(at, picture.width, page);
-    final width = picture.width < page - target.x
-        ? picture.width
-        : page - target.x;
+    final cells = math.max(EditorGrid.cell, EditorGrid.floor(picture.width));
+    final target = _place(at, cells, page);
+    final room = EditorGrid.floor(page - target.x);
+    final width = cells < room ? cells : room;
     final edit = _pasteItem(session, selection, {
       'id': 'image',
       'kind': 'image',
@@ -537,11 +540,14 @@ String _record(List<String> assigned, String id) {
   return id;
 }
 
-/// The top left corner for an object of [width] at [at], inside the page.
+/// The top left corner for an object of [width] at [at], inside the page: the
+/// grid cell that holds [at] (B2.1), moved left when the object would pass the
+/// page edge.
 InkVec _place(InkVec at, num width, num page) {
-  final maxX = page - width;
-  final x = at.x > maxX ? maxX : at.x;
-  return InkVec(x < 0 ? 0 : x.toDouble(), at.y < 0 ? 0 : at.y);
+  final maxX = EditorGrid.floor(page - width);
+  final x = math.min(EditorGrid.floor(at.x), maxX);
+  final y = EditorGrid.floor(at.y);
+  return InkVec(x < 0 ? 0 : x.toDouble(), y < 0 ? 0 : y.toDouble());
 }
 
 JsonObject _copyJson(JsonObject value) =>

@@ -22,6 +22,31 @@ final class NoteLimits {
   final int maxDocumentBytes;
 }
 
+/// The invisible placement grid of the editor (B2.1). Structured blocks
+/// (text, images, cards, tables, Reports and similar) sit on whole cells;
+/// ink and shape points never snap. The server checks the same cell size.
+abstract final class EditorGrid {
+  /// One cell in logical page units.
+  static const int cell = 8;
+
+  /// Structured kinds whose height the user sets (B3.1: the CSV table area and
+  /// the Reports display area). Their height is on whole cells too; the other
+  /// kinds take a measured or proportional height.
+  static const areaKinds = ['csv_table', 'reports_embed'];
+
+  /// Whether [v] is a whole number of cells.
+  static bool isOn(num v) => v % cell == 0;
+
+  /// The grid line at or before [v]: the cell that contains a click.
+  static int floor(num v) => (v / cell).floor() * cell;
+
+  /// The nearest grid line, for drags and resizes.
+  static int round(num v) => (v / cell).round() * cell;
+
+  /// The grid line at or after [v].
+  static int ceil(num v) => (v / cell).ceil() * cell;
+}
+
 /// Editor settings that the alignment left to implementation (B3: minimum sizes
 /// were not selected). The server does not check them; they only stop an
 /// editor gesture from producing an item that is too small to select again.

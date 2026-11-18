@@ -67,14 +67,14 @@ Map<String, Object?> textItem(String id, num y, List<Object?> spans) => {
   'spans': spans,
 };
 
-/// t1 at y 40 can grow to 60 units before it touches t2 at y 100. In tests
+/// t1 at y 40 can grow to 56 units before it touches t2 at y 96. In tests
 /// every line is 16 units high (the test font at size 16), so three lines fit
 /// and four lines are rejected.
 NotesEditor notes([List<Object?> spans = const []]) =>
     EditorSession.open(
           paper([
             textItem('t1', 40, spans),
-            textItem('t2', 100, [
+            textItem('t2', 96, [
               {'text': 'Below'},
             ]),
           ]),

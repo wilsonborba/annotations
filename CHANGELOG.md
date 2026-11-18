@@ -7,6 +7,7 @@
 - *(core)* Share settings, logs, screen_trail tracking and client errors
 - *(domain)* Add lossless versioned note document models (#19)
 - *(domain)* Add offline editor placement rules with shared rule fixtures (#20)
+- *(domain)* Place structured blocks on the invisible 8-unit grid, snap moves, resizes, pastes and new text blocks to it, and allow CSV tables and PDF previews in Instant (#20)
 - *(domain)* Add one Notes command history with 100 steps and no history in Instant (#21)
 - *(domain)* Add the ink model with four versioned brushes, editable nodes, shapes and partial erasing (#22)
 - *(editor)* Pin flutter_quill 11.5.0 behind the Annotations text adapter with the type C guard and the one Notes history (#23)

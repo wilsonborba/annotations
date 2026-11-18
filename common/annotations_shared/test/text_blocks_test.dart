@@ -34,17 +34,18 @@ import 'fixtures.dart';
 import 'paper_canvas_test.dart' show handlerFor, schema, setWindow, text;
 
 /// A page with a neighbor block below the place where a new block starts
-/// (40, 100): one line fits, a second line would overlap it.
+/// (40, 96, the grid cell of a click at 40, 100): one line fits, a second
+/// line would overlap it.
 NoteDocument neighborNote() => NoteDocument.fromJson({
   'page': {
     'width': 1000,
     'background': {'kind': 'ruled', 'spacing': 32, 'visibility': 0.5},
   },
   'items': [
-    text('below', 40, 130, 420, 24, [
+    text('below', 40, 128, 424, 24, [
       {'text': 'The neighbor block stays where it is.'},
     ]),
-    text('right', 700, 40, 260, 120, [
+    text('right', 696, 40, 264, 120, [
       {'text': 'A block on the right'},
     ]),
   ],
@@ -57,7 +58,7 @@ NoteDocument reviewNote() => NoteDocument.fromJson({
     'background': {'kind': 'ruled', 'spacing': 32, 'visibility': 0.5},
   },
   'items': [
-    text('below', 40, 130, 420, 24, [
+    text('below', 40, 128, 424, 24, [
       {'text': 'The neighbor block stays where it is.'},
     ]),
     text('next', 520, 400, 440, 24, [
@@ -92,11 +93,12 @@ void main() {
       final d = neighborNote();
       final before = jsonEncode(d.toJson());
       final free = place(d, 40, 100)!;
-      expect([free.x, free.y, free.width], [40, 100, 320]);
+      // The block starts in the grid cell of the click.
+      expect([free.x, free.y, free.width], [40, 96, 320]);
       // A block on the right ends the width where it starts.
       expect(place(d, 500, 60)!.width, 200);
       // The page edge ends the width.
-      expect(place(d, 900, 400)!.width, 100);
+      expect(place(d, 900, 400)!.width, 104);
       // No block narrower than the minimum, and none on another block.
       expect(place(d, 680, 60), isNull);
       expect(place(d, 40, 120), isNull, reason: 'one line overlaps below');
@@ -116,7 +118,7 @@ void main() {
         editor,
         'new',
         engine,
-        place: const TextBlockPlace(40, 100, 320),
+        place: const TextBlockPlace(40, 96, 320),
       );
       expect(binding.spans, isEmpty);
       final spans = [
@@ -135,7 +137,7 @@ void main() {
       expect(binding.spans, spans);
       expect(editor.stepsBack, 1);
       final item = binding.stored!.bounds!;
-      expect([item.x, item.y, item.width], [40, 100, 320]);
+      expect([item.x, item.y, item.width], [40, 96, 320]);
       expect(item.height, line(320));
       editor.undo();
       expect(binding.stored, isNull, reason: 'Undo removes the new block');
@@ -256,7 +258,8 @@ void main() {
       expect(stored['spans'], [
         {'text': 'Light reactions'},
       ]);
-      expect([stored['x'], stored['y'], stored['width']], [60, 400, 320]);
+      // The block starts in the grid cell of the click.
+      expect([stored['x'], stored['y'], stored['width']], [56, 400, 320]);
       // A click elsewhere closes the block; a click on it opens it again.
       await clickAt(tester, 600, 700);
       expect(texts.editing, 'new1');
