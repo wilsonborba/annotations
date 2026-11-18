@@ -4,6 +4,7 @@ import 'package:annotations_shared/core/note_limits.dart';
 import 'package:annotations_shared/domain/models/note_document.dart';
 import 'package:annotations_shared/domain/services/editor_rules.dart';
 import 'package:annotations_shared/domain/services/note_history.dart';
+import 'package:annotations_shared/domain/models/stroke_samples_codec.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 NoteDocument paper(List<Object?> items, {String family = 'note-original'}) =>
@@ -37,11 +38,9 @@ Map<String, Object?> stroke(String id, num x0, num y0, num x1, num y1) {
     'width': 2.5,
     'color': '#000000FF',
     'opacity': 1,
-    'samples': {
-      'x': [h(x0), h(x1)],
-      'y': [h(y0), h(y1)],
-      't': [0, 8],
-    },
+    'samples': SampleCodec.encode(
+      SampleColumns(x: [h(x0), h(x1)], y: [h(y0), h(y1)], t: const [0, 8]),
+    ),
     'nodes': [
       {'x': h(x0), 'y': h(y0), 'mode': 'smooth', 'corner': false, 'sample': 0},
       {'x': h(x1), 'y': h(y1), 'mode': 'smooth', 'corner': false, 'sample': 1},

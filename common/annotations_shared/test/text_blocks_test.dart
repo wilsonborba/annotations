@@ -10,6 +10,7 @@ import 'package:annotations_shared/core/paper_settings.dart';
 import 'package:annotations_shared/dal/local/quill_text_engine.dart';
 import 'package:annotations_shared/dal/local/text_engine.dart';
 import 'package:annotations_shared/domain/models/ink.dart';
+import 'package:annotations_shared/domain/models/stroke_samples_codec.dart';
 import 'package:annotations_shared/domain/models/note_document.dart';
 import 'package:annotations_shared/domain/services/editor_rules.dart';
 import 'package:annotations_shared/domain/services/note_history.dart';
@@ -110,11 +111,13 @@ void main() {
             'width': 3,
             'color': '#000000FF',
             'opacity': 1,
-            'samples': {
-              'x': [4000, 30000],
-              'y': [10000, 10000],
-              't': [0, 8],
-            },
+            'samples': SampleCodec.encode(
+              const SampleColumns(
+                x: [4000, 30000],
+                y: [10000, 10000],
+                t: [0, 8],
+              ),
+            ),
             'nodes': [
               {
                 'x': 4000,

@@ -5,6 +5,8 @@
 /// validate editor placement, migrate content or convert representations.
 library;
 
+import 'stroke_samples_codec.dart';
+
 part 'note_items.dart';
 
 enum DocumentFamily {
@@ -103,6 +105,12 @@ sealed class PaperDocument extends NoteDocument {
   }
   late final PageSettings page;
   late final List<DocumentItem> items;
+
+  /// The document without its items, for stores that keep items apart.
+  Map<String, Object?> toJsonWithoutItems() => {
+    for (final e in _object.values.entries)
+      if (e.key != 'items') e.key: _copy(e.value),
+  };
 }
 
 final class OriginalDocument extends PaperDocument {
@@ -214,21 +222,18 @@ final class CurveNode extends DocumentValue {
 
 final class StrokeSamples extends DocumentValue {
   StrokeSamples._(super.object) : super._() {
-    x = _object.integers('x');
-    y = _object.integers('y');
-    time = _object.integers('t');
-    pressure = _object.optionalIntegers('pressure');
-    tilt = _object.optionalIntegers('tilt');
-    for (final entry in {
-      'y': y,
-      't': time,
-      'pressure': pressure,
-      'tilt': tilt,
-    }.entries) {
-      if (entry.value != null && entry.value!.length != x.length) {
-        throw DocumentFormatException('invalid_count', _object.at(entry.key));
-      }
+    // Compact columns (annotations#19); see [SampleCodec].
+    final SampleColumns c;
+    try {
+      c = SampleCodec.decode(_object.integer('count'), _object.string('data'));
+    } on MalformedSamples {
+      throw DocumentFormatException('invalid_samples', _object.at('data'));
     }
+    x = List.unmodifiable(c.x);
+    y = List.unmodifiable(c.y);
+    time = List.unmodifiable(c.t);
+    pressure = c.pressure == null ? null : List.unmodifiable(c.pressure!);
+    tilt = c.tilt == null ? null : List.unmodifiable(c.tilt!);
   }
 
   /// Integer hundredths of logical page units, in document coordinates.

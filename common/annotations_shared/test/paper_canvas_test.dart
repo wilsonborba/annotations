@@ -24,6 +24,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
+import 'package:annotations_shared/domain/models/stroke_samples_codec.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -59,13 +60,15 @@ Map<String, Object?> stroke(
     'width': width,
     'color': color,
     'opacity': 1,
-    'samples': {
-      'x': xs,
-      'y': ys,
-      't': [for (var i = 0; i < samples; i++) i * 8],
-      'pressure': [for (var i = 0; i < samples; i++) 500],
-      'tilt': [for (var i = 0; i < samples; i++) 600],
-    },
+    'samples': SampleCodec.encode(
+      SampleColumns(
+        x: xs,
+        y: ys,
+        t: [for (var i = 0; i < samples; i++) i * 8],
+        pressure: [for (var i = 0; i < samples; i++) 500],
+        tilt: [for (var i = 0; i < samples; i++) 600],
+      ),
+    ),
     'nodes': [
       {
         'x': xs.first,

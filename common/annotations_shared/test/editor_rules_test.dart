@@ -4,7 +4,10 @@ import 'dart:io';
 import 'package:annotations_shared/core/note_limits.dart';
 import 'package:annotations_shared/domain/models/note_document.dart';
 import 'package:annotations_shared/domain/services/editor_rules.dart';
+import 'package:annotations_shared/domain/models/stroke_samples_codec.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import 'fixtures.dart' show cols;
 
 // Unchanged copies of wilsonborba/annotations_api at
 // 5317abb5e5ec5f68bdf42d84e18a8c8d7440ade6, tests/fixtures/editor_rules.
@@ -68,11 +71,9 @@ Map<String, Object?> stroke(String id, num x0, num y0, num x1, num y1) {
     'width': 2.5,
     'color': '#000000FF',
     'opacity': 1,
-    'samples': {
-      'x': [h(x0), h(x1)],
-      'y': [h(y0), h(y1)],
-      't': [0, 8],
-    },
+    'samples': SampleCodec.encode(
+      SampleColumns(x: [h(x0), h(x1)], y: [h(y0), h(y1)], t: const [0, 8]),
+    ),
     'nodes': [
       {'x': h(x0), 'y': h(y0), 'mode': 'smooth', 'corner': false, 'sample': 0},
       {'x': h(x1), 'y': h(y1), 'mode': 'smooth', 'corner': false, 'sample': 1},
@@ -255,10 +256,10 @@ void main() {
 
     test('document limits match the backend', () {
       const limits = NoteLimits();
-      expect(limits.maxItems, 10000);
+      expect(limits.maxItems, 50000);
       expect(limits.maxSamplesPerStroke, 10000);
       expect(limits.maxNodesPerStroke, 1000);
-      expect(limits.maxDocumentBytes, 7500000);
+      expect(limits.maxDocumentBytes, 64 * 1024 * 1024);
       final small = EditorRules(limits: const NoteLimits(maxItems: 1));
       expect(
         small.check(paper([text('t1', 0, 0), text('t2', 300, 0)])),
@@ -308,9 +309,9 @@ void main() {
       expect(d.accepted, isTrue);
       expect(itemOf(d.document, 't1'), containsPair('x', 8));
       expect(itemOf(d.document, 't1'), containsPair('y', 24));
-      final samples = itemOf(d.document, 's1')['samples'] as Map;
-      expect(samples['x'], [2800, 18800]);
-      expect(samples['y'], [14400, 17400]);
+      final samples = cols(itemOf(d.document, 's1')['samples']);
+      expect(samples.x, [2800, 18800]);
+      expect(samples.y, [14400, 17400]);
       final nodes = itemOf(d.document, 's1')['nodes'] as List;
       expect(nodes.first, containsPair('x', 2800));
       expectNeighborsKept(doc, d.document, {'t1', 's1'});
@@ -480,9 +481,9 @@ void main() {
       expect(d.accepted, isTrue);
       final s1 = itemOf(d.document, 's1');
       expect(s1['width'], 5);
-      expect((s1['samples'] as Map)['x'], [10000, 30000]);
-      expect((s1['samples'] as Map)['y'], [10000, 20000]);
-      expect((s1['samples'] as Map)['t'], [0, 8]);
+      expect(cols(s1['samples']).x, [10000, 30000]);
+      expect(cols(s1['samples']).y, [10000, 20000]);
+      expect(cols(s1['samples']).t, [0, 8]);
     });
 
     test('a resize below the minimum size is rejected', () {
@@ -526,8 +527,8 @@ void main() {
       expect((t1['spans'] as List).map((s) => (s as Map)['size']), [30, 24]);
       final s1 = itemOf(d.document, 's1');
       expect(s1['width'], 3.75);
-      expect((s1['samples'] as Map)['x'], [0, 30000]);
-      expect((s1['samples'] as Map)['y'], [18000, 22500]);
+      expect(cols(s1['samples']).x, [0, 30000]);
+      expect(cols(s1['samples']).y, [18000, 22500]);
     });
 
     test('a group scale without a needed measurement never commits', () {
@@ -610,7 +611,7 @@ void main() {
       expect(items, hasLength(6));
       expect(itemOf(d.document, 'p3')['members'], ['p1', 'p2']);
       expect(itemOf(d.document, 'p1'), containsPair('x', 304));
-      expect((itemOf(d.document, 'p2')['samples'] as Map)['x'], [32400, 48400]);
+      expect(cols(itemOf(d.document, 'p2')['samples']).x, [32400, 48400]);
       expectNeighborsKept(doc, d.document, {'p1', 'p2', 'p3'});
       // Without space nothing is added.
       final blocked = rules.duplicate(doc, ['g1'], dx: 100, newId: newId);
@@ -651,10 +652,7 @@ void main() {
       final ink = paper([text('t1', 0, 0), stroke('s1', 3.21, 7.5, 91.13, 9)]);
       final moved = rules.move(ink, ['s1'], 1.234, 0.5);
       expect(moved.accepted, isTrue);
-      expect((itemOf(moved.document, 's1')['samples'] as Map)['x'], [
-        444,
-        9236,
-      ]);
+      expect(cols(itemOf(moved.document, 's1')['samples']).x, [444, 9236]);
     });
 
     test('a typed document has no placement edits', () {

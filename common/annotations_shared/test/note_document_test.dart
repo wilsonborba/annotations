@@ -4,7 +4,7 @@ import 'package:annotations_shared/domain/models/note_document.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 // Unchanged valid fixtures from wilsonborba/annotations_api at
-// d69ed4fc998080e60878856cab253de4200c5f88, tests/fixtures/document_schema/valid.
+// f176b76aee059f9157263499b3e0e08f3244588e, tests/fixtures/document_schema/valid.
 // Schema1 includes compact stroke encoding (decision b593b780).
 final fixtureDirectory = Directory('test/fixtures/document_schema/valid');
 Map<String, dynamic> fixture(String name) =>
@@ -141,7 +141,6 @@ void main() {
         decode(fixture('original-stroke-no-pressure')) as OriginalDocument;
     final unpressured = noPressure.items.single as StrokeItem;
     expect(unpressured.samples.pressure, isNull);
-    expect(unpressured.samples.toJson().containsKey('pressure'), isFalse);
   });
 
   test(
@@ -294,9 +293,9 @@ void main() {
       final value = fixture('original-stroke-round');
       final expected = jsonDecode(jsonEncode(value['document']));
       final document = decode(value) as OriginalDocument;
-      value['document']['items'][0]['samples']['x'][0] = 999;
+      value['document']['items'][0]['samples']['data'] = 'changed';
       final output = document.toJson();
-      (output['items'] as List).first['samples']['x'][0] = 777;
+      (output['items'] as List).first['samples']['count'] = 777;
       final stroke = document.items.single as StrokeItem;
       expect(document.toJson(), expected);
       expect(() => document.items.clear(), throwsUnsupportedError);
@@ -328,16 +327,15 @@ void main() {
       ),
       (
         'original-stroke-flat',
-        (v) => v['document']['items'][0]['samples']['x'][0] = 10.5,
+        (v) => v['document']['items'][0]['samples']['data'] = 10.5,
         'invalid_type',
-        'items[0].samples.x[0]',
+        'items[0].samples.data',
       ),
       (
         'original-stroke-flat',
-        (v) => (v['document']['items'][0]['samples']['pressure'] as List)
-            .removeLast(),
-        'invalid_count',
-        'items[0].samples.pressure',
+        (v) => v['document']['items'][0]['samples']['data'] = 'AQ',
+        'invalid_samples',
+        'items[0].samples.data',
       ),
       (
         'original-stroke-flat',

@@ -12,7 +12,10 @@ import 'package:annotations_shared/domain/services/note_history.dart';
 import 'package:annotations_shared/domain/services/object_clipboard.dart';
 import 'package:annotations_shared/domain/services/object_selection.dart';
 import 'package:annotations_shared/domain/services/rich_paste.dart';
+import 'package:annotations_shared/domain/models/stroke_samples_codec.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import 'fixtures.dart' show cols;
 
 NoteDocument paper(List<Object?> items, {String family = 'note-original'}) =>
     NoteDocument.fromJson({
@@ -55,11 +58,9 @@ Map<String, Object?> stroke(String id, num x0, num y0, num x1, num y1) {
     'width': 2,
     'color': '#000000FF',
     'opacity': 1,
-    'samples': {
-      'x': [h(x0), h(x1)],
-      'y': [h(y0), h(y1)],
-      't': [0, 8],
-    },
+    'samples': SampleCodec.encode(
+      SampleColumns(x: [h(x0), h(x1)], y: [h(y0), h(y1)], t: const [0, 8]),
+    ),
     'nodes': [
       {'x': h(x0), 'y': h(y0), 'mode': 'smooth', 'corner': false, 'sample': 0},
       {'x': h(x1), 'y': h(y1), 'mode': 'smooth', 'corner': false, 'sample': 1},
@@ -319,7 +320,7 @@ void main() {
       // The paste starts in the grid cell of the paste point.
       expect(itemOf(d, 'n1'), containsPair('y', 304));
       expect(itemOf(d, 'n1'), containsPair('x', 0));
-      expect((itemOf(d, 'n2')['samples'] as Map)['y'], [42400, 45400]);
+      expect(cols(itemOf(d, 'n2')['samples']).y, [42400, 45400]);
       expect((itemOf(d, 'n2')['nodes'] as List).first, containsPair('x', 2000));
       // The copy is still editable ink with the same fields.
       final source = itemOf(doc, 's1'), copy = itemOf(d, 'n2');
