@@ -197,25 +197,10 @@ extension InkEditing on EditorRules {
       throw _editorError('not_editable', i, id);
     }
     final shape = DocumentItem.fromJson(it, family: DocumentFamily.original);
-    final nodes = switch (shape) {
-      CircleShape(:final center, :final radius) => _circleNodes(
-        InkVec(center.x.toDouble(), center.y.toDouble()),
-        radius.toDouble(),
-      ),
-      RectangleShape(:final bounds) => _cornerNodes([
-        InkVec(bounds.x.toDouble(), bounds.y.toDouble()),
-        InkVec((bounds.x + bounds.width).toDouble(), bounds.y.toDouble()),
-        InkVec(
-          (bounds.x + bounds.width).toDouble(),
-          (bounds.y + bounds.height).toDouble(),
-        ),
-        InkVec(bounds.x.toDouble(), (bounds.y + bounds.height).toDouble()),
-      ]),
-      TriangleShape(:final points) => _cornerNodes([
-        for (final p in points) InkVec(p.x.toDouble(), p.y.toDouble()),
-      ]),
-      _ => throw _editorError('not_editable', i, id),
-    };
+    final nodes = shape is ShapeItem && shape is! PathShape
+        ? _geometricNodes(shape)
+        : null;
+    if (nodes == null) throw _editorError('not_editable', i, id);
     const geometric = [
       'center',
       'radius',
@@ -515,6 +500,28 @@ extension InkEditing on EditorRules {
   }
   return (i, it);
 }
+
+/// The closed outline of a circle, rectangle or triangle as path nodes with
+/// the same look; null for other shapes.
+List<InkNode>? _geometricNodes(ShapeItem shape) => switch (shape) {
+  CircleShape(:final center, :final radius) => _circleNodes(
+    InkVec(center.x.toDouble(), center.y.toDouble()),
+    radius.toDouble(),
+  ),
+  RectangleShape(:final bounds) => _cornerNodes([
+    InkVec(bounds.x.toDouble(), bounds.y.toDouble()),
+    InkVec((bounds.x + bounds.width).toDouble(), bounds.y.toDouble()),
+    InkVec(
+      (bounds.x + bounds.width).toDouble(),
+      (bounds.y + bounds.height).toDouble(),
+    ),
+    InkVec(bounds.x.toDouble(), (bounds.y + bounds.height).toDouble()),
+  ]),
+  TriangleShape(:final points) => _cornerNodes([
+    for (final p in points) InkVec(p.x.toDouble(), p.y.toDouble()),
+  ]),
+  _ => null,
+};
 
 List<InkNode> _cornerNodes(List<InkVec> points) => [
   for (final p in points)

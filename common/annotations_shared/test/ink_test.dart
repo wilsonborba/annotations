@@ -868,25 +868,104 @@ void main() {
       expect(jsonEncode(editor.document.toJson()), jsonEncode(doc.toJson()));
     });
 
-    test('a shape is erased whole by the normal eraser', () {
+    NoteDocument square() => paper([
+      InkShapes.rectangle(
+        'r',
+        const InkVec(100, 100),
+        100,
+        100,
+        const ShapeStyle(color: '#000000FF', lineWidth: 2, fill: '#BFDBFE80'),
+      ),
+    ]);
+
+    test('whole-stroke mode removes a touched shape', () {
+      final e = rules.erase(
+        square(),
+        from: const InkVec(100, 150),
+        to: const InkVec(100, 150),
+        radius: 3,
+        mode: EraserMode.wholeStroke,
+        newId: newId,
+      );
+      expect(idsOf(e.document), isEmpty);
+    });
+
+    test('partial mode leaves the untouched outline as an editable path', () {
+      final d = square();
+      final editor = NotesEditor(d);
+      final e = editor.apply(
+        HistoryCommand(CommandKind.erase),
+        (rules, doc) => rules.erase(
+          doc,
+          from: const InkVec(100, 150),
+          to: const InkVec(100, 150),
+          radius: 3,
+          mode: EraserMode.partialStroke,
+          newId: newId,
+        ),
+      );
+      expect(e.accepted, isTrue, reason: '${e.error}');
+      final items = editor.document.toJson()['items'] as List;
+      expect(items, hasLength(1), reason: 'one piece: the outline continues');
+      final path = items.single as Map;
+      expect(path['id'], isNot('r'));
+      expect(path['shape'], 'path');
+      expect(path['closed'], isFalse);
+      expect(path['color'], '#000000FF');
+      expect(path['line_width'], 2);
+      expect(path.containsKey('fill'), isFalse);
+      // The open path runs from below the gap round the square to above it:
+      // the three other corners stay as nodes.
+      final nodes = [
+        for (final n in path['nodes'] as List)
+          ((n as Map)['x'] as int, n['y'] as int),
+      ];
+      expect(nodes, contains((20000, 10000)));
+      expect(nodes, contains((20000, 20000)));
+      expect(nodes, contains((10000, 10000)));
+      final ends = [nodes.first, nodes.last];
+      for (final (x, y) in ends) {
+        expect(x, 10000);
+        expect((y - 15000).abs(), greaterThan(300));
+        expect((y - 15000).abs(), lessThan(800));
+      }
+      // The path is editable like any path: a node moves.
+      final moved = editor.rules.moveNode(
+        editor.document,
+        path['id'] as String,
+        1,
+        5,
+        0,
+      );
+      expect(moved.accepted, isTrue, reason: '${moved.error}');
+      // One Undo restores the original shape.
+      editor.undo();
+      expect(jsonEncode(editor.document.toJson()), jsonEncode(d.toJson()));
+    });
+
+    test('partial mode across a circle splits it into two paths', () {
       final d = paper([
-        InkShapes.rectangle(
-          'r',
-          const InkVec(100, 100),
-          100,
-          100,
-          const ShapeStyle(color: '#000000FF', lineWidth: 2),
+        InkShapes.circle(
+          'c',
+          const InkVec(300, 300),
+          50,
+          const ShapeStyle(color: '#3D5AFEFF', lineWidth: 2),
         ),
       ]);
       final e = rules.erase(
         d,
-        from: const InkVec(100, 150),
-        to: const InkVec(100, 150),
-        radius: 3,
+        from: const InkVec(240, 300),
+        to: const InkVec(360, 300),
+        radius: 4,
         mode: EraserMode.partialStroke,
         newId: newId,
       );
-      expect(idsOf(e.document), isEmpty);
+      final items = e.document.toJson()['items'] as List;
+      expect(items, hasLength(2));
+      for (final it in items.cast<Map>()) {
+        expect(it['shape'], 'path');
+        expect(it['closed'], isFalse);
+      }
     });
   });
 }
