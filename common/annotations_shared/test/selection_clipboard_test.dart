@@ -204,6 +204,23 @@ void main() {
       );
     });
 
+    test('ink is transparent in Type mode and selected only in Draw mode', () {
+      // A click on free ink over empty paper is empty paper in Type mode.
+      expect(
+        selector.hit(doc, const InkVec(100, 410), SelectionTool.type),
+        null,
+      );
+      expect(
+        selector.hit(doc, const InkVec(100, 410), SelectionTool.draw),
+        'g2',
+      );
+      // Box and select all take only units with a block in Type mode.
+      final page = (const InkVec(-10, -10), const InkVec(990, 990));
+      expect(selector.box(doc, page.$1, page.$2).ids, ['t1', 'g1']);
+      expect(selector.all(doc).ids, ['t1', 'g1']);
+      expect(selector.all(doc, tool: SelectionTool.draw).ids, ['s1', 'g2']);
+    });
+
     test('a member selects its whole group', () {
       expect(
         selector.hit(doc, const InkVec(450, 50), SelectionTool.type),
@@ -227,7 +244,8 @@ void main() {
       expect(s.ids, ['t1', 'g1']);
       s = selector.toggle(doc, s, 't1');
       expect(s.ids, ['g1']);
-      expect(selector.all(doc).ids, ['t1', 's1', 'g1', 'g2']);
+      // Ink is selected only in Draw mode (B2.4).
+      expect(selector.all(doc).ids, ['t1', 'g1']);
       expect(selector.all(doc, tool: SelectionTool.draw).ids, ['s1', 'g2']);
       final after = paper([text('t1', 0, 0)]);
       expect(selector.prune(after, ObjectSelection(['t1', 'g1'])).ids, ['t1']);
@@ -235,7 +253,8 @@ void main() {
 
     test('a box selects objects completely inside it', () {
       final s = selector.box(doc, const InkVec(-1, -1), const InkVec(300, 300));
-      expect(s.ids, ['t1', 's1']);
+      // Type mode: the block only; the free ink is selected in Draw mode.
+      expect(s.ids, ['t1']);
       final draw = selector.box(
         doc,
         const InkVec(-1, -1),

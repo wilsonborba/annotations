@@ -504,13 +504,14 @@ void main() {
       await golden(tester, 'paper_frames_none_light');
 
       final v = handler.view.value!;
-      final onBox = v.toScreen(const Offset(600, 180));
+      // Type mode hovers blocks; ink and shapes are transparent there (B2.4).
+      final onBox = v.toScreen(const Offset(700, 380));
       final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
       await mouse.addPointer(location: Offset.zero);
       addTearDown(mouse.removePointer);
       await mouse.moveTo(onBox);
       await tester.pump();
-      expect(handler.hover.value, 'box');
+      expect(handler.hover.value, 'img');
       handler.select(ObjectSelection(['img']));
       await tester.pump();
       await golden(tester, 'paper_frames_mouse_light');
@@ -520,7 +521,7 @@ void main() {
       await tester.pump();
       expect(handler.hover.value, isNull);
       final touch = await tester.createGesture(kind: PointerDeviceKind.touch);
-      await touch.down(v.toScreen(const Offset(600, 180)));
+      await touch.down(v.toScreen(const Offset(700, 380)));
       await tester.pump();
       expect(handler.pointer.value, PointerDeviceKind.touch);
       expect(handler.hover.value, isNull);

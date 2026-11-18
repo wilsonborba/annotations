@@ -4,6 +4,10 @@
 ///
 /// Page lengths are logical page units (one unit is one logical pixel at zoom
 /// 1.0). Screen lengths are logical screen pixels and never reach a document.
+library;
+
+import 'draw_settings.dart';
+
 final class PaperSettings {
   const PaperSettings({
     this.minZoom = 0.25,
@@ -29,12 +33,8 @@ final class PaperSettings {
     this.textBlockWidth = 320,
     this.minTextBlockWidth = 40,
     this.textSizes = const [12, 14, 16, 20, 24, 32],
-    this.textColors = const [
-      ('colorBlack', '#000000FF'),
-      ('colorBlue', '#3D5AFEFF'),
-      ('colorRed', '#FF1744FF'),
-      ('colorPurple', '#A201FFFF'),
-    ],
+    this.textColors = DrawSettings.palette,
+    this.colorPickerWidth = 296,
     this.limitShake = const Duration(milliseconds: 360),
     this.limitShakeDistance = 4,
     this.limitMessageMinWidth = 320,
@@ -99,13 +99,19 @@ final class PaperSettings {
   /// no stored size.
   final List<num> textSizes;
 
-  /// The colors of the Color tool besides Automatic (no stored color): the
-  /// string key of the name and the stored #RRGGBBAA value. Note colors never
-  /// change with the mode (B4.4).
+  /// The colors of the Color tool besides Automatic (no stored color) and the
+  /// custom picker: the pen palette of B6.2 (the same values as the pens),
+  /// as string keys of the names and stored #RRGGBBAA values. Note colors
+  /// never change with the mode (B4.4).
   final List<(String, String)> textColors;
 
+  /// The width of the custom color picker under the text tools, in logical
+  /// screen pixels (the width of the drawing tool panel).
+  final double colorPickerWidth;
+
   /// The brief shake of a text block at its space limit (B2.3): duration and
-  /// the largest sideways offset in screen pixels. Reduced motion has none.
+  /// the largest sideways offset in screen pixels. It always plays, also with
+  /// reduced motion (owner decision, annotations#60).
   final Duration limitShake;
   final double limitShakeDistance;
 

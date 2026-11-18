@@ -75,7 +75,8 @@ class TextHandler extends ChangeNotifier {
   bool messageShown = false;
 
   /// One tick per blocked input; the editor shakes the block on a new tick
-  /// unless a shake is running or reduced motion is on.
+  /// unless a shake is running. Reduced motion does not stop it
+  /// (annotations#60).
   final shakes = ValueNotifier(0);
 
   // Opening and closing ---------------------------------------------------

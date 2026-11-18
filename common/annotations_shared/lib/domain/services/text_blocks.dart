@@ -31,9 +31,9 @@ final class TextBlocks {
     return null;
   }
 
-  /// True when nothing is at [point] in Type mode: no block and no ink. A
-  /// click on ink is kept for selecting it (annotations#32); a new block may
-  /// still overlap ink, because free ink reserves no space (B2.4).
+  /// True when no block is at [point] in Type mode. Ink is transparent to
+  /// input in Type mode (B2.4), so a click on ink over empty paper starts a
+  /// block; free ink reserves no space.
   bool isEmptyPaper(DocumentLayout layout, InkVec point) =>
       selector.hitIn(layout, point, SelectionTool.type) == null;
 
