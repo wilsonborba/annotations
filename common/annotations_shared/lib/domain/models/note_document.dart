@@ -105,6 +105,12 @@ sealed class PaperDocument extends NoteDocument {
   }
   late final PageSettings page;
   late final List<DocumentItem> items;
+
+  /// The document without its items, for stores that keep items apart.
+  Map<String, Object?> toJsonWithoutItems() => {
+    for (final e in _object.values.entries)
+      if (e.key != 'items') e.key: _copy(e.value),
+  };
 }
 
 final class OriginalDocument extends PaperDocument {
