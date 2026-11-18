@@ -15,7 +15,7 @@ import '../../../domain/models/ink.dart';
 import '../../../domain/models/note_document.dart';
 import '../../../domain/services/draw_tools.dart';
 import '../../../domain/services/editor_rules.dart'
-    show ShapeStyle, StrokeCapture;
+    show EraserMode, ShapeStyle, StrokeCapture;
 import '../../../domain/services/ink_outline.dart';
 import '../../../domain/services/object_selection.dart';
 import 'controls.dart';
@@ -33,6 +33,7 @@ String drawToolLabel(BuildContext context, DrawTool tool) =>
       DrawTool.brush => 'penBrush',
       DrawTool.highlighter => 'highlighter',
       DrawTool.shapes => 'shapes',
+      DrawTool.eraser => 'eraser',
     });
 
 AppIconData drawToolIcon(DrawTool tool) => switch (tool) {
@@ -41,6 +42,7 @@ AppIconData drawToolIcon(DrawTool tool) => switch (tool) {
   DrawTool.brush => AppIcons.brushPen,
   DrawTool.highlighter => AppIcons.highlighter,
   DrawTool.shapes => AppIcons.shapes,
+  DrawTool.eraser => AppIcons.eraser,
 };
 
 String shapeLabel(BuildContext context, ShapeKind kind) =>
@@ -702,4 +704,194 @@ class MarkPreviewPainter extends CustomPainter {
       old.style.color != style.color ||
       old.style.opacity != style.opacity ||
       old.style.tipAngle != style.tipAngle;
+}
+
+/// The settings of the eraser (B2.6, B6.6): the circle size, the normal
+/// modes (partial or whole stroke, free ink only) and the dangerous
+/// delete-anything mode. Delete anything is off at first, red while on, and
+/// turned on and off with a text button (a critical action has a label).
+class EraserSettingsPanel extends StatelessWidget {
+  final EraserSettings eraser;
+  final bool dangerous, warning, instant;
+  final DrawSettings settings;
+  final void Function(EraserMode mode) onMode;
+  final void Function(num radius, bool done) onRadius;
+  final ValueChanged<bool> onDangerous;
+  final VoidCallback onCloseWarning;
+  const EraserSettingsPanel({
+    super.key,
+    required this.eraser,
+    required this.dangerous,
+    required this.warning,
+    required this.instant,
+    required this.onMode,
+    required this.onRadius,
+    required this.onDangerous,
+    required this.onCloseWarning,
+    this.settings = const DrawSettings(),
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final text = Theme.of(context).textTheme;
+    final radius = eraser.radius.toDouble().clamp(
+      settings.minEraserRadius.toDouble(),
+      settings.maxEraserRadius.toDouble(),
+    );
+    Widget choice(EraserMode mode, String label) => Expanded(
+      child: _Choice(
+        key: Key('eraser-mode-${mode.name}'),
+        label: context.tr(label),
+        selected: !dangerous && eraser.mode == mode,
+        onTap: () {
+          if (dangerous) onDangerous(false);
+          onMode(mode);
+        },
+      ),
+    );
+    return Padding(
+      padding: const EdgeInsets.all(8),
+      child: SizedBox(
+        key: const Key('eraser-settings'),
+        width: 296,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              context.tr(dangerous ? 'eraserDangerous' : 'eraser'),
+              style: text.titleSmall,
+            ),
+            const SizedBox(height: 8),
+            SettingSlider(
+              key: const Key('eraser-size'),
+              label: context.tr('eraserSize'),
+              value: radius,
+              display: '${(radius * 2).round()}',
+              min: settings.minEraserRadius.toDouble(),
+              max: settings.maxEraserRadius.toDouble(),
+              divisions: (settings.maxEraserRadius - settings.minEraserRadius)
+                  .round(),
+              onChanged: (v) => onRadius(v.round(), false),
+              onEnd: (v) => onRadius(v.round(), true),
+            ),
+            const SizedBox(height: 4),
+            Text(context.tr('eraserMode'), style: text.labelMedium),
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                choice(EraserMode.partialStroke, 'eraserPartial'),
+                const SizedBox(width: 4),
+                choice(EraserMode.wholeStroke, 'eraserWhole'),
+              ],
+            ),
+            if (!dangerous) ...[
+              const SizedBox(height: 4),
+              Text(
+                context.tr('eraserNormalHint'),
+                style: text.bodySmall?.copyWith(color: c.textSecondary),
+              ),
+            ],
+            const SizedBox(height: 12),
+            if (dangerous)
+              AppButton(
+                key: const Key('eraser-dangerous-off'),
+                label: context.tr('eraserDangerousOff'),
+                onPressed: () => onDangerous(false),
+              )
+            else
+              AppButton.danger(
+                key: const Key('eraser-dangerous-on'),
+                label: context.tr('eraserDangerousOn'),
+                icon: AppIcons.alertTriangle,
+                onPressed: () => onDangerous(true),
+              ),
+            if (dangerous && warning) ...[
+              const SizedBox(height: 8),
+              Container(
+                key: const Key('eraser-danger-warning'),
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: c.surface,
+                  borderRadius: BorderRadius.circular(appRadius),
+                  border: Border.all(color: c.danger, width: 2),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    AppIcon(AppIcons.alertTriangle, size: 18, color: c.danger),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        context.tr(
+                          instant
+                              ? 'eraserDangerWarningInstant'
+                              : 'eraserDangerWarning',
+                        ),
+                        style: text.bodySmall,
+                      ),
+                    ),
+                    AppIconButton(
+                      key: const Key('eraser-danger-warning-close'),
+                      icon: AppIcons.close,
+                      label: context.tr('close'),
+                      onPressed: onCloseWarning,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// One choice of a small set, with the green selection fill when chosen.
+class _Choice extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  const _Choice({
+    super.key,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Semantics(
+      button: true,
+      selected: selected,
+      child: TextButton(
+        onPressed: onTap,
+        style: ButtonStyle(
+          minimumSize: const WidgetStatePropertyAll(Size(0, 36)),
+          splashFactory: NoSplash.splashFactory,
+          foregroundColor: WidgetStatePropertyAll(
+            selected ? c.onSelection : c.text,
+          ),
+          overlayColor: const WidgetStatePropertyAll(Colors.transparent),
+          backgroundColor: WidgetStateProperty.resolveWith(
+            (s) => selected
+                ? c.selection
+                : s.contains(WidgetState.hovered)
+                ? c.subtle
+                : Colors.transparent,
+          ),
+          shape: WidgetStatePropertyAll(
+            RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(appRadius),
+              side: BorderSide(color: selected ? c.selectionOutline : c.border),
+            ),
+          ),
+        ),
+        child: Text(label, textAlign: TextAlign.center),
+      ),
+    );
+  }
 }

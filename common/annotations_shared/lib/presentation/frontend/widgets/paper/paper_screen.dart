@@ -14,6 +14,7 @@ import '../../handlers/paper_handler.dart';
 import '../../handlers/point_edit_handler.dart';
 import '../../handlers/text_handler.dart';
 import 'draw_toolbar.dart';
+import 'eraser_layer.dart';
 import 'paper_canvas.dart';
 import 'point_edit_layer.dart';
 import 'text_block_editor.dart';
@@ -107,6 +108,7 @@ class _PaperScreenState extends State<PaperScreen> {
           fit: StackFit.expand,
           children: [
             TextBlockLayer(text: text, view: view),
+            EraserLayer(draw: draw, view: view),
             PointEditLayer(points: points, view: view),
             if (widget.foreground != null) widget.foreground!(context, view),
           ],

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../../domain/services/draw_tools.dart';
+import '../../../../domain/services/note_history.dart' show NotesEditor;
 import '../../components/controls.dart';
 import '../../components/draw_controls.dart';
 import '../../components/scope.dart';
@@ -61,6 +62,20 @@ class _ToolButton extends StatelessWidget {
       ListenableBuilder(
         listenable: draw,
         builder: (context, _) {
+          if (tool == DrawTool.eraser) {
+            return EraserSettingsPanel(
+              eraser: draw.tools.eraser,
+              dangerous: draw.dangerous,
+              warning: draw.dangerWarning,
+              instant: draw.paper.session is! NotesEditor,
+              settings: draw.settings,
+              onMode: (mode) => draw.setEraser(mode: mode),
+              onRadius: (radius, done) =>
+                  draw.setEraser(radius: radius, done: done),
+              onDangerous: draw.setDangerous,
+              onCloseWarning: draw.closeDangerWarning,
+            );
+          }
           final shapes = tool == DrawTool.shapes;
           return ToolSettingsPanel(
             tool: tool,
@@ -86,11 +101,15 @@ class _ToolButton extends StatelessWidget {
     ],
     builder: (context, controller, _) {
       final active = draw.tools.active == tool;
-      return AppIconButton(
+      // Delete anything shows a red active state on the eraser (B2.6).
+      final danger = tool == DrawTool.eraser && draw.dangerous;
+      final button = AppIconButton(
         key: Key('draw-tool-${tool.name}'),
         icon: drawToolIcon(tool),
-        label: drawToolLabel(context, tool),
-        selected: active,
+        label: danger
+            ? context.tr('eraserDangerous')
+            : drawToolLabel(context, tool),
+        selected: active && !danger,
         onPressed: () {
           if (!active) {
             controller.close();
@@ -101,6 +120,15 @@ class _ToolButton extends StatelessWidget {
             controller.open();
           }
         },
+      );
+      if (!danger) return button;
+      return DecoratedBox(
+        key: const Key('eraser-danger-state'),
+        decoration: BoxDecoration(
+          color: context.colors.danger,
+          borderRadius: BorderRadius.circular(appRadius),
+        ),
+        child: button,
       );
     },
   );
