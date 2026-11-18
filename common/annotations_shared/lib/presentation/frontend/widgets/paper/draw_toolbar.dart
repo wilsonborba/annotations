@@ -76,6 +76,9 @@ class _ToolButton extends StatelessWidget {
             onEditAsPath: shapes && draw.pathTarget != null
                 ? draw.editAsPath
                 : null,
+            onApplyStyle: tool.pen != null && draw.selectedStrokeIds.isNotEmpty
+                ? () => draw.applyPenStyle(tool)
+                : null,
             settings: draw.settings,
           );
         },

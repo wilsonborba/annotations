@@ -473,6 +473,50 @@ void main() {
       await finish(tester);
     });
 
+    testWidgets('Apply pen style reshapes only the selected strokes', (
+      tester,
+    ) async {
+      await pump(tester);
+      await toDraw(tester);
+      final ink1 = jsonEncode(item('ink1'));
+      final box = jsonEncode(item('box'));
+      draw.selectTool(DrawTool.flat);
+      final flat = draw.tools.pen(InkTool.flat);
+      // Without selected strokes there is no action.
+      expect(draw.applyPenStyle(DrawTool.flat), isNull);
+      paper.select(ObjectSelection(['ink2', 'box']));
+      expect(draw.selectedStrokeIds, ['ink2']);
+      final nodes = item('ink2')!['nodes'];
+      final steps = notes().stepsBack;
+      // The panel of a pen offers the action; the shapes panel does not.
+      await tester.pump();
+      await tester.tap(byKey('draw-tool-flat'));
+      await tester.pumpAndSettle();
+      expect(byKey('apply-pen-style'), findsOneWidget);
+      await tester.tap(byKey('apply-pen-style'));
+      await tester.pumpAndSettle();
+      final ink2 = item('ink2')!;
+      expect(ink2['tool'], 'flat');
+      expect(ink2['width'], flat.width);
+      expect(ink2['color'], flat.color);
+      expect(ink2['nodes'], nodes, reason: 'the points stay, the look changes');
+      expect(notes().stepsBack, steps + 1, reason: 'one Undo step');
+      // Shapes, unselected ink and the tool settings stay.
+      expect(jsonEncode(item('box')), box);
+      expect(jsonEncode(item('ink1')), ink1);
+      expect(draw.tools.pen(InkTool.flat).width, flat.width);
+      notes().undo();
+      expect(item('ink2')!['tool'], 'round');
+      await tester.tapAt(const Offset(5, 635));
+      await tester.pumpAndSettle();
+      await tester.tap(byKey('draw-tool-shapes'));
+      await tester.pump();
+      await tester.tap(byKey('draw-tool-shapes'));
+      await tester.pumpAndSettle();
+      expect(byKey('apply-pen-style'), findsNothing);
+      await finish(tester);
+    });
+
     testWidgets('each tool remembers its settings on this device', (
       tester,
     ) async {
@@ -758,6 +802,10 @@ void main() {
         paper.select(ObjectSelection(['box']));
         await panel(tester, DrawTool.shapes);
         await shot(tester, 'shapes_selected');
+        await close(tester);
+        paper.select(ObjectSelection(['ink2']));
+        await panel(tester, DrawTool.brush);
+        await shot(tester, 'apply_pen_style');
         await close(tester);
         await finish(tester);
         debugDisableShadows = true;
