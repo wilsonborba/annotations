@@ -7,6 +7,12 @@
 /// an accepted candidate enters the document: through [NotesEditor.apply] with
 /// a [HistoryCommand] in Notes, or [InstantEditor.apply] in Instant (no
 /// history). A rejected candidate changes nothing and creates no step.
+///
+/// A new text block (annotations#27) is not stored before its first accepted
+/// input: the binding gets its [TextBlockPlace], and its first commit adds the
+/// item with the typed spans and the measured height in one candidate, checked
+/// by the same editor rules. A block that the user leaves empty is never
+/// stored.
 library;
 
 import '../../dal/local/text_engine.dart';
@@ -14,18 +20,28 @@ import '../models/note_document.dart';
 import 'editor_rules.dart';
 import 'note_history.dart';
 
+/// The page position and width of a new text block that is not stored yet.
+final class TextBlockPlace {
+  const TextBlockPlace(this.x, this.y, this.width);
+  final num x, y, width;
+}
+
 final class TextItemBinding implements TextBinding {
-  TextItemBinding(this.session, this.itemId, this.engine);
+  TextItemBinding(this.session, this.itemId, this.engine, {this.place});
 
   final EditorSession session;
   final String itemId;
   final TextEngine engine;
 
+  /// The place of a new block, used while the item is not in the document.
+  final TextBlockPlace? place;
+
   /// The decision of the last commit attempt, kept for the UI: after a
   /// rejection it has the rule error and the requested spans (B2 feedback).
   EditDecision? lastDecision;
 
-  TextItem get _item {
+  /// The stored item, or null while a new block has no accepted input.
+  TextItem? get stored {
     final document = session.document;
     if (document is! PaperDocument) {
       throw StateError('Text items exist only in paper documents.');
@@ -33,15 +49,19 @@ final class TextItemBinding implements TextBinding {
     for (final item in document.items) {
       if (item is TextItem && item.id == itemId) return item;
     }
-    throw StateError('No text item with this id.');
+    if (place == null) throw StateError('No text item with this id.');
+    return null;
   }
 
   @override
-  TextSpans get spans => [for (final span in _item.spans) span.toJson()];
+  TextSpans get spans => [
+    for (final span in stored?.spans ?? const <TextSpanValue>[]) span.toJson(),
+  ];
 
   @override
   TextCommit commit(TextChange change) {
-    final width = _item.bounds!.width;
+    final item = stored;
+    final width = item?.bounds!.width ?? place!.width;
     final num height;
     try {
       // Validates the candidate against the adapter before it is measured.
@@ -51,13 +71,25 @@ final class TextItemBinding implements TextBinding {
       lastDecision = null;
       return TextCommit.rejected(change, error);
     }
-    EditDecision build(EditorRules rules, NoteDocument document) =>
-        rules.editText(
-          document,
-          itemId,
-          spans: change.spans,
-          measuredHeight: height,
-        );
+    EditDecision build(EditorRules rules, NoteDocument document) => item != null
+        ? rules.editText(
+            document,
+            itemId,
+            spans: change.spans,
+            measuredHeight: height,
+          )
+        : rules.check(document, {
+            'op': 'add',
+            'item': {
+              'id': itemId,
+              'kind': 'text',
+              'x': place!.x,
+              'y': place!.y,
+              'width': width,
+              'height': height,
+              'spans': change.spans,
+            },
+          });
     final decision = lastDecision = switch (session) {
       final NotesEditor notes => notes.apply(_command(change), build),
       final InstantEditor instant => instant.apply(build),

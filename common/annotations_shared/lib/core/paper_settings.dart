@@ -26,6 +26,17 @@ final class PaperSettings {
     this.mouseHandle = 8,
     this.touchHandle = 14,
     this.flingFriction = 0.015,
+    this.textBlockWidth = 320,
+    this.minTextBlockWidth = 40,
+    this.textSizes = const [12, 14, 16, 20, 24, 32],
+    this.textColors = const [
+      ('colorBlack', '#000000FF'),
+      ('colorBlue', '#3D5AFEFF'),
+      ('colorRed', '#FF1744FF'),
+      ('colorPurple', '#A201FFFF'),
+    ],
+    this.limitShake = const Duration(milliseconds: 360),
+    this.limitShakeDistance = 4,
   });
 
   /// The smallest and the largest zoom. Zoom changes only the view.
@@ -77,4 +88,23 @@ final class PaperSettings {
 
   /// The friction of a touch scroll that continues after the finger lifts.
   final double flingFriction;
+
+  /// The widest new text block in page units (B3: the demo width is an
+  /// example). A block ends earlier at the page edge or before a block to
+  /// its right; no block narrower than [minTextBlockWidth] starts.
+  final num textBlockWidth, minTextBlockWidth;
+
+  /// The font sizes of the Size tool. The base size of the text style means
+  /// no stored size.
+  final List<num> textSizes;
+
+  /// The colors of the Color tool besides Automatic (no stored color): the
+  /// string key of the name and the stored #RRGGBBAA value. Note colors never
+  /// change with the mode (B4.4).
+  final List<(String, String)> textColors;
+
+  /// The brief shake of a text block at its space limit (B2.3): duration and
+  /// the largest sideways offset in screen pixels. Reduced motion has none.
+  final Duration limitShake;
+  final double limitShakeDistance;
 }

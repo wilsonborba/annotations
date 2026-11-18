@@ -146,18 +146,23 @@ class AppButton extends StatelessWidget {
 ///
 /// [AppIconButton.navigation] is the round variant. Use it only in the top
 /// navigation.
+///
+/// [selected] marks an active toggle (Bold on): a green fill with a dark
+/// icon, as the active tool (H7 colors rule 3).
 class AppIconButton extends StatelessWidget {
   final AppIconData icon;
   final String label;
   final VoidCallback? onPressed;
   final bool round;
   final double iconSize;
+  final bool? selected;
   const AppIconButton({
     super.key,
     required this.icon,
     required this.label,
     required this.onPressed,
     this.iconSize = 20,
+    this.selected,
   }) : round = false;
 
   const AppIconButton.navigation({
@@ -166,16 +171,19 @@ class AppIconButton extends StatelessWidget {
     required this.label,
     required this.onPressed,
   }) : round = true,
-       iconSize = 20;
+       iconSize = 20,
+       selected = null;
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
     final side = round ? 40.0 : 36.0;
+    final on = selected == true;
     final button = Semantics(
       label: label,
       button: true,
       enabled: onPressed != null,
+      toggled: selected,
       excludeSemantics: true,
       child: TextButton(
         onPressed: onPressed,
@@ -188,6 +196,8 @@ class AppIconButton extends StatelessWidget {
           backgroundColor: WidgetStateProperty.resolveWith(
             (s) => s.contains(WidgetState.disabled)
                 ? Colors.transparent
+                : on
+                ? c.selection
                 : s.contains(WidgetState.pressed)
                 ? c.pressed
                 : s.contains(WidgetState.hovered)
@@ -200,8 +210,13 @@ class AppIconButton extends StatelessWidget {
           shape: WidgetStatePropertyAll(
             round
                 ? const CircleBorder()
-                : const RoundedRectangleBorder(
-                    borderRadius: BorderRadius.all(Radius.circular(appRadius)),
+                : RoundedRectangleBorder(
+                    borderRadius: const BorderRadius.all(
+                      Radius.circular(appRadius),
+                    ),
+                    side: on
+                        ? BorderSide(color: c.selectionOutline)
+                        : BorderSide.none,
                   ),
           ),
         ),
@@ -209,7 +224,11 @@ class AppIconButton extends StatelessWidget {
           builder: (context) => AppIcon(
             icon,
             size: iconSize,
-            color: onPressed == null ? c.iconSecondary : c.icon,
+            color: onPressed == null
+                ? c.iconSecondary
+                : on
+                ? c.onSelection
+                : c.icon,
           ),
         ),
       ),
@@ -224,26 +243,53 @@ class AppIconButton extends StatelessWidget {
 }
 
 /// One row of a menu.
+///
+/// [swatch] shows a color square before the label (the text Color tool);
+/// [checked] marks the current choice of the menu.
 class AppMenuEntry {
   final String label;
   final VoidCallback onSelected;
   final AppIconData? icon;
+  final Color? swatch;
+  final bool checked;
   final Key? key;
   const AppMenuEntry({
     required this.label,
     required this.onSelected,
     this.icon,
+    this.swatch,
+    this.checked = false,
     this.key,
   });
 }
 
 Widget _menuRow(AppMenuEntry entry, {WidgetStatesController? states}) =>
-    MenuItemButton(
-      key: entry.key,
-      onPressed: entry.onSelected,
-      statesController: states,
-      leadingIcon: entry.icon == null ? null : AppIcon(entry.icon!, size: 18),
-      child: Text(entry.label),
+    Builder(
+      builder: (context) => MenuItemButton(
+        key: entry.key,
+        onPressed: entry.onSelected,
+        statesController: states,
+        // Hover does not take the focus, so an open text editor keeps its
+        // selection while a tool menu is used (B7 rule 5).
+        requestFocusOnHover: false,
+        leadingIcon: entry.swatch != null
+            ? Container(
+                width: 18,
+                height: 18,
+                decoration: BoxDecoration(
+                  color: entry.swatch,
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(color: context.colors.control),
+                ),
+              )
+            : entry.icon == null
+            ? null
+            : AppIcon(entry.icon!, size: 18),
+        trailingIcon: entry.checked
+            ? AppIcon(AppIcons.checkmarkCircle, size: 18)
+            : null,
+        child: Semantics(selected: entry.checked, child: Text(entry.label)),
+      ),
     );
 
 /// An icon button that opens a menu: a solid panel with text rows.

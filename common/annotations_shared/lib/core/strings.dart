@@ -182,6 +182,28 @@ const strings = <String, List<String>>{
   'zoomIn': ['Zoom in', 'Aumentar zoom', 'ซูมเข้า'],
   'zoomOut': ['Zoom out', 'Diminuir zoom', 'ซูมออก'],
   'zoomLevel': ['Zoom', 'Zoom', 'การซูม'],
+  'textTools': ['Text tools', 'Ferramentas de texto', 'เครื่องมือข้อความ'],
+  'textSize': ['Text size', 'Tamanho do texto', 'ขนาดตัวอักษร'],
+  'bold': ['Bold', 'Negrito', 'ตัวหนา'],
+  'italic': ['Italic', 'Itálico', 'ตัวเอียง'],
+  'strikethrough': ['Strikethrough', 'Tachado', 'ขีดฆ่า'],
+  'textColor': ['Text color', 'Cor do texto', 'สีตัวอักษร'],
+  'colorAutomatic': ['Automatic', 'Automática', 'อัตโนมัติ'],
+  'colorBlack': ['Black', 'Preto', 'ดำ'],
+  'colorBlue': ['Blue', 'Azul', 'น้ำเงิน'],
+  'colorRed': ['Red', 'Vermelho', 'แดง'],
+  'colorPurple': ['Purple', 'Roxo', 'ม่วง'],
+  'spaceLimit': [
+    'Space limit reached. Resize this block, move nearby content, or continue in an empty area.',
+    'Limite de espaço atingido. Redimensione este bloco, mova o conteúdo próximo ou continue em uma área vazia.',
+    'พื้นที่เต็มแล้ว ปรับขนาดบล็อกนี้ ย้ายเนื้อหาที่อยู่ใกล้ หรือเขียนต่อในพื้นที่ว่าง',
+  ],
+  'ok': ['OK', 'OK', 'ตกลง'],
+  'dontShowAgain': [
+    "Don't show this message again",
+    'Não mostrar esta mensagem novamente',
+    'ไม่ต้องแสดงข้อความนี้อีก',
+  ],
 };
 String translate(String key, String locale) {
   final index = locale == 'pt-BR'

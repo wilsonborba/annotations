@@ -5,6 +5,10 @@ class Preferences extends ChangeNotifier {
   final PreferencesAdapter storage;
   String locale = 'en';
   ThemeMode theme = ThemeMode.system;
+
+  /// False after Don't show this message again on the text space limit
+  /// message (B2.3). Kept on this device; the red border and the shake stay.
+  bool spaceLimitMessage = true;
   Preferences({PreferencesAdapter? storage})
     : storage = storage ?? PreferencesAdapter();
   Future<void> load() async {
@@ -16,6 +20,7 @@ class Preferences extends ChangeNotifier {
         : mode == 'light'
         ? ThemeMode.light
         : ThemeMode.system;
+    spaceLimitMessage = await storage.read('spaceLimitMessage') != 'off';
     notifyListeners();
   }
 
@@ -29,5 +34,11 @@ class Preferences extends ChangeNotifier {
     theme = currentlyDark ? ThemeMode.light : ThemeMode.dark;
     notifyListeners();
     await storage.write('theme', currentlyDark ? 'light' : 'dark');
+  }
+
+  Future<void> hideSpaceLimitMessage() async {
+    spaceLimitMessage = false;
+    notifyListeners();
+    await storage.write('spaceLimitMessage', 'off');
   }
 }

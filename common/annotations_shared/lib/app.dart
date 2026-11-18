@@ -3,6 +3,8 @@ import 'core/tracking.dart';
 import 'dal/remote/api_adapter.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_quill/flutter_quill.dart'
+    show FlutterQuillLocalizations;
 import 'package:go_router/go_router.dart';
 import 'domain/services/preferences.dart';
 import 'domain/services/annotations_service.dart';
@@ -132,6 +134,9 @@ class _AnnotationsAppState extends State<AnnotationsApp> {
         darkTheme: appTheme(Brightness.dark),
         themeMode: preferences.theme,
         routerConfig: router,
+        // The text editor of note blocks needs its localizations (#23).
+        localizationsDelegates:
+            FlutterQuillLocalizations.localizationsDelegates,
         builder: (context, child) => ScreenTrailRoot(
           tracker: tracker,
           child: child ?? const SizedBox.shrink(),
