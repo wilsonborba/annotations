@@ -3,10 +3,10 @@
 /// not viewport dimensions: rotation and zoom never change stored coordinates.
 final class NoteLimits {
   const NoteLimits({
-    this.maxItems = 10000,
+    this.maxItems = 50000,
     this.maxSamplesPerStroke = 10000,
     this.maxNodesPerStroke = 1000,
-    this.maxDocumentBytes = 7500000,
+    this.maxDocumentBytes = 64 * 1024 * 1024,
   });
 
   /// Items in one document, nested ink of typed handwriting blocks included.

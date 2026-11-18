@@ -224,10 +224,10 @@ EditorRect? _circleRect(JsonObject it) {
 }
 
 Iterable<(num, num)> _samplePoints(Object? samples) sync* {
-  final s = samples as Map;
-  final xs = s['x'] as List, ys = s['y'] as List;
-  for (var i = 0; i < math.min(xs.length, ys.length); i++) {
-    yield ((xs[i] as int) / 100, (ys[i] as int) / 100);
+  // A schema-valid stroke always decodes.
+  final c = SampleCodec.decodeJson(samples as Map);
+  for (var i = 0; i < c.length; i++) {
+    yield (c.x[i] / 100, c.y[i] / 100);
   }
 }
 
@@ -282,16 +282,23 @@ JsonObject _mapGeometry(JsonObject it, _Map f, num scale) {
 
   switch (it['kind']) {
     case 'stroke':
-      final s = it['samples'] as Map;
-      final xs = s['x'] as List, ys = s['y'] as List;
+      final c = SampleCodec.decodeJson(it['samples'] as Map);
       final nx = <int>[], ny = <int>[];
-      for (var i = 0; i < xs.length; i++) {
-        final (x, y) = f((xs[i] as int) / 100, (ys[i] as int) / 100);
+      for (var i = 0; i < c.length; i++) {
+        final (x, y) = f(c.x[i] / 100, c.y[i] / 100);
         nx.add((x * 100).round());
         ny.add((y * 100).round());
       }
       return {
-        'samples': {...s.cast<String, Object?>(), 'x': nx, 'y': ny},
+        'samples': SampleCodec.encode(
+          SampleColumns(
+            x: nx,
+            y: ny,
+            t: c.t,
+            pressure: c.pressure,
+            tilt: c.tilt,
+          ),
+        ),
         'nodes': _mapNodes(it['nodes'], f),
         if (scale != 1) 'width': (it['width'] as num) * scale,
       };

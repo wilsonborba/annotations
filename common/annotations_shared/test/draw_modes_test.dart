@@ -349,9 +349,9 @@ void main() {
       final s = item('new0')!;
       expect(s['tool'], 'brush');
       expect(s['width'], const DrawSettings().brushWidth);
-      final samples = s['samples'] as Map;
-      expect(samples.containsKey('pressure'), isFalse);
-      expect((samples['x'] as List).length, 11);
+      final samples = cols(s['samples']);
+      expect(samples.pressure, isNull);
+      expect((samples.x as List).length, 11);
       // The outline has the selected width everywhere.
       final outline = strokeOutline(
         DocumentItem.fromJson(s, family: DocumentFamily.original) as StrokeItem,
@@ -417,7 +417,7 @@ void main() {
         ),
       );
       await tester.pump();
-      final pressure = (item('new0')!['samples'] as Map)['pressure'] as List;
+      final pressure = cols(item('new0')!['samples']).pressure as List;
       expect(pressure.first, 200);
       expect(pressure[5], greaterThan(pressure.first as int));
       await drag(tester, line(60, 700), kind: PointerDeviceKind.invertedStylus);

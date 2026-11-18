@@ -86,13 +86,17 @@ final class StrokeCapture {
       'color': brush.color,
       'opacity': brush.opacity,
       if (brush.tool == InkTool.flat) 'tip_angle': brush.tipAngle ?? 0,
-      'samples': {
-        'x': [..._x],
-        'y': [..._y],
-        't': [..._t],
-        if (!_pressure.contains(null)) 'pressure': [..._pressure.cast<int>()],
-        if (!_tilt.contains(null)) 'tilt': [..._tilt.cast<int>()],
-      },
+      'samples': SampleCodec.encode(
+        SampleColumns(
+          x: [..._x],
+          y: [..._y],
+          t: [..._t],
+          pressure: _pressure.contains(null)
+              ? null
+              : [..._pressure.cast<int>()],
+          tilt: _tilt.contains(null) ? null : [..._tilt.cast<int>()],
+        ),
+      ),
       'nodes': [for (final n in nodes) n.toJson()],
     };
   }

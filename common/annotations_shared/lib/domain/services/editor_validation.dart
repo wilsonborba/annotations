@@ -300,37 +300,39 @@ final class _Ctx {
     if (item.number('width') <= 0) _fail('invalid_size', item.at('width'));
     _color(item, 'color');
     _opacity(item);
+    // Compact columns (annotations#19), checked like the backend.
     final samples = _Obj(item.req('samples'), item.at('samples'));
-    samples.allow(['x', 'y', 't', 'pressure', 'tilt']);
-    final xs = samples.ints('x');
-    if (xs.isEmpty) _fail('empty_array', samples.at('x'));
-    if (xs.length > limits.maxSamplesPerStroke) {
+    samples.allow(['count', 'data']);
+    final count = samples.integer('count');
+    if (count < 1) _fail('empty_array', samples.at('count'));
+    if (count > limits.maxSamplesPerStroke) {
       _fail('too_many_samples', item.at('samples'));
     }
-    List<int>? column(String key, bool required) {
-      if (!required && samples.opt(key) == null) return null;
-      final values = samples.ints(key);
-      if (values.length != xs.length) _fail('invalid_count', samples.at(key));
-      return values;
+    final data = samples.at('data');
+    final SampleColumns c;
+    try {
+      c = SampleCodec.decode(count, samples.str('data'));
+    } on MalformedSamples {
+      _fail('invalid_samples', data);
     }
-
-    final ys = column('y', true)!;
-    final ts = column('t', true)!;
-    for (var i = 0; i < xs.length; i++) {
-      area.hundredths(xs[i], ys[i], '${samples.at('x')}[$i]');
+    for (var i = 0; i < c.length; i++) {
+      area.hundredths(c.x[i], c.y[i], data);
     }
+    final ts = c.t;
     for (var i = 0; i < ts.length; i++) {
       if ((i == 0 && ts[i] != 0) || (i > 0 && ts[i] < ts[i - 1])) {
-        _fail('invalid_sample_order', '${samples.at('t')}[$i]');
+        _fail('invalid_sample_order', data);
       }
     }
-    for (final (key, max) in [('pressure', _pressureMax), ('tilt', _tiltMax)]) {
-      final values = column(key, false);
-      if (values == null) continue;
-      final i = values.indexWhere((v) => v < 0 || v > max);
-      if (i >= 0) _fail('out_of_range', '${samples.at(key)}[$i]');
+    for (final (values, max) in [
+      (c.pressure, _pressureMax),
+      (c.tilt, _tiltMax),
+    ]) {
+      if (values != null && values.any((v) => v < 0 || v > max)) {
+        _fail('out_of_range', data);
+      }
     }
-    nodes(item, 'nodes', area, xs.length);
+    nodes(item, 'nodes', area, c.length);
   }
 
   /// Editable nodes and handles use integer 1/100 page units.

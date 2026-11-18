@@ -198,7 +198,8 @@ List<InkNode> _nodesOf(JsonObject stroke) => [
 /// Half of the widest mark of a stroke, in page units.
 double _halfWidth(JsonObject stroke) {
   final brush = Brushes.of(stroke['tool'], stroke['brush_version']);
-  final pressure = (stroke['samples'] as Map)['pressure'] != null;
+  final pressure =
+      SampleCodec.decodeJson(stroke['samples'] as Map).pressure != null;
   final scale = brush != null && pressure ? brush.maxWidthScale : 1.0;
   return (stroke['width'] as num) / 2 * scale;
 }
@@ -406,8 +407,8 @@ JsonObject _fragment(
   double u1,
   String id,
 ) {
-  final samples = stroke['samples'] as JsonObject;
-  final count = (samples['x'] as List).length;
+  final samples = SampleCodec.decodeJson(stroke['samples'] as Map);
+  final count = samples.length;
   final position = sampleMap(nodes, count);
   final (s0, s1) = (position(u0), position(u1));
   // Raw samples inside the part, with interpolated samples at the cuts.
@@ -416,23 +417,20 @@ JsonObject _fragment(
     if (k > s0) at.add(k.toDouble());
   }
   if (s1 > at.last) at.add(s1);
-  List<int> column(String key) {
-    final values = (samples[key] as List).cast<int>();
-    return [for (final p in at) columnAt(values, p).round()];
-  }
+  List<int> column(List<int> values) => [
+    for (final p in at) columnAt(values, p).round(),
+  ];
 
-  final time = column('t');
-  final columns = <String, Object?>{
-    for (final key in samples.keys)
-      key: switch (key) {
-        't' => [for (final v in time) v - time.first],
-        'x' ||
-        'y' ||
-        'pressure' ||
-        'tilt' when samples[key] != null => column(key),
-        _ => samples[key],
-      },
-  };
+  final time = column(samples.t);
+  final columns = SampleCodec.encode(
+    SampleColumns(
+      x: column(samples.x),
+      y: column(samples.y),
+      t: [for (final v in time) v - time.first],
+      pressure: samples.pressure == null ? null : column(samples.pressure!),
+      tilt: samples.tilt == null ? null : column(samples.tilt!),
+    ),
+  );
   final linked = nodes.any((n) => n.sample != null);
   int? link(double p) {
     if (!linked) return null;

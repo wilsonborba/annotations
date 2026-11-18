@@ -3,6 +3,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:annotations_shared/domain/services/annotations_service.dart';
 import 'package:annotations_shared/dal/remote/api_adapter.dart';
+import 'package:annotations_shared/domain/models/stroke_samples_codec.dart';
 
 AnnotationsService fixtureService({
   Future<http.Response> Function(http.Request)? handler,
@@ -23,3 +24,6 @@ AnnotationsService fixtureService({
     ),
   ),
 );
+
+/// The decoded compact sample columns of a stored stroke (annotations#19).
+SampleColumns cols(Object? samples) => SampleCodec.decodeJson(samples as Map);
