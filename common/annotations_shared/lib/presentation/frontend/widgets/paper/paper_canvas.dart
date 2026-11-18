@@ -21,11 +21,19 @@ import 'paper_layers.dart';
 /// selection (annotations#32) and writing (annotations#28).
 ///
 /// [foreground] is the hook for widgets placed on the page by later tools
-/// (a live text editor, cards); it gets the current view.
+/// (a live text editor, cards); it gets the current view. [onTap] gets a
+/// click or tap on the page that no foreground widget took, in screen
+/// pixels of the canvas.
 class PaperCanvas extends StatefulWidget {
   final PaperHandler handler;
   final Widget Function(BuildContext context, PaperView view)? foreground;
-  const PaperCanvas({super.key, required this.handler, this.foreground});
+  final void Function(Offset local, Offset global)? onTap;
+  const PaperCanvas({
+    super.key,
+    required this.handler,
+    this.foreground,
+    this.onTap,
+  });
 
   @override
   State<PaperCanvas> createState() => _PaperCanvasState();
@@ -191,6 +199,18 @@ class _PaperCanvasState extends State<PaperCanvas>
                           ..onUpdate = _scaleUpdate
                           ..onEnd = _scaleEnd,
                       ),
+                  TapGestureRecognizer:
+                      GestureRecognizerFactoryWithHandlers<
+                        TapGestureRecognizer
+                      >(
+                        TapGestureRecognizer.new,
+                        (r) => r.onTapUp = widget.onTap == null
+                            ? null
+                            : (d) => widget.onTap!(
+                                d.localPosition,
+                                d.globalPosition,
+                              ),
+                      ),
                 },
                 child: ValueListenableBuilder(
                   valueListenable: handler.view,
@@ -241,22 +261,32 @@ class _PaperCanvasState extends State<PaperCanvas>
             view: view,
             cache: cache,
             document: handler.document,
+            hidden: handler.editingText,
           ),
         ),
         if (widget.foreground != null) widget.foreground!(context, view),
-        layer('active', ActiveInkPainter(view: view, ink: handler.activeInk)),
-        layer(
-          'frame',
-          FrameLayerPainter(
-            view: view,
-            hover: handler.hover,
-            selection: handler.selection,
-            pointer: handler.pointer,
-            handler: handler,
-            cache: cache,
-            document: handler.document,
-            colors: c,
-            settings: handler.settings,
+        // The layers above the foreground only draw; pointers reach the
+        // live editor and its message below them.
+        IgnorePointer(
+          child: layer(
+            'active',
+            ActiveInkPainter(view: view, ink: handler.activeInk),
+          ),
+        ),
+        IgnorePointer(
+          child: layer(
+            'frame',
+            FrameLayerPainter(
+              view: view,
+              hover: handler.hover,
+              selection: handler.selection,
+              pointer: handler.pointer,
+              handler: handler,
+              cache: cache,
+              document: handler.document,
+              colors: c,
+              settings: handler.settings,
+            ),
           ),
         ),
       ],

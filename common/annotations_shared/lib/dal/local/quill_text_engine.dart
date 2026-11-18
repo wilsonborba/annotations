@@ -377,6 +377,17 @@ TextRange Function() quillComposingRange(GlobalKey<QuillEditorState> editor) =>
       return state.currentTextEditingValue?.composing ?? TextRange.empty;
     };
 
+/// The text offset under the [global] position in a mounted [QuillEditor],
+/// or null when the editor is not mounted. A click that opens a text block
+/// puts the cursor there.
+int? quillOffsetAt(GlobalKey<QuillEditorState> editor, Offset global) => editor
+    .currentState
+    ?.editableTextKey
+    .currentState
+    ?.renderEditor
+    .getPositionForOffset(global)
+    .offset;
+
 /// A Quill controller whose every mutation path goes through the
 /// [TextBinding] before it is kept (type C guard and the one history).
 ///
@@ -698,6 +709,23 @@ class GuardedQuillController extends QuillController {
     offset: index,
     length: len,
   );
+
+  /// The formatting of the selection (for a collapsed selection: of the
+  /// next typed text) in the stored span fields: `bold`, `italic` and
+  /// `strikethrough` as booleans, `color` as #RRGGBBAA and `size` when set.
+  Map<String, Object?> get selectionFormat {
+    final attributes = getSelectionStyle().attributes;
+    final color = attributes[Attribute.color.key]?.value;
+    final size = attributes[Attribute.size.key]?.value;
+    final number = size is num ? size : num.tryParse('$size');
+    return {
+      for (final MapEntry(:key, :value) in _flags.entries)
+        key: attributes[value]?.value == true,
+      if (color is String && _storedColor.hasMatch(color))
+        'color': _storedColorOf(color),
+      if (size != null && number != null) 'size': number,
+    };
+  }
 
   /// Applies [format] to the current selection only. With a collapsed
   /// selection the format is kept for the next typed text, like Quill does.

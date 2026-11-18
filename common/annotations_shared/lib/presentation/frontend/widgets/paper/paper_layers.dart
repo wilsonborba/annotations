@@ -139,8 +139,9 @@ class ContentCache {
       if (id == null) continue;
       final json = item.toJson();
       var d = _byId[id];
+      // A changed item gets a new drawing; the loop below releases the old
+      // one once.
       if (d == null || !_sameJson(d.json, json)) {
-        d?.dispose?.call();
         d = _prepare(item, json, colors);
       }
       if (d == null) continue;
@@ -174,10 +175,12 @@ class ContentCache {
 
   int get length => _order.length;
 
-  /// Draws every item that meets [visible] (page units), in item order.
-  void paint(Canvas canvas, Rect visible) {
+  /// Draws every item that meets [visible] (page units), in item order,
+  /// except [hidden] (the text item open in the live editor).
+  void paint(Canvas canvas, Rect visible, {String? hidden}) {
+    final skip = hidden == null ? null : _byId[hidden];
     for (final d in _order) {
-      if (d.bounds.overlaps(visible)) d.draw(canvas);
+      if (!identical(d, skip) && d.bounds.overlaps(visible)) d.draw(canvas);
     }
   }
 
@@ -366,6 +369,7 @@ class ContentLayerPainter extends CustomPainter {
     required this.view,
     required this.cache,
     required this.document,
+    this.hidden,
   });
 
   final PaperView view;
@@ -374,19 +378,24 @@ class ContentLayerPainter extends CustomPainter {
   /// The document state that [cache] prepared; a new state repaints.
   final NoteDocument document;
 
+  /// The item that the live text editor draws instead.
+  final String? hidden;
+
   @override
   void paint(Canvas canvas, Size size) {
     _count('content');
     canvas.save();
     canvas.clipRect(Offset.zero & size);
     _applyView(canvas, view);
-    cache.paint(canvas, view.visiblePage);
+    cache.paint(canvas, view.visiblePage, hidden: hidden);
     canvas.restore();
   }
 
   @override
   bool shouldRepaint(ContentLayerPainter old) =>
-      old.view != view || !identical(old.document, document);
+      old.view != view ||
+      !identical(old.document, document) ||
+      old.hidden != hidden;
 }
 
 // Active stroke ----------------------------------------------------------

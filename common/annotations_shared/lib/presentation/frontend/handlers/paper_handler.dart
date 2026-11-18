@@ -178,6 +178,21 @@ class PaperHandler extends ChangeNotifier {
     return decision;
   }
 
+  /// Keeps an edit that a tool committed to [session] itself: the live text
+  /// editor commits through its text binding (annotations#27).
+  void edited() => _changed();
+
+  String? _editingText;
+
+  /// The text item open in the live editor. The content layer leaves it
+  /// out, so its text is drawn once.
+  String? get editingText => _editingText;
+  set editingText(String? id) {
+    if (id == _editingText) return;
+    _editingText = id;
+    notifyListeners();
+  }
+
   /// Picks a background. A pattern keeps the spacing and visibility that
   /// the current background has; blank removes them.
   EditDecision pickPattern(PaperPattern pattern) {
