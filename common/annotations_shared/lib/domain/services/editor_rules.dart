@@ -164,6 +164,25 @@ final class EditorRules {
     }
   }
 
+  /// The page offset that [move] applies for [dx], [dy]: rounded to 1/100,
+  /// and on whole grid cells when a block moves. The proposed position
+  /// while dragging (annotations#32).
+  (num, num) moveDelta(
+    NoteDocument document,
+    List<String> ids,
+    num dx,
+    num dy,
+  ) {
+    if (document is! PaperDocument) return (dx, dy);
+    final layout = _Layout(document.itemsJson);
+    try {
+      final moved = _indexes(layout, ids, withDescendants: true);
+      return _delta([for (final i in moved) layout.items[i]], dx, dy);
+    } on EditorRuleError {
+      return (dx, dy);
+    }
+  }
+
   /// Checks [document] with its items replaced by [items], in that order.
   /// Unchanged items are the same objects as [PaperDocument.itemsJson]; the
   /// others are new JSON. On a checked document only the changed items are

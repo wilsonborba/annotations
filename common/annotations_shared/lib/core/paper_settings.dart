@@ -36,6 +36,11 @@ final class PaperSettings {
     this.textColors = DrawSettings.palette,
     this.colorPickerWidth = 296,
     this.limitShake = const Duration(milliseconds: 360),
+    this.historyNotice = const Duration(seconds: 2),
+    this.holdDelay = const Duration(milliseconds: 500),
+    this.rejectedDrop = const Duration(milliseconds: 600),
+    this.nudgeCells = 1,
+    this.bigNudgeCells = 8,
     this.limitShakeDistance = 4,
     this.limitMessageMinWidth = 320,
   });
@@ -114,6 +119,19 @@ final class PaperSettings {
   /// reduced motion (owner decision, annotations#60).
   final Duration limitShake;
   final double limitShakeDistance;
+
+  /// How long the notice after Undo or Redo shows its steps back and
+  /// forward (B2 G2: 1 to 3 seconds).
+  final Duration historyNotice;
+
+  /// Touch and hold: how long a finger stays to start a selection (B2 G1).
+  final Duration holdDelay;
+
+  /// How long an invalid drop shows red before the old position is back.
+  final Duration rejectedDrop;
+
+  /// Grid cells that one arrow key moves the selection, and with Shift.
+  final int nudgeCells, bigNudgeCells;
 
   /// The narrowest space limit message in screen pixels, so its text stays
   /// readable over a narrow block (manager decision beba260d).

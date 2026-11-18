@@ -12,6 +12,7 @@
 /// (#33).
 library;
 
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
@@ -29,6 +30,18 @@ import '../../../domain/services/note_autosave.dart';
 import '../../../domain/services/note_history.dart';
 import '../../../domain/services/object_selection.dart';
 import '../../../domain/services/paper_page.dart';
+
+/// What the notice after Undo or Redo says: the steps back and forward.
+@immutable
+final class HistoryNotice {
+  const HistoryNotice({
+    required this.undo,
+    required this.back,
+    required this.forward,
+  });
+  final bool undo;
+  final int back, forward;
+}
 
 /// What the viewport shows: [scroll] is the page point at the top left of
 /// the viewport, [zoom] the screen pixels per page unit.
@@ -131,8 +144,31 @@ class PaperHandler extends ChangeNotifier {
   /// True while the view lock blocks navigation (annotations#33).
   bool locked = false;
 
+  /// True while a selection gesture holds the page: a touch and hold, a
+  /// move or a resize (annotations#32).
+  bool holding = false;
+
   /// Navigation never starts during an active ink stroke (B8).
-  bool get navigationBlocked => locked || activeInk.value != null;
+  bool get navigationBlocked => locked || holding || activeInk.value != null;
+
+  /// The notice after Undo or Redo (B2 G2), cleared after
+  /// [PaperSettings.historyNotice].
+  final historyNotice = ValueNotifier<HistoryNotice?>(null);
+  Timer? _noticeTimer;
+
+  void _notice(bool undo) {
+    if (session case final NotesEditor notes) {
+      _noticeTimer?.cancel();
+      historyNotice.value = HistoryNotice(
+        undo: undo,
+        back: notes.stepsBack,
+        forward: notes.stepsForward,
+      );
+      _noticeTimer = Timer(settings.historyNotice, () {
+        historyNotice.value = null;
+      });
+    }
+  }
 
   SelectionTool _tool = SelectionTool.type;
 
@@ -204,12 +240,14 @@ class PaperHandler extends ChangeNotifier {
     if (session case final NotesEditor notes when notes.undo().moved) {
       _changed();
     }
+    _notice(true);
   }
 
   void redo() {
     if (session case final NotesEditor notes when notes.redo().moved) {
       _changed();
     }
+    _notice(false);
   }
 
   /// Keeps an edit that a tool committed to [session] itself: the live text
@@ -409,6 +447,8 @@ class PaperHandler extends ChangeNotifier {
     pointer.dispose();
     activeInk.dispose();
     preview.dispose();
+    _noticeTimer?.cancel();
+    historyNotice.dispose();
     super.dispose();
   }
 }

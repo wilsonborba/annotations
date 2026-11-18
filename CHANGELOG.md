@@ -24,6 +24,7 @@
 - *(ui)* Add the eraser: live partial and whole-line erasing of drawings, the pen eraser end, and the red Delete anything mode that removes whole objects and turns off when the eraser is left (#30)
 - *(ui)* Hide the eraser line choice while Delete anything is on and bring back the previous choice after (#30)
 - *(ui)* Add the editor toolbar: dock at any edge or float with a move handle and a position menu, contextual tools, collapse with the active tool and the Delete anything mark, a More menu on narrow screens, Notes Undo and Redo, placement kept on the device, keyboard avoidance and long-press names on touch (#31)
+- *(ui)* Add selection, move and resize with the proposed place and red rejected drops, box, lasso and touch selection, group, ungroup, copy, cut, paste, duplicate and delete with shortcuts and a touch menu, arrow and size controls, and the Undo notice (#32)
 - *(ui)* Add the explicit Apply pen style action that reshapes only the selected strokes in one step (#28)
 - *(domain)* Store stroke samples as compact varint columns, allow 50,000 items and 64 MB per note, autosave only changed items and build sync operations against the base revision (#19)
 - *(domain)* Check only the changed items of each edit, Undo and Redo included, so a stroke on a 30-page note takes a few milliseconds (#62)
