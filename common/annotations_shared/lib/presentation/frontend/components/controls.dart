@@ -174,6 +174,10 @@ class AppIconButton extends StatelessWidget {
   final bool round;
   final double iconSize;
   final bool? selected;
+
+  /// A red fill with a dark icon for an active dangerous mode (Delete
+  /// anything on the eraser).
+  final bool danger;
   const AppIconButton({
     super.key,
     required this.icon,
@@ -181,6 +185,7 @@ class AppIconButton extends StatelessWidget {
     required this.onPressed,
     this.iconSize = 20,
     this.selected,
+    this.danger = false,
   }) : round = false;
 
   const AppIconButton.navigation({
@@ -190,7 +195,8 @@ class AppIconButton extends StatelessWidget {
     required this.onPressed,
   }) : round = true,
        iconSize = 20,
-       selected = null;
+       selected = null,
+       danger = false;
 
   @override
   Widget build(BuildContext context) {
@@ -214,6 +220,8 @@ class AppIconButton extends StatelessWidget {
           backgroundColor: WidgetStateProperty.resolveWith(
             (s) => s.contains(WidgetState.disabled)
                 ? Colors.transparent
+                : danger
+                ? c.danger
                 : on
                 ? c.selection
                 : s.contains(WidgetState.pressed)
@@ -244,6 +252,8 @@ class AppIconButton extends StatelessWidget {
             size: iconSize,
             color: onPressed == null
                 ? c.iconSecondary
+                : danger
+                ? c.onDanger
                 : on
                 ? c.onSelection
                 : c.icon,

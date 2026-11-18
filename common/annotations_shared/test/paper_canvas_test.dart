@@ -433,7 +433,7 @@ void main() {
       expect(po.dx, po.dx.roundToDouble());
       expect(dor.dx, dor.dx.roundToDouble());
       var inked = 0;
-      for (var y = 0; y < 780; y++) {
+      for (var y = 0; y < 700; y++) {
         for (var x = 0; x < 360; x++) {
           final a = p.rgba(x + po.dx.round(), y + po.dy.round(), pw);
           final b = d.rgba(x + dor.dx.round(), y + dor.dy.round(), dw);

@@ -110,9 +110,28 @@ class _PaperScreenState extends State<PaperScreen> {
   /// The toolbar at its placement, inside the screen. A keyboard that would
   /// cover it moves it up; the stored placement stays, so it comes back
   /// (B7 rule 8).
+  /// The room of a docked toolbar: its thickness and the margin.
+  static const _toolbarRoom = 72.0;
+
+  EdgeInsets _insetsFor(ToolbarPlacement p) => switch (p.edge) {
+    ToolbarEdge.top => const EdgeInsets.only(top: _toolbarRoom),
+    ToolbarEdge.bottom => const EdgeInsets.only(bottom: _toolbarRoom),
+    ToolbarEdge.left => const EdgeInsets.only(left: _toolbarRoom),
+    ToolbarEdge.right => const EdgeInsets.only(right: _toolbarRoom),
+    ToolbarEdge.floating => EdgeInsets.zero,
+  };
+
   Widget _toolbar(BuildContext context, Size size) {
     final keyboard = MediaQuery.viewInsetsOf(context).bottom;
     final p = placement;
+    // A docked toolbar takes its edge, so the whole page stays reachable;
+    // a floating one lies over the page.
+    final insets = _insetsFor(p);
+    if (insets != widget.handler.toolbarInsets) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) widget.handler.toolbarInsets = insets;
+      });
+    }
     final vertical = p.edge.vertical;
     final bar = PaperToolbar(
       paper: widget.handler,

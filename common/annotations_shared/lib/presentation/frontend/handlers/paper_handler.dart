@@ -289,19 +289,37 @@ class PaperHandler extends ChangeNotifier {
 
   /// The zoom that shows the whole page width, at most 1.
   double fitZoom(Size size) =>
-      ((size.width - 2 * settings.deskMargin) / math.max(pageWidth, 1)).clamp(
-        settings.minZoom,
-        1.0,
-      );
+      ((size.width - 2 * settings.deskMargin - _insets.horizontal) /
+              math.max(pageWidth, 1))
+          .clamp(settings.minZoom, 1.0);
 
   /// The view for a viewport of [size]. The first size shows the top of the
   /// page at the fit zoom. A later size (window resize, rotation) keeps the
   /// zoom and the page point at the center (B8). Content never moves.
+  /// Screen space that a docked toolbar takes at the edges (annotations#31).
+  /// The page keeps clear of it, so every part of the page stays reachable.
+  EdgeInsets get toolbarInsets => _insets;
+  EdgeInsets _insets = EdgeInsets.zero;
+  set toolbarInsets(EdgeInsets value) {
+    if (value == _insets) return;
+    final before = _insets;
+    _insets = value;
+    final v = view.value;
+    if (v == null) return;
+    // The page moves by the room the toolbar takes or gives back.
+    final shift = Offset(value.left - before.left, value.top - before.top);
+    view.value = _clamped(v.scroll - shift / v.zoom, v.zoom, v.size);
+  }
+
   PaperView viewFor(Size size) {
     final v = view.value;
     if (v == null) {
       final zoom = fitZoom(size);
-      return _clamped(Offset(0, -settings.deskMargin / zoom), zoom, size);
+      return _clamped(
+        Offset(0, -(settings.deskMargin + _insets.top) / zoom),
+        zoom,
+        size,
+      );
     }
     if (v.size == size) return v;
     final center = v.scroll + Offset(v.size.width, v.size.height) / 2 / v.zoom;
@@ -348,13 +366,15 @@ class PaperHandler extends ChangeNotifier {
   }
 
   PaperView _clamped(Offset scroll, double zoom, Size size) {
-    final m = settings.deskMargin / zoom;
+    final d = settings.deskMargin;
+    final left = (d + _insets.left) / zoom, right = (d + _insets.right) / zoom;
+    final top = (d + _insets.top) / zoom, bottom = (d + _insets.bottom) / zoom;
     final vw = size.width / zoom, vh = size.height / zoom;
     final w = pageWidth, h = pageHeight;
-    final double x = w + 2 * m <= vw
-        ? -(vw - w) / 2
-        : scroll.dx.clamp(-m, w + m - vw);
-    final double y = scroll.dy.clamp(-m, math.max(-m, h + m - vh));
+    final double x = w + left + right <= vw
+        ? -(left + (vw - left - right - w) / 2)
+        : scroll.dx.clamp(-left, w + right - vw);
+    final double y = scroll.dy.clamp(-top, math.max(-top, h + bottom - vh));
     return PaperView(zoom: zoom, scroll: Offset(x, y), size: size);
   }
 

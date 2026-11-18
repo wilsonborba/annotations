@@ -107,6 +107,13 @@ void main() {
     await pump(tester);
     expect(place(tester), Alignment.topCenter);
     expect(axis(tester), Axis.horizontal);
+    await tester.pump();
+    // The page starts below the docked toolbar, so nothing is hidden.
+    final toolbar = tester.getRect(byKey('paper-toolbar'));
+    expect(
+      paper.view.value!.toScreen(Offset.zero).dy,
+      greaterThan(toolbar.bottom),
+    );
     await finish(tester);
   });
 
@@ -374,8 +381,16 @@ void main() {
       await shot('draw_left');
       draw.selectTool(DrawTool.eraser);
       draw.setDangerous(true);
-      await tester.tap(byKey('toolbar-collapse'));
       await tester.pump();
+      if (tester.any(byKey('toolbar-collapse'))) {
+        await tester.tap(byKey('toolbar-collapse'));
+      } else {
+        // A short side keeps Collapse in the position menu.
+        await tester.tap(byKey('toolbar-position'));
+        await tester.pumpAndSettle();
+        await tester.tap(byKey('toolbar-collapse-entry'));
+      }
+      await tester.pumpAndSettle();
       await shot('collapsed_danger');
       await tester.tap(byKey('toolbar-expand'));
       draw.selectTool(DrawTool.round);

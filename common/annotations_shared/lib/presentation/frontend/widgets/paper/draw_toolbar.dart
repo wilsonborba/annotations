@@ -125,6 +125,7 @@ class DrawToolButton extends StatelessWidget {
             ? context.tr('eraserDangerous')
             : drawToolLabel(context, tool),
         selected: active && !danger,
+        danger: danger,
         onPressed: () {
           if (!active) {
             controller.close();
@@ -139,14 +140,7 @@ class DrawToolButton extends StatelessWidget {
         },
       );
       if (!danger) return button;
-      return DecoratedBox(
-        key: const Key('eraser-danger-state'),
-        decoration: BoxDecoration(
-          color: context.colors.danger,
-          borderRadius: BorderRadius.circular(appRadius),
-        ),
-        child: button,
-      );
+      return KeyedSubtree(key: const Key('eraser-danger-state'), child: button);
     },
   );
 }

@@ -220,7 +220,7 @@ class _PaperToolbarState extends State<PaperToolbar> {
 
   Widget _dangerNotice(BuildContext context) {
     final c = context.colors;
-    return Container(
+    final notice = Container(
       key: const Key('toolbar-danger'),
       margin: const EdgeInsets.all(2),
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
@@ -241,6 +241,12 @@ class _PaperToolbarState extends State<PaperToolbar> {
             ),
         ],
       ),
+    );
+    // A vertical toolbar shows the mark; its name is the tooltip and the
+    // screen reader text.
+    return Semantics(
+      label: context.tr('eraserDangerOn'),
+      child: AppTooltip(message: context.tr('eraserDangerOn'), child: notice),
     );
   }
 

@@ -223,6 +223,11 @@ const strings = <String, List<String>>{
   'close': ['Close', 'Fechar', 'ปิด'],
   'eraser': ['Eraser', 'Borracha', 'ยางลบ'],
   'eraserDangerous': ['Delete anything', 'Apagar tudo', 'ลบทุกอย่าง'],
+  'eraserDangerOn': [
+    'Delete anything is on',
+    'Apagar tudo está ativo',
+    'เปิดลบทุกอย่างอยู่',
+  ],
   'eraserSize': ['Size', 'Tamanho', 'ขนาด'],
   'eraserMode': ['Erase', 'Apagar', 'การลบ'],
   'eraserPartial': ['Part of a line', 'Parte da linha', 'บางส่วนของเส้น'],
