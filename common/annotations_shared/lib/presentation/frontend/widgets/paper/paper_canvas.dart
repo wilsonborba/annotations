@@ -34,12 +34,16 @@ class PaperCanvas extends StatefulWidget {
   final Widget Function(BuildContext context, PaperView view)? foreground;
   final void Function(Offset local, Offset global)? onTap;
   final PaperInput? input;
+
+  /// Keys of the page before its own zoom keys (the selection shortcuts).
+  final KeyEventResult Function(KeyEvent event)? onKey;
   const PaperCanvas({
     super.key,
     required this.handler,
     this.foreground,
     this.onTap,
     this.input,
+    this.onKey,
   });
 
   @override
@@ -149,6 +153,9 @@ class _PaperCanvasState extends State<PaperCanvas>
   }
 
   KeyEventResult _key(FocusNode node, KeyEvent event) {
+    if (widget.onKey?.call(event) == KeyEventResult.handled) {
+      return KeyEventResult.handled;
+    }
     if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
       return KeyEventResult.ignored;
     }

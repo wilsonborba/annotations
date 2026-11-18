@@ -9,11 +9,13 @@ import '../../../../domain/models/toolbar_placement.dart';
 import '../../handlers/draw_handler.dart';
 import '../../handlers/paper_handler.dart';
 import '../../handlers/point_edit_handler.dart';
+import '../../handlers/selection_handler.dart';
 import '../../handlers/text_handler.dart';
 import 'eraser_layer.dart';
 import 'paper_canvas.dart';
 import 'paper_toolbar.dart';
 import 'point_edit_layer.dart';
+import 'selection_layer.dart';
 import 'text_block_editor.dart';
 
 /// The writing surface of one note: the paper canvas with its status panel
@@ -44,6 +46,9 @@ class PaperScreen extends StatefulWidget {
 
   /// Point editing of one drawing; the screen makes one when null.
   final PointEditHandler? points;
+
+  /// Selection, move, resize and the object actions; made when null.
+  final SelectionHandler? selection;
   const PaperScreen({
     super.key,
     required this.handler,
@@ -51,6 +56,7 @@ class PaperScreen extends StatefulWidget {
     this.text,
     this.draw,
     this.points,
+    this.selection,
   });
 
   @override
@@ -61,6 +67,7 @@ class _PaperScreenState extends State<PaperScreen> {
   TextHandler? _own;
   DrawHandler? _ownDraw;
   PointEditHandler? _ownPoints;
+  SelectionHandler? _ownSelection;
 
   ToolbarPlacement? _placement;
 
@@ -138,6 +145,7 @@ class _PaperScreenState extends State<PaperScreen> {
       draw: draw,
       text: text,
       points: points,
+      selection: selection,
       placement: p,
       onPlacement: _place,
       onDrag: (g) => setState(() => _dragAt = _local(g)),
@@ -179,6 +187,7 @@ class _PaperScreenState extends State<PaperScreen> {
   TextHandler get text => widget.text ?? _own!;
   DrawHandler get draw => widget.draw ?? _ownDraw!;
   PointEditHandler get points => widget.points ?? _ownPoints!;
+  SelectionHandler get selection => widget.selection ?? _ownSelection!;
 
   @override
   void didChangeDependencies() {
@@ -197,10 +206,19 @@ class _PaperScreenState extends State<PaperScreen> {
     if (widget.points == null && _ownPoints == null) {
       _ownPoints = PointEditHandler(draw: draw);
     }
+    if (widget.selection == null && _ownSelection == null) {
+      _ownSelection = SelectionHandler(
+        paper: widget.handler,
+        text: text,
+        draw: draw,
+        next: points,
+      );
+    }
   }
 
   @override
   void dispose() {
+    _ownSelection?.dispose();
     _ownPoints?.dispose();
     _own?.dispose();
     _ownDraw?.dispose();
@@ -213,14 +231,16 @@ class _PaperScreenState extends State<PaperScreen> {
     children: [
       PaperCanvas(
         handler: widget.handler,
-        onTap: (local, global) => text.tapAt(local, global: global),
-        input: points,
+        onTap: selection.tap,
+        input: selection,
+        onKey: selection.key,
         foreground: (context, view) => Stack(
           fit: StackFit.expand,
           children: [
             TextBlockLayer(text: text, view: view),
             EraserLayer(draw: draw, view: view),
             PointEditLayer(points: points, view: view),
+            SelectionLayer(selection: selection, view: view),
             if (widget.foreground != null) widget.foreground!(context, view),
           ],
         ),
@@ -234,6 +254,7 @@ class _PaperScreenState extends State<PaperScreen> {
               points,
               widget.handler,
               widget.handler.selection,
+              selection,
             ]),
             builder: (context, _) => _toolbar(context, box.biggest),
           ),
@@ -243,6 +264,14 @@ class _PaperScreenState extends State<PaperScreen> {
         right: 12,
         bottom: 12,
         child: PaperStatusPanel(handler: widget.handler),
+      ),
+      Positioned(
+        left: 0,
+        right: 0,
+        bottom: 72,
+        child: IgnorePointer(
+          child: Center(child: HistoryNoticeView(paper: widget.handler)),
+        ),
       ),
     ],
   );

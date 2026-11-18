@@ -12,9 +12,11 @@ import '../../components/tokens.dart';
 import '../../handlers/draw_handler.dart';
 import '../../handlers/paper_handler.dart';
 import '../../handlers/point_edit_handler.dart';
+import '../../handlers/selection_handler.dart';
 import '../../handlers/text_handler.dart';
 import 'draw_toolbar.dart';
 import 'point_edit_layer.dart';
+import 'selection_layer.dart';
 
 /// The editor toolbar (annotations#31; B7 rules and behaviors).
 ///
@@ -38,6 +40,10 @@ class PaperToolbar extends StatefulWidget {
   final DrawHandler draw;
   final TextHandler text;
   final PointEditHandler points;
+
+  /// The object actions, the move and the size controls of a selection in
+  /// Type mode (annotations#32), the ways that need no drag.
+  final SelectionHandler? selection;
   final ToolbarPlacement placement;
   final ValueChanged<ToolbarPlacement> onPlacement;
 
@@ -58,6 +64,7 @@ class PaperToolbar extends StatefulWidget {
     required this.draw,
     required this.text,
     required this.points,
+    this.selection,
     required this.placement,
     required this.onPlacement,
     required this.onDrag,
@@ -218,6 +225,35 @@ class _PaperToolbarState extends State<PaperToolbar> {
     ],
   );
 
+  /// Arrow buttons that move the selection by one grid cell, and for one
+  /// object Narrower and Wider by one cell (B2.2, B3.4).
+  List<Widget> _moveAndSize(BuildContext context, SelectionHandler s) => [
+    for (final (key, icon, label, x, y) in [
+      ('left', AppIcons.chevronLeft, 'selectionMoveLeft', -1, 0),
+      ('up', AppIcons.chevronUp, 'selectionMoveUp', 0, -1),
+      ('down', AppIcons.chevronDown, 'selectionMoveDown', 0, 1),
+      ('right', AppIcons.chevronRight, 'selectionMoveRight', 1, 0),
+    ])
+      AppIconButton(
+        key: Key('selection-move-$key'),
+        icon: icon,
+        label: context.tr(label),
+        onPressed: () => s.nudge(x, y),
+      ),
+    if (s.sizeTarget != null) ...[
+      AppButton(
+        key: const Key('selection-narrower'),
+        label: context.tr('selectionNarrower'),
+        onPressed: () => s.resizeBy(-1),
+      ),
+      AppButton(
+        key: const Key('selection-wider'),
+        label: context.tr('selectionWider'),
+        onPressed: () => s.resizeBy(1),
+      ),
+    ],
+  ];
+
   Widget _dangerNotice(BuildContext context) {
     final c = context.colors;
     final notice = Container(
@@ -318,6 +354,14 @@ class _PaperToolbarState extends State<PaperToolbar> {
             ),
         ]);
         if (draw.dangerous && vertical) children.add(_dangerNotice(context));
+      } else if (widget.selection case final selection?
+          when selection.selection.isNotEmpty && text.controller == null) {
+        children.addAll([
+          _divider(c),
+          ...selectionActions(context, selection),
+          _divider(c),
+          ..._moveAndSize(context, selection),
+        ]);
       } else if (text.controller case final controller?) {
         children.addAll([
           _divider(c),
