@@ -755,7 +755,7 @@ void main() {
       expect(byKey('eraser-danger-state'), findsOneWidget);
       // The title is removed whole; the body under nothing stays.
       final steps = notes().stepsBack;
-      await drag(tester, [const Offset(80, 56), const Offset(90, 56)]);
+      await drag(tester, [const Offset(80, 68), const Offset(90, 68)]);
       expect(item('title'), isNull);
       expect(item('body'), isNotNull);
       expect(notes().stepsBack, steps + 1);

@@ -13,11 +13,20 @@ import '../../handlers/draw_handler.dart';
 /// subtle icon buttons with their names as tooltips. The active tool has the
 /// green selection fill; tapping it again opens its settings (B7 rule 3).
 ///
-/// A temporary panel at the top until the toolbar (annotations#31) takes
-/// these controls.
+/// The editor toolbar (annotations#31) holds them bare, in its direction;
+/// tools that do not fit go to its More menu ([tools] is what shows here).
 class DrawToolbar extends StatelessWidget {
   final DrawHandler draw;
-  const DrawToolbar({super.key, required this.draw});
+  final Axis axis;
+  final bool bare;
+  final List<DrawTool> tools;
+  const DrawToolbar({
+    super.key,
+    required this.draw,
+    this.axis = Axis.horizontal,
+    this.bare = false,
+    this.tools = DrawTool.values,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -29,17 +38,19 @@ class DrawToolbar extends StatelessWidget {
         label: context.tr('drawTools'),
         child: Container(
           key: const Key('draw-tools'),
-          padding: const EdgeInsets.all(2),
-          decoration: BoxDecoration(
-            color: c.surface,
-            borderRadius: BorderRadius.circular(appPanelRadius),
-            border: Border.all(color: c.border),
-          ),
-          child: Row(
+          padding: bare ? EdgeInsets.zero : const EdgeInsets.all(2),
+          decoration: bare
+              ? null
+              : BoxDecoration(
+                  color: c.surface,
+                  borderRadius: BorderRadius.circular(appPanelRadius),
+                  border: Border.all(color: c.border),
+                ),
+          child: Flex(
+            direction: axis,
             mainAxisSize: MainAxisSize.min,
             children: [
-              for (final tool in DrawTool.values)
-                _ToolButton(draw: draw, tool: tool),
+              for (final tool in tools) DrawToolButton(draw: draw, tool: tool),
             ],
           ),
         ),
@@ -48,10 +59,12 @@ class DrawToolbar extends StatelessWidget {
   }
 }
 
-class _ToolButton extends StatelessWidget {
+/// One drawing tool: tapping it selects it, tapping the active tool opens
+/// its settings (B7 rule 4). The eraser is red while Delete anything is on.
+class DrawToolButton extends StatelessWidget {
   final DrawHandler draw;
   final DrawTool tool;
-  const _ToolButton({required this.draw, required this.tool});
+  const DrawToolButton({super.key, required this.draw, required this.tool});
 
   @override
   Widget build(BuildContext context) => MenuAnchor(
@@ -62,6 +75,8 @@ class _ToolButton extends StatelessWidget {
       ListenableBuilder(
         listenable: draw,
         builder: (context, _) {
+          // The selection tool has no settings.
+          if (tool == DrawTool.select) return const SizedBox.shrink();
           if (tool == DrawTool.eraser) {
             return EraserSettingsPanel(
               eraser: draw.tools.eraser,
@@ -110,10 +125,13 @@ class _ToolButton extends StatelessWidget {
             ? context.tr('eraserDangerous')
             : drawToolLabel(context, tool),
         selected: active && !danger,
+        danger: danger,
         onPressed: () {
           if (!active) {
             controller.close();
             draw.selectTool(tool);
+          } else if (tool == DrawTool.select) {
+            return;
           } else if (controller.isOpen) {
             controller.close();
           } else {
@@ -122,14 +140,7 @@ class _ToolButton extends StatelessWidget {
         },
       );
       if (!danger) return button;
-      return DecoratedBox(
-        key: const Key('eraser-danger-state'),
-        decoration: BoxDecoration(
-          color: context.colors.danger,
-          borderRadius: BorderRadius.circular(appRadius),
-        ),
-        child: button,
-      );
+      return KeyedSubtree(key: const Key('eraser-danger-state'), child: button);
     },
   );
 }

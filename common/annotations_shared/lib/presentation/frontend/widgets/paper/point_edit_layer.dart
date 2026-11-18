@@ -117,7 +117,17 @@ class _PointsPainter extends CustomPainter {
 /// S makes it smooth, Escape ends point editing.
 class PointEditPanel extends StatefulWidget {
   final PointEditHandler points;
-  const PointEditPanel({super.key, required this.points});
+
+  /// The direction and whether the commands sit bare inside the editor
+  /// toolbar (annotations#31).
+  final Axis axis;
+  final bool bare;
+  const PointEditPanel({
+    super.key,
+    required this.points,
+    this.axis = Axis.horizontal,
+    this.bare = false,
+  });
 
   @override
   State<PointEditPanel> createState() => _PointEditPanelState();
@@ -200,17 +210,20 @@ class _PointEditPanelState extends State<PointEditPanel> {
             label: context.tr('editPoints'),
             child: Container(
               key: const Key('point-edit-panel'),
-              padding: const EdgeInsets.all(4),
-              decoration: BoxDecoration(
-                color: c.surface,
-                borderRadius: BorderRadius.circular(appPanelRadius),
-                border: Border.all(color: c.border),
-              ),
+              padding: widget.bare ? EdgeInsets.zero : const EdgeInsets.all(4),
+              decoration: widget.bare
+                  ? null
+                  : BoxDecoration(
+                      color: c.surface,
+                      borderRadius: BorderRadius.circular(appPanelRadius),
+                      border: Border.all(color: c.border),
+                    ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Wrap(
+                    direction: widget.axis,
                     crossAxisAlignment: WrapCrossAlignment.center,
                     spacing: 2,
                     runSpacing: 2,
@@ -241,9 +254,9 @@ class _PointEditPanelState extends State<PointEditPanel> {
                         onPressed: has ? points.makeSmooth : null,
                       ),
                       Container(
-                        width: 1,
-                        height: 20,
-                        margin: const EdgeInsets.symmetric(horizontal: 4),
+                        width: widget.axis == Axis.horizontal ? 1 : 20,
+                        height: widget.axis == Axis.horizontal ? 20 : 1,
+                        margin: const EdgeInsets.all(4),
                         color: c.border,
                       ),
                       if (has)
@@ -258,9 +271,9 @@ class _PointEditPanelState extends State<PointEditPanel> {
                           ],
                         ),
                       Container(
-                        width: 1,
-                        height: 20,
-                        margin: const EdgeInsets.symmetric(horizontal: 4),
+                        width: widget.axis == Axis.horizontal ? 1 : 20,
+                        height: widget.axis == Axis.horizontal ? 20 : 1,
+                        margin: const EdgeInsets.all(4),
                         color: c.border,
                       ),
                       AppButton(

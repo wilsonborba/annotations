@@ -34,6 +34,7 @@ String drawToolLabel(BuildContext context, DrawTool tool) =>
       DrawTool.highlighter => 'highlighter',
       DrawTool.shapes => 'shapes',
       DrawTool.eraser => 'eraser',
+      DrawTool.select => 'selectTool',
     });
 
 AppIconData drawToolIcon(DrawTool tool) => switch (tool) {
@@ -43,6 +44,7 @@ AppIconData drawToolIcon(DrawTool tool) => switch (tool) {
   DrawTool.highlighter => AppIcons.highlighter,
   DrawTool.shapes => AppIcons.shapes,
   DrawTool.eraser => AppIcons.eraser,
+  DrawTool.select => AppIcons.select,
 };
 
 String shapeLabel(BuildContext context, ShapeKind kind) =>
@@ -80,7 +82,18 @@ BoxDecoration _panel(AppColors c) => BoxDecoration(
 class ModeSwitch extends StatelessWidget {
   final SelectionTool mode;
   final ValueChanged<SelectionTool> onChanged;
-  const ModeSwitch({super.key, required this.mode, required this.onChanged});
+
+  /// Vertical in a toolbar docked at the left or right; [compact] shows the
+  /// icons only, with the names as tooltips and accessible names.
+  final Axis axis;
+  final bool compact;
+  const ModeSwitch({
+    super.key,
+    required this.mode,
+    required this.onChanged,
+    this.axis = Axis.horizontal,
+    this.compact = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -92,7 +105,8 @@ class ModeSwitch extends StatelessWidget {
         key: const Key('mode-switch'),
         padding: const EdgeInsets.all(2),
         decoration: _panel(c),
-        child: Row(
+        child: Flex(
+          direction: axis,
           mainAxisSize: MainAxisSize.min,
           children: [
             _Segment(
@@ -100,14 +114,16 @@ class ModeSwitch extends StatelessWidget {
               icon: AppIcons.type,
               label: context.tr('modeType'),
               selected: mode == SelectionTool.type,
+              compact: compact,
               onTap: () => onChanged(SelectionTool.type),
             ),
-            const SizedBox(width: 2),
+            const SizedBox(width: 2, height: 2),
             _Segment(
               key: const Key('mode-draw'),
               icon: AppIcons.drawMode,
               label: context.tr('modeDraw'),
               selected: mode == SelectionTool.draw,
+              compact: compact,
               onTap: () => onChanged(SelectionTool.draw),
             ),
           ],
@@ -120,7 +136,7 @@ class ModeSwitch extends StatelessWidget {
 class _Segment extends StatelessWidget {
   final AppIconData icon;
   final String label;
-  final bool selected;
+  final bool selected, compact;
   final VoidCallback onTap;
   const _Segment({
     super.key,
@@ -128,6 +144,7 @@ class _Segment extends StatelessWidget {
     required this.label,
     required this.selected,
     required this.onTap,
+    this.compact = false,
   });
 
   @override
@@ -135,7 +152,7 @@ class _Segment extends StatelessWidget {
     final c = context.colors;
     final text = Theme.of(context).textTheme;
     final color = selected ? c.onSelection : c.text;
-    return Semantics(
+    final segment = Semantics(
       button: true,
       selected: selected,
       label: label,
@@ -144,9 +161,11 @@ class _Segment extends StatelessWidget {
         onPressed: onTap,
         style: ButtonStyle(
           minimumSize: const WidgetStatePropertyAll(Size(0, 36)),
-          fixedSize: const WidgetStatePropertyAll(Size.fromHeight(36)),
-          padding: const WidgetStatePropertyAll(
-            EdgeInsets.symmetric(horizontal: 12),
+          fixedSize: WidgetStatePropertyAll(
+            compact ? const Size.square(36) : const Size.fromHeight(36),
+          ),
+          padding: WidgetStatePropertyAll(
+            EdgeInsets.symmetric(horizontal: compact ? 0 : 12),
           ),
           splashFactory: NoSplash.splashFactory,
           overlayColor: const WidgetStatePropertyAll(Colors.transparent),
@@ -168,16 +187,19 @@ class _Segment extends StatelessWidget {
             ),
           ),
         ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            AppIcon(icon, size: 18, color: color),
-            const SizedBox(width: 6),
-            Text(label, style: text.labelLarge!.copyWith(color: color)),
-          ],
-        ),
+        child: compact
+            ? AppIcon(icon, size: 18, color: color)
+            : Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  AppIcon(icon, size: 18, color: color),
+                  const SizedBox(width: 6),
+                  Text(label, style: text.labelLarge!.copyWith(color: color)),
+                ],
+              ),
       ),
     );
+    return compact ? AppTooltip(message: label, child: segment) : segment;
   }
 }
 

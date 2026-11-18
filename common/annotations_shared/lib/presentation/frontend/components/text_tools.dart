@@ -35,7 +35,14 @@ class TextTools extends StatefulWidget {
     required this.onSize,
     required this.onColor,
     this.settings = const PaperSettings(),
+    this.axis = Axis.horizontal,
+    this.bare = false,
   });
+
+  /// The direction of the tools, and whether they sit inside the editor
+  /// toolbar without their own panel (annotations#31).
+  final Axis axis;
+  final bool bare;
 
   @override
   State<TextTools> createState() => _TextToolsState();
@@ -77,17 +84,20 @@ class _TextToolsState extends State<TextTools> {
           label: context.tr('textTools'),
           child: Container(
             key: const Key('text-tools'),
-            padding: const EdgeInsets.all(2),
-            decoration: BoxDecoration(
-              color: c.surface,
-              borderRadius: BorderRadius.circular(appPanelRadius),
-              border: Border.all(color: c.border),
-            ),
+            padding: widget.bare ? EdgeInsets.zero : const EdgeInsets.all(2),
+            decoration: widget.bare
+                ? null
+                : BoxDecoration(
+                    color: c.surface,
+                    borderRadius: BorderRadius.circular(appPanelRadius),
+                    border: Border.all(color: c.border),
+                  ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
+                Flex(
+                  direction: widget.axis,
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     AppMenuButton(
