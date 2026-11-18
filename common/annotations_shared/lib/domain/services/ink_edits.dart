@@ -56,6 +56,27 @@ final class StrokeCapture {
       settings: settings,
       maxNodes: limits.maxNodesPerStroke,
     );
+    return _item(id, nodes);
+  }
+
+  /// The stroke while it is drawn: every sample is a corner node, so the
+  /// live mark costs no fitting. It is only drawn, never stored; the end of
+  /// the stroke stores [toItem].
+  JsonObject? toPreviewItem() {
+    if (_x.isEmpty) return null;
+    return _item('preview', [
+      for (var i = 0; i < _x.length; i++)
+        InkNode(
+          x: _x[i],
+          y: _y[i],
+          modeName: NodeMode.independent.name,
+          corner: true,
+          sample: i,
+        ),
+    ]);
+  }
+
+  JsonObject _item(String id, List<InkNode> nodes) {
     return {
       'id': id,
       'kind': 'stroke',

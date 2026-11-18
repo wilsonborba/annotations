@@ -1,13 +1,16 @@
 import 'package:flutter/material.dart';
 
+import '../../components/draw_controls.dart';
 import '../../components/paper_controls.dart';
 import '../../components/save_state.dart';
 import '../../components/scope.dart';
 import '../../components/text_tools.dart';
 import '../../components/theme.dart';
 import '../../components/tokens.dart';
+import '../../handlers/draw_handler.dart';
 import '../../handlers/paper_handler.dart';
 import '../../handlers/text_handler.dart';
+import 'draw_toolbar.dart';
 import 'paper_canvas.dart';
 import 'text_block_editor.dart';
 
@@ -19,6 +22,12 @@ import 'text_block_editor.dart';
 /// block through the [TextHandler]; while a block is open, its text tools
 /// show at the top, where the toolbar starts (B7 rule 1).
 ///
+/// Type and Draw (annotations#28): editing starts in Type mode and the
+/// mode switch stays visible at the top center. Draw mode shows the pens
+/// and the shapes next to it; Type mode shows the text tools there while a
+/// block is open. This is the temporary place until the toolbar
+/// (annotations#31) takes these controls.
+///
 /// The toolbar (annotations#31) and the corner view lock (annotations#33)
 /// come later; [foreground] passes their page widgets to the canvas.
 class PaperScreen extends StatefulWidget {
@@ -27,11 +36,15 @@ class PaperScreen extends StatefulWidget {
 
   /// The text flow; the screen makes one with the app preferences when null.
   final TextHandler? text;
+
+  /// The modes and drawing tools; the screen makes one when null.
+  final DrawHandler? draw;
   const PaperScreen({
     super.key,
     required this.handler,
     this.foreground,
     this.text,
+    this.draw,
   });
 
   @override
@@ -40,16 +53,23 @@ class PaperScreen extends StatefulWidget {
 
 class _PaperScreenState extends State<PaperScreen> {
   TextHandler? _own;
+  DrawHandler? _ownDraw;
 
   TextHandler get text => widget.text ?? _own!;
+  DrawHandler get draw => widget.draw ?? _ownDraw!;
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    final preferences = AppScope.of(context).preferences;
     if (widget.text == null && _own == null) {
-      _own = TextHandler(
+      _own = TextHandler(paper: widget.handler, preferences: preferences);
+    }
+    if (widget.draw == null && _ownDraw == null) {
+      _ownDraw = DrawHandler(
         paper: widget.handler,
-        preferences: AppScope.of(context).preferences,
+        preferences: preferences,
+        onDrawMode: () => text.end(),
       );
     }
   }
@@ -57,6 +77,7 @@ class _PaperScreenState extends State<PaperScreen> {
   @override
   void dispose() {
     _own?.dispose();
+    _ownDraw?.dispose();
     super.dispose();
   }
 
@@ -67,6 +88,7 @@ class _PaperScreenState extends State<PaperScreen> {
       PaperCanvas(
         handler: widget.handler,
         onTap: (local, global) => text.tapAt(local, global: global),
+        input: draw,
         foreground: (context, view) => Stack(
           fit: StackFit.expand,
           children: [
@@ -81,22 +103,29 @@ class _PaperScreenState extends State<PaperScreen> {
         right: 12,
         child: Center(
           child: ListenableBuilder(
-            listenable: text,
-            builder: (context, _) {
-              final controller = text.controller;
-              if (controller == null) return const SizedBox.shrink();
-              return ListenableBuilder(
-                listenable: controller,
-                builder: (context, _) => TextTools(
-                  format: text.format,
-                  baseSize: widget.handler.textStyle.fontSize ?? 16,
-                  settings: widget.handler.settings,
-                  onToggle: text.toggle,
-                  onSize: text.size,
-                  onColor: text.color,
-                ),
-              );
-            },
+            listenable: Listenable.merge([draw, text]),
+            builder: (context, _) => Wrap(
+              alignment: WrapAlignment.center,
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                ModeSwitch(mode: draw.mode, onChanged: draw.setMode),
+                if (draw.isDrawMode)
+                  DrawToolbar(draw: draw)
+                else if (text.controller case final controller?)
+                  ListenableBuilder(
+                    listenable: controller,
+                    builder: (context, _) => TextTools(
+                      format: text.format,
+                      baseSize: widget.handler.textStyle.fontSize ?? 16,
+                      settings: widget.handler.settings,
+                      onToggle: text.toggle,
+                      onSize: text.size,
+                      onColor: text.color,
+                    ),
+                  ),
+              ],
+            ),
           ),
         ),
       ),

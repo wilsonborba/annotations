@@ -110,7 +110,7 @@ class PaperBackgroundPanel extends StatelessWidget {
             ),
             if (!blank) ...[
               const SizedBox(height: 14),
-              _Setting(
+              SettingSlider(
                 key: const Key('paper-spacing'),
                 label: context.tr('paperSpacing'),
                 value: spacing,
@@ -122,7 +122,7 @@ class PaperBackgroundPanel extends StatelessWidget {
                     onPreview(guides.copyWith(spacing: v.round())),
                 onEnd: (v) => onCommit(guides.copyWith(spacing: v.round())),
               ),
-              _Setting(
+              SettingSlider(
                 key: const Key('paper-visibility'),
                 label: context.tr('paperVisibility'),
                 value: visibility,
@@ -211,12 +211,14 @@ class _Choice extends StatelessWidget {
   }
 }
 
-class _Setting extends StatelessWidget {
+/// A labeled slider with its value: it shows the value while it moves and
+/// reports the end once.
+class SettingSlider extends StatelessWidget {
   final String label, display;
   final double value, min, max;
   final int divisions;
   final ValueChanged<double> onChanged, onEnd;
-  const _Setting({
+  const SettingSlider({
     super.key,
     required this.label,
     required this.display,
