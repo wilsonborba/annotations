@@ -12,6 +12,7 @@
 - *(editor)* Pin flutter_quill 11.5.0 behind the Annotations text adapter with the type C guard and the one Notes history (#23)
 - *(domain)* Add the selection and clipboard model for blocks, ink and groups (#24)
 - *(dal)* Add the durable local note store with managed attachments, autosave states and crash recovery (#25)
+- *(ui)* Build the Annotations design system with tokens, typography, Spectrum 2 icons and solid surfaces (#18)
 
 ### 🐛 Bug Fixes
 
