@@ -43,9 +43,14 @@ final _storedColor = RegExp(r'^#[0-9A-Fa-f]{8}$');
 /// The default text style of a text item: the bundled Ubuntu Sans with the
 /// bundled Thai fallback. The editor UI passes its final style to
 /// [QuillTextEngine]; measuring and the editor must use the same style.
+///
+/// The fonts are declared in this package, so an app registers them as
+/// `packages/annotations_shared/<family>`; [TextStyle.package] adds that
+/// prefix to the family and the fallback, like the design system theme.
 const annotationsTextStyle = TextStyle(
   fontFamily: 'Ubuntu Sans',
   fontFamilyFallback: ['IBM Plex Sans Thai'],
+  package: 'annotations_shared',
   fontSize: 16,
   color: Color(0xFF000000),
 );
