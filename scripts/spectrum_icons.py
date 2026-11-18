@@ -35,6 +35,7 @@ ICONS = {
     "Download": "download",
     "Draw": "roundPen",
     "Edit": "edit",
+    "Erase": "eraser",
     "File": "file",
     "FileText": "fileText",
     "GridTypeLines": "paper",

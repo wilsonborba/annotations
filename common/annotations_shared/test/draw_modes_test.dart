@@ -17,6 +17,7 @@ import 'package:annotations_shared/domain/services/ink_outline.dart';
 import 'package:annotations_shared/domain/services/note_history.dart';
 import 'package:annotations_shared/domain/services/object_selection.dart';
 import 'package:annotations_shared/domain/services/preferences.dart';
+import 'package:annotations_shared/presentation/frontend/components/draw_controls.dart';
 import 'package:annotations_shared/presentation/frontend/components/scope.dart';
 import 'package:annotations_shared/presentation/frontend/components/theme.dart';
 import 'package:annotations_shared/presentation/frontend/handlers/draw_handler.dart';
@@ -645,6 +646,158 @@ void main() {
       await finish(tester);
     });
 
+    Future<void> eraserPanel(WidgetTester tester) async {
+      if (draw.tools.active != DrawTool.eraser) {
+        await tester.tap(byKey('draw-tool-eraser'));
+        await tester.pump();
+      }
+      await tester.tap(byKey('draw-tool-eraser'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('the normal eraser over text changes nothing', (tester) async {
+      await pump(tester);
+      await toDraw(tester);
+      final before = jsonEncode(paper.document.toJson());
+      await tester.tap(byKey('draw-tool-eraser'));
+      await tester.pump();
+      // Across the title and the body text, away from every drawing.
+      await drag(tester, [
+        const Offset(60, 50),
+        const Offset(300, 60),
+        const Offset(300, 120),
+        const Offset(60, 130),
+      ]);
+      expect(jsonEncode(paper.document.toJson()), before);
+      await finish(tester);
+    });
+
+    testWidgets('partial erasing cuts a stroke live; one Undo step', (
+      tester,
+    ) async {
+      await pump(tester);
+      await toDraw(tester);
+      await tester.tap(byKey('draw-tool-eraser'));
+      await tester.pump();
+      expect(draw.tools.eraser.mode, EraserMode.partialStroke);
+      final before = jsonEncode(paper.document.toJson());
+      final steps = notes().stepsBack;
+      final g = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      await g.down(screenOf(190, 240));
+      await tester.pump();
+      await g.moveTo(screenOf(190, 280));
+      await tester.pump();
+      // Live: the stroke is already cut while the button is down.
+      expect(item('ink1'), isNull);
+      expect(byKey('eraser-circle'), findsOneWidget);
+      await g.up();
+      await tester.pump();
+      expect(byKey('eraser-circle'), findsNothing);
+      final pieces = items().where((it) => it['tool'] == 'round').length;
+      expect(pieces, greaterThanOrEqualTo(2));
+      expect(notes().stepsBack, steps + 1);
+      notes().undo();
+      expect(jsonEncode(paper.document.toJson()), before);
+      await finish(tester);
+    });
+
+    testWidgets('a cancelled erase restores the page and leaves no step', (
+      tester,
+    ) async {
+      await pump(tester);
+      await toDraw(tester);
+      await tester.tap(byKey('draw-tool-eraser'));
+      await tester.pump();
+      final before = jsonEncode(paper.document.toJson());
+      final steps = notes().stepsBack;
+      final g = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      await g.down(screenOf(190, 240));
+      await g.moveTo(screenOf(190, 280));
+      await tester.pump();
+      expect(item('ink1'), isNull);
+      await g.cancel();
+      await tester.pump();
+      expect(jsonEncode(paper.document.toJson()), before);
+      expect(notes().stepsBack, steps);
+      await finish(tester);
+    });
+
+    testWidgets('the eraser end of a pen erases with the normal eraser', (
+      tester,
+    ) async {
+      await pump(tester);
+      await toDraw(tester);
+      expect(draw.tools.active, DrawTool.round);
+      await drag(tester, [
+        const Offset(190, 240),
+        const Offset(190, 280),
+      ], kind: PointerDeviceKind.invertedStylus);
+      expect(item('ink1'), isNull);
+      expect(item('title'), isNotNull);
+      await finish(tester);
+    });
+
+    testWidgets('delete anything: warning, red state, whole objects, reset', (
+      tester,
+    ) async {
+      await pump(tester);
+      await toDraw(tester);
+      await eraserPanel(tester);
+      expect(draw.dangerous, isFalse, reason: 'off at first');
+      await tester.tap(byKey('eraser-dangerous-on'));
+      await tester.pumpAndSettle();
+      expect(draw.dangerous, isTrue);
+      expect(byKey('eraser-danger-warning'), findsOneWidget);
+      expect(find.textContaining('Undo brings them back'), findsOneWidget);
+      expect(byKey('eraser-danger-state'), findsOneWidget);
+      await tester.tapAt(const Offset(5, 635));
+      await tester.pumpAndSettle();
+      expect(byKey('eraser-danger-state'), findsOneWidget);
+      // The title is removed whole; the body under nothing stays.
+      final steps = notes().stepsBack;
+      await drag(tester, [const Offset(80, 56), const Offset(90, 56)]);
+      expect(item('title'), isNull);
+      expect(item('body'), isNotNull);
+      expect(notes().stepsBack, steps + 1);
+      notes().undo();
+      expect(item('title'), isNotNull);
+      // Leaving the eraser turns delete anything off.
+      draw.selectTool(DrawTool.round);
+      await tester.pump();
+      expect(draw.dangerous, isFalse);
+      expect(byKey('eraser-danger-state'), findsNothing);
+      draw.selectTool(DrawTool.eraser);
+      expect(draw.dangerous, isFalse);
+      await finish(tester);
+    });
+
+    testWidgets('Instant: the delete anything warning promises no Undo', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        AppScope(
+          preferences: Preferences(),
+          service: fixtureService(),
+          child: MaterialApp(
+            home: Material(
+              child: EraserSettingsPanel(
+                eraser: const EraserSettings(radius: 8),
+                dangerous: true,
+                warning: true,
+                instant: true,
+                onMode: (_) {},
+                onRadius: (_, _) {},
+                onDangerous: (_) {},
+                onCloseWarning: () {},
+              ),
+            ),
+          ),
+        ),
+      );
+      expect(find.textContaining('Undo'), findsNothing);
+      expect(find.textContaining('for everyone in this room'), findsOneWidget);
+    });
+
     testWidgets('each tool remembers its settings on this device', (
       tester,
     ) async {
@@ -934,6 +1087,15 @@ void main() {
         paper.select(ObjectSelection(['ink2']));
         await panel(tester, DrawTool.brush);
         await shot(tester, 'apply_pen_style');
+        await close(tester);
+        await panel(tester, DrawTool.eraser);
+        await shot(tester, 'eraser');
+        await tester.tap(byKey('eraser-dangerous-on'));
+        await tester.pumpAndSettle();
+        await shot(tester, 'eraser_dangerous');
+        await close(tester);
+        await shot(tester, 'eraser_dangerous_toolbar');
+        draw.selectTool(DrawTool.round);
         await close(tester);
         paper.select(ObjectSelection(['ink1']));
         await tester.pump();

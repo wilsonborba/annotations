@@ -21,9 +21,10 @@ enum DrawTool {
   flat,
   brush,
   highlighter,
-  shapes;
+  shapes,
+  eraser;
 
-  /// The pen of this tool, or null for the shapes.
+  /// The pen of this tool, or null for the shapes and the eraser.
   InkTool? get pen => InkTool.parse(name);
 
   static DrawTool? parse(Object? value) {
@@ -115,12 +116,28 @@ final class InkStyle {
   );
 }
 
+/// The remembered settings of the normal eraser (B2.6): its mode and the
+/// circle radius in page units. Delete-anything mode is never remembered: it
+/// turns off when the user leaves the eraser.
+final class EraserSettings {
+  const EraserSettings({
+    this.mode = EraserMode.partialStroke,
+    required this.radius,
+  });
+  final EraserMode mode;
+  final num radius;
+
+  EraserSettings copyWith({EraserMode? mode, num? radius}) =>
+      EraserSettings(mode: mode ?? this.mode, radius: radius ?? this.radius);
+}
+
 /// The active tool and the remembered settings of every tool. Immutable.
 final class DrawTools {
   const DrawTools({
     required this.active,
     required this.pens,
     required this.shape,
+    required this.eraser,
   });
 
   /// The first state: the round pen is the selected tool (B6.1).
@@ -156,11 +173,13 @@ final class DrawTools {
           lineWidth: s.shapeLineWidth,
           color: s.penColor,
         ),
+        eraser: EraserSettings(radius: s.eraserRadius),
       );
 
   final DrawTool active;
   final Map<InkTool, BrushSettings> pens;
   final ShapeSettings shape;
+  final EraserSettings eraser;
 
   BrushSettings pen(InkTool tool) => pens[tool]!;
 
@@ -184,21 +203,27 @@ final class DrawTools {
   }
 
   DrawTools withActive(DrawTool tool) =>
-      DrawTools(active: tool, pens: pens, shape: shape);
+      DrawTools(active: tool, pens: pens, shape: shape, eraser: eraser);
 
   DrawTools withShapeKind(ShapeKind kind) => DrawTools(
     active: active,
     pens: pens,
     shape: shape.copyWith(kind: kind),
+    eraser: eraser,
   );
+
+  DrawTools withEraser(EraserSettings value) =>
+      DrawTools(active: active, pens: pens, shape: shape, eraser: value);
 
   /// The settings of [tool] with [change]. Other tools keep theirs.
   DrawTools changed(DrawTool tool, InkStyleChange change) {
     final pen = tool.pen;
+    if (tool == DrawTool.eraser) return this;
     if (pen == null) {
       return DrawTools(
         active: active,
         pens: pens,
+        eraser: eraser,
         shape: shape.copyWith(
           lineWidth: change.width,
           color: change.color,
@@ -222,6 +247,7 @@ final class DrawTools {
         ),
       },
       shape: shape,
+      eraser: eraser,
     );
   }
 
@@ -241,6 +267,7 @@ final class DrawTools {
       'color': shape.color,
       'opacity': shape.opacity,
     },
+    'eraser': {'mode': eraser.mode.name, 'radius': eraser.radius},
   };
 
   /// Reads a device value. A missing or invalid value keeps the first
@@ -266,6 +293,24 @@ final class DrawTools {
     for (final tool in DrawTool.values) {
       final key = tool.name;
       tools = tools.changed(tool, read(json[key]));
+    }
+    final eraser = json['eraser'];
+    if (eraser is Map) {
+      final radius = eraser['radius'];
+      final mode = EraserMode.values
+          .where((m) => m.name == eraser['mode'])
+          .firstOrNull;
+      tools = tools.withEraser(
+        tools.eraser.copyWith(
+          mode: mode,
+          radius:
+              radius is num &&
+                  radius >= s.minEraserRadius &&
+                  radius <= s.maxEraserRadius
+              ? radius
+              : null,
+        ),
+      );
     }
     final shapes = json['shapes'];
     if (shapes is Map) {

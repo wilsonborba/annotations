@@ -22,7 +22,14 @@ final class DrawSettings {
     this.highlighterColor = '#FFD600FF',
     this.shapeLineWidth = 3,
     this.minShapeSize = 4,
+    this.eraserRadius = 8,
+    this.minEraserRadius = 2,
+    this.maxEraserRadius = 40,
   });
+
+  /// The eraser circle radius in page units: the first value and the range
+  /// of its size control (annotations#30).
+  final num eraserRadius, minEraserRadius, maxEraserRadius;
 
   /// The fixed colors of every drawing tool (B6.2): the string key of the
   /// name and the stored value. The custom picker adds any other color.
