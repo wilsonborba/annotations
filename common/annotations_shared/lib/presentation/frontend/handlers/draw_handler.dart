@@ -206,6 +206,32 @@ class DrawHandler extends ChangeNotifier implements PaperInput {
     return kind ?? _tools.shape.kind;
   }
 
+  /// The selected strokes that Apply pen style reaches: strokes only,
+  /// because shapes have no pen.
+  List<String> get selectedStrokeIds {
+    final layout = paper.layout;
+    return [
+      for (final id in selectedInkIds)
+        if (layout?.kindOf(id) == 'stroke') id,
+    ];
+  }
+
+  /// Apply pen style (B6.2): the explicit action that reshapes the selected
+  /// strokes with the pen [tool] and its current settings, as one history
+  /// step. Nothing else reshapes an existing line. Null when no stroke is
+  /// selected or [tool] is not a pen.
+  EditDecision? applyPenStyle(DrawTool tool) {
+    final pen = tool.pen;
+    final ids = selectedStrokeIds;
+    if (pen == null || ids.isEmpty) return null;
+    final decision = paper.apply(
+      HistoryCommand(CommandKind.ink),
+      (rules, document) => rules.applyBrush(document, ids, _tools.pen(pen)),
+    );
+    notifyListeners();
+    return decision;
+  }
+
   /// The one selected circle, triangle or rectangle, or null.
   String? get pathTarget {
     final ids = paper.selection.value.ids;

@@ -220,6 +220,26 @@ const strings = <String, List<String>>{
   'saturation': ['Saturation', 'Saturação', 'ความอิ่มตัว'],
   'brightness': ['Brightness', 'Brilho', 'ความสว่าง'],
   'editAsPath': ['Edit as path', 'Editar como caminho', 'แก้ไขเป็นเส้นทาง'],
+  'applyPenRound': [
+    'Apply round pen style',
+    'Aplicar estilo da caneta redonda',
+    'ใช้สไตล์ปากกาหัวกลม',
+  ],
+  'applyPenFlat': [
+    'Apply flat pen style',
+    'Aplicar estilo da caneta chanfrada',
+    'ใช้สไตล์ปากกาหัวตัด',
+  ],
+  'applyPenBrush': [
+    'Apply brush pen style',
+    'Aplicar estilo da caneta pincel',
+    'ใช้สไตล์ปากกาพู่กัน',
+  ],
+  'applyHighlighter': [
+    'Apply highlighter style',
+    'Aplicar estilo do marca-texto',
+    'ใช้สไตล์ปากกาเน้นข้อความ',
+  ],
   'spaceLimit': [
     'Space limit reached. Resize this block, move nearby content, or continue in an empty area.',
     'Limite de espaço atingido. Redimensione este bloco, mova o conteúdo próximo ou continue em uma área vazia.',

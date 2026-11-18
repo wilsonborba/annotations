@@ -201,6 +201,10 @@ class ToolSettingsPanel extends StatefulWidget {
 
   /// Edit as path; null hides it (no single geometric shape selected).
   final VoidCallback? onEditAsPath;
+
+  /// Apply pen style to the selected strokes; null hides it (no stroke
+  /// selected, or the tool is not a pen).
+  final VoidCallback? onApplyStyle;
   final DrawSettings settings;
   const ToolSettingsPanel({
     super.key,
@@ -213,6 +217,7 @@ class ToolSettingsPanel extends StatefulWidget {
     this.shape,
     this.onShape,
     this.onEditAsPath,
+    this.onApplyStyle,
     this.settings = const DrawSettings(),
   });
 
@@ -350,6 +355,23 @@ class _ToolSettingsPanelState extends State<ToolSettingsPanel> {
               CustomColorPicker(
                 color: w.style.color,
                 onChanged: (v, done) => change(InkStyleChange(color: v), done),
+              ),
+            ],
+            if (w.onApplyStyle != null) ...[
+              const SizedBox(height: 10),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: AppButton.subtle(
+                  key: const Key('apply-pen-style'),
+                  label: context.tr(switch (w.tool) {
+                    DrawTool.round => 'applyPenRound',
+                    DrawTool.flat => 'applyPenFlat',
+                    DrawTool.brush => 'applyPenBrush',
+                    _ => 'applyHighlighter',
+                  }),
+                  icon: drawToolIcon(w.tool),
+                  onPressed: w.onApplyStyle,
+                ),
               ),
             ],
             if (w.onEditAsPath != null) ...[
