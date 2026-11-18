@@ -9,11 +9,14 @@ import 'package:annotations_shared/dal/local/text_engine.dart';
 import 'package:annotations_shared/domain/models/note_document.dart';
 import 'package:annotations_shared/domain/services/note_history.dart';
 import 'package:annotations_shared/domain/services/text_editing.dart';
+import 'package:annotations_shared/presentation/frontend/components/theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_quill/flutter_quill.dart';
 import 'package:flutter_quill/quill_delta.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import 'design_goldens_test.dart' show loadAppFonts;
 
 const engine = QuillTextEngine();
 
@@ -634,6 +637,47 @@ void main() {
         await mount(tester, spans);
         final rendered = tester.getSize(find.byKey(key)).height;
         expect(engine.measureHeight(spans, 200), closeTo(rendered, 0.01));
+      }
+    });
+  });
+
+  group('font family in an app (annotations#59)', () {
+    test('the text style names the package fonts like the theme', () {
+      expect(annotationsTextStyle.fontFamily, appFontFamily);
+      expect(annotationsTextStyle.fontFamilyFallback, appFontFallback);
+      final paragraph = engine.styles.paragraph!.style;
+      expect(paragraph.fontFamily, appFontFamily);
+      expect(paragraph.fontFamilyFallback, appFontFallback);
+    });
+
+    test('measuring uses Ubuntu Sans and the Thai fallback', () async {
+      // Only the names that an app registers are loaded (see loadAppFonts).
+      await loadAppFonts();
+      double width(String text, TextStyle style) {
+        final painter = TextPainter(
+          text: TextSpan(text: text, style: style),
+          textDirection: TextDirection.ltr,
+        )..layout();
+        final result = painter.width;
+        painter.dispose();
+        return result;
+      }
+
+      for (final text in ['Annotations', 'สวัสดีครับ']) {
+        final app = width(
+          text,
+          const TextStyle(
+            fontFamily: appFontFamily,
+            fontFamilyFallback: appFontFallback,
+            fontSize: 16,
+          ),
+        );
+        final unknown = width(
+          text,
+          const TextStyle(fontFamily: 'Unknown', fontSize: 16),
+        );
+        expect(app, isNot(closeTo(unknown, 0.5)), reason: text);
+        expect(width(text, annotationsTextStyle), closeTo(app, 0.01));
       }
     });
   });

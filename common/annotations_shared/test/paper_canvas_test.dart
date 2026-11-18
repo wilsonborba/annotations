@@ -1,10 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:annotations_shared/core/local_store_settings.dart';
-import 'package:annotations_shared/dal/local/quill_text_engine.dart';
 import 'package:annotations_shared/core/paper_settings.dart';
 import 'package:annotations_shared/domain/models/local_note.dart';
 import 'package:annotations_shared/domain/models/note_document.dart';
@@ -242,26 +240,8 @@ Future<void> golden(WidgetTester tester, String name) async {
   );
 }
 
-/// The text engine style names the font family without the package prefix
-/// (annotationsTextStyle); load the same files under that name too, so page
-/// text renders with the real glyphs.
-Future<void> loadPageFonts() async {
-  await loadAppFonts();
-  Future<ByteData> font(String file) async => ByteData.sublistView(
-    await File('lib/presentation/frontend/assets/fonts/$file').readAsBytes(),
-  );
-  await (FontLoader(annotationsTextStyle.fontFamily!)
-        ..addFont(font('UbuntuSans-Variable.ttf'))
-        ..addFont(font('UbuntuSans-Italic-Variable.ttf')))
-      .load();
-  await (FontLoader(annotationsTextStyle.fontFamilyFallback!.single)
-        ..addFont(font('IBMPlexSansThai-Regular.ttf'))
-        ..addFont(font('IBMPlexSansThai-Bold.ttf')))
-      .load();
-}
-
 void main() {
-  setUpAll(loadPageFonts);
+  setUpAll(loadAppFonts);
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
   group('paper page (domain)', () {
