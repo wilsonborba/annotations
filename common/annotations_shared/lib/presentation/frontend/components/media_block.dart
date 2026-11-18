@@ -1,5 +1,8 @@
 import 'package:annotations_shared/core/tracking_manifest.dart';
 import 'package:flutter/material.dart';
+import 'controls.dart';
+import 'icons.dart';
+import 'tokens.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../domain/models/content.dart';
 import '../../../dal/remote/browser/frames.dart';
@@ -32,11 +35,11 @@ class _MediaBlockState extends State<MediaBlock> {
     }
   }
 
-  IconData provider(String? name) => switch (name) {
-    'google-drive' => Icons.add_to_drive_outlined,
-    'discord' => Icons.forum_outlined,
-    'youtube' => Icons.smart_display_outlined,
-    _ => Icons.link_rounded,
+  AppIconData provider(String? name) => switch (name) {
+    'google-drive' => AppIcons.cloud,
+    'discord' => AppIcons.chat,
+    'youtube' => AppIcons.video,
+    _ => AppIcons.link,
   };
   Widget card(Data data) {
     final block = widget.block;
@@ -45,12 +48,12 @@ class _MediaBlockState extends State<MediaBlock> {
         .toString();
     final title = (block['title'] ?? data['title'] ?? domain).toString();
     final thumbnail = (data['thumbnail'] ?? '').toString();
-    final icon = Icon(
+    final icon = AppIcon(
       block['type'] == 'pdf'
-          ? Icons.picture_as_pdf_outlined
+          ? AppIcons.file
           : provider(data['provider'] as String?),
       size: 28,
-      color: Theme.of(context).colorScheme.primary,
+      color: context.colors.icon,
     );
     final leading = thumbnail.isEmpty
         ? icon
@@ -105,7 +108,7 @@ class _MediaBlockState extends State<MediaBlock> {
                   ),
                 ),
                 const SizedBox(width: 12),
-                const Icon(Icons.north_east_rounded, size: 17),
+                const AppIcon(AppIcons.openIn, size: 17),
               ],
             ),
           ),
@@ -131,7 +134,7 @@ class _MediaBlockState extends State<MediaBlock> {
               fit: BoxFit.contain,
               errorBuilder: (_, _, _) => const Padding(
                 padding: EdgeInsets.all(24),
-                child: Icon(Icons.broken_image_outlined),
+                child: AppIcon(AppIcons.image),
               ),
             ),
           ),
@@ -159,11 +162,11 @@ class _MediaBlockState extends State<MediaBlock> {
               alignment: Alignment.centerRight,
               child: track(
                 'article.media.report',
-                TextButton.icon(
+                AppButton.subtle(
+                  label: context.tr('open'),
+                  icon: AppIcons.openIn,
                   onPressed: () =>
                       open((block['source_url'] ?? url).toString()),
-                  icon: const Icon(Icons.north_east_rounded, size: 15),
-                  label: Text(context.tr('open')),
                 ),
               ),
             ),

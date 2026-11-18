@@ -26,6 +26,10 @@ dev_dependencies:
 flutter:
   assets:
     - lib/presentation/frontend/assets/images/
+    - lib/presentation/frontend/assets/icons/LICENSE
+    - lib/presentation/frontend/assets/icons/NOTICE
+    - lib/presentation/frontend/assets/fonts/UbuntuSans-LICENCE.txt
+    - lib/presentation/frontend/assets/fonts/IBMPlexSansThai-LICENSE.txt
   fonts:
     - family: Ubuntu Sans
       fonts:
@@ -35,3 +39,7 @@ flutter:
     - family: IBM Plex Sans Thai
       fonts:
         - asset: lib/presentation/frontend/assets/fonts/IBMPlexSansThai-Regular.ttf
+        - asset: lib/presentation/frontend/assets/fonts/IBMPlexSansThai-SemiBold.ttf
+          weight: 600
+        - asset: lib/presentation/frontend/assets/fonts/IBMPlexSansThai-Bold.ttf
+          weight: 700

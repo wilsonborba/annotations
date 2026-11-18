@@ -1,8 +1,11 @@
 import 'package:annotations_shared/core/tracking_manifest.dart';
 import 'package:annotations_shared/core/tracking.dart';
 import 'package:flutter/material.dart';
+import '../../components/icons.dart';
 import 'package:go_router/go_router.dart';
+import '../../components/controls.dart';
 import '../../components/scope.dart';
+import '../../components/tokens.dart';
 import '../../components/shell.dart';
 import '../../components/post_card.dart';
 import '../../handlers/content_handler.dart';
@@ -55,7 +58,7 @@ class _LandingPageState extends State<LandingPage> {
                     fontSize: 11,
                     letterSpacing: 2,
                     fontWeight: FontWeight.w700,
-                    color: Theme.of(context).colorScheme.primary,
+                    color: context.colors.textSecondary,
                   ),
                 ),
                 const SizedBox(height: 26),
@@ -80,23 +83,17 @@ class _LandingPageState extends State<LandingPage> {
                   children: [
                     track(
                       'landing.browse.open',
-                      FilledButton(
+                      AppButton.primary(
+                        label: context.tr('browse'),
+                        trailingIcon: AppIcons.chevronRight,
                         onPressed: () => context.go('/v1/menu'),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(context.tr('browse')),
-                            const SizedBox(width: 12),
-                            const Icon(Icons.arrow_forward_rounded, size: 18),
-                          ],
-                        ),
                       ),
                     ),
                     track(
                       'landing.instant.open',
-                      OutlinedButton(
+                      AppButton(
+                        label: context.tr('instant'),
                         onPressed: () => context.go('/v1/instant'),
-                        child: Text(context.tr('instant')),
                       ),
                     ),
                   ],
@@ -106,7 +103,7 @@ class _LandingPageState extends State<LandingPage> {
             final picture = Container(
               height: 390,
               decoration: BoxDecoration(
-                color: const Color(0xFFF0EBFA),
+                color: context.colors.subtle,
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Stack(
@@ -118,7 +115,7 @@ class _LandingPageState extends State<LandingPage> {
                     child: Container(
                       padding: const EdgeInsets.all(20),
                       decoration: BoxDecoration(
-                        color: Colors.white,
+                        color: context.colors.surface,
                         borderRadius: BorderRadius.circular(7),
                         boxShadow: const [
                           BoxShadow(
@@ -133,15 +130,15 @@ class _LandingPageState extends State<LandingPage> {
                         children: [
                           Row(
                             children: [
-                              Icon(
-                                Icons.menu_book_outlined,
-                                color: Color(0xFF7C3AED),
+                              AppIcon(
+                                AppIcons.fileText,
+                                color: context.colors.icon,
                               ),
                               SizedBox(width: 9),
                               Text(
                                 context.tr('noteSources'),
                                 style: TextStyle(
-                                  color: Color(0xFF242429),
+                                  color: context.colors.text,
                                   fontWeight: FontWeight.w700,
                                 ),
                               ),
@@ -151,15 +148,15 @@ class _LandingPageState extends State<LandingPage> {
                           LinearProgressIndicator(
                             value: .8,
                             minHeight: 5,
-                            backgroundColor: Color(0xFFF0EBFA),
-                            color: Color(0xFFD8D3DE),
+                            backgroundColor: context.colors.subtle,
+                            color: context.colors.border,
                           ),
                           SizedBox(height: 12),
                           LinearProgressIndicator(
                             value: .6,
                             minHeight: 5,
-                            backgroundColor: Color(0xFFF0EBFA),
-                            color: Color(0xFFD8D3DE),
+                            backgroundColor: context.colors.subtle,
+                            color: context.colors.border,
                           ),
                         ],
                       ),
@@ -180,17 +177,23 @@ class _LandingPageState extends State<LandingPage> {
                     child: Container(
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF27232E),
+                        color: context.colors.inverse,
                         borderRadius: BorderRadius.circular(7),
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.link_rounded, color: Color(0xFFBBFF73)),
+                          AppIcon(
+                            AppIcons.link,
+                            color: context.colors.onInverse,
+                          ),
                           SizedBox(width: 10),
                           Text(
                             context.tr('ideaConnections'),
-                            style: TextStyle(color: Colors.white, fontSize: 12),
+                            style: TextStyle(
+                              color: context.colors.onInverse,
+                              fontSize: 12,
+                            ),
                           ),
                         ],
                       ),
@@ -233,9 +236,10 @@ class _LandingPageState extends State<LandingPage> {
                 ),
                 track(
                   'landing.catalog.all',
-                  TextButton(
+                  AppButton.subtle(
+                    label: context.tr('all'),
+                    trailingIcon: AppIcons.chevronRight,
                     onPressed: () => context.go('/v1/menu'),
-                    child: Text(context.tr('all')),
                   ),
                 ),
               ],
@@ -286,9 +290,9 @@ class _LandingPageState extends State<LandingPage> {
               final intro = Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(
-                    Icons.person_add_alt_1_outlined,
-                    color: Theme.of(context).colorScheme.primary,
+                  AppIcon(
+                    AppIcons.userAdd,
+                    color: context.colors.icon,
                     size: 30,
                   ),
                   const SizedBox(height: 18),
@@ -310,7 +314,7 @@ class _LandingPageState extends State<LandingPage> {
                         padding: const EdgeInsets.all(24),
                         child: Row(
                           children: [
-                            const Icon(Icons.check_circle_outline),
+                            const AppIcon(AppIcons.checkmarkCircle),
                             const SizedBox(width: 12),
                             Expanded(
                               child: Text(
@@ -356,7 +360,7 @@ class _LandingPageState extends State<LandingPage> {
                           const SizedBox(height: 14),
                           track(
                             'landing.waitlist.submit',
-                            FilledButton(
+                            AppButton(
                               key: const Key('waitlist-submit'),
                               onPressed: waitlist!.busy
                                   ? null
@@ -370,17 +374,21 @@ class _LandingPageState extends State<LandingPage> {
                                         message.text,
                                       );
                                     },
-                              child: Text(context.tr('join')),
+                              label: context.tr('join'),
                             ),
                           ),
                           if (waitlist!.error != null)
                             Padding(
                               padding: const EdgeInsets.only(top: 10),
-                              child: Text(
-                                waitlist!.error!,
-                                style: TextStyle(
-                                  color: Theme.of(context).colorScheme.error,
-                                ),
+                              child: Row(
+                                children: [
+                                  AppIcon(
+                                    AppIcons.alertDiamond,
+                                    color: context.colors.danger,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(child: Text(waitlist!.error!)),
+                                ],
                               ),
                             ),
                         ],

@@ -13,6 +13,7 @@ const strings = <String, List<String>>{
   'browse': ['Explore notes', 'Explorar anotações', 'สำรวจบันทึก'],
   'instant': ['Instant share', 'Compartilhar agora', 'แชร์ชั่วคราว'],
   'home': ['Home', 'Início', 'หน้าแรก'],
+  'menu': ['Menu', 'Menu', 'เมนู'],
   'theme': ['Change theme', 'Mudar tema', 'เปลี่ยนธีม'],
   'language': ['Interface language', 'Idioma da interface', 'ภาษาของแอป'],
   'contentLanguage': [

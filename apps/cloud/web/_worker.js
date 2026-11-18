@@ -18,7 +18,7 @@ export default {
     } catch { return env.ASSETS.fetch(request); }
     const shell = await env.ASSETS.fetch(new Request(new URL('/index.html',url), {method:'GET'}));
     let html = await shell.text();
-    const title = article ? `${article.title} · Annotations` : 'Annotations · Asodya';
+    const title = article ? `${article.title} · Annotations` : 'Annotations';
     const description = article?.summary ?? 'Study notes, sources and interactive reports.';
     const canonical = new URL(url.pathname,url.origin);
     if (article?.language) canonical.searchParams.set('lang',article.language);

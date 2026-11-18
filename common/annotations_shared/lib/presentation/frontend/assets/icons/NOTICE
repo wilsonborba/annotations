@@ -1,0 +1,12 @@
+Spectrum 2 workflow icons
+Source: @adobe/spectrum-css-workflow-icons 5.0.0
+https://github.com/adobe/spectrum-css-workflow-icons
+
+Copyright 2015-2024 Adobe. All rights reserved.
+Adobe holds the copyright for all the files found in that repository.
+Licensed under the Apache License, Version 2.0 (see LICENSE in this folder).
+
+Changes: Annotations copies the SVG path data of the icons listed in
+scripts/spectrum_icons.py, without change to the shapes, into the Dart file
+lib/presentation/frontend/components/spectrum_icons.dart. Only the file
+format changed (SVG to Dart constants).

@@ -1,12 +1,15 @@
 import 'core/tracking_manifest.dart';
 import 'core/tracking.dart';
 import 'dal/remote/api_adapter.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'domain/services/preferences.dart';
 import 'domain/services/annotations_service.dart';
 import 'presentation/frontend/components/scope.dart';
 import 'presentation/frontend/components/shell.dart';
+import 'presentation/frontend/components/theme.dart';
+import 'presentation/frontend/widgets/gallery/gallery_page.dart';
 import 'presentation/frontend/widgets/landing/landing_page.dart';
 import 'presentation/frontend/widgets/catalog/catalog_page.dart';
 import 'presentation/frontend/widgets/article/article_page.dart';
@@ -46,6 +49,7 @@ class _AnnotationsAppState extends State<AnnotationsApp> {
   @override
   void initState() {
     super.initState();
+    registerDesignLicenses();
     preferences.load();
     if (widget.trackingEnabled) errors.install();
     service.api.onError = (error, stack, operation) => errors.report(
@@ -89,6 +93,12 @@ class _AnnotationsAppState extends State<AnnotationsApp> {
               builder: (_, state) =>
                   InstantPage(code: state.pathParameters['code']!),
             ),
+            // Design review only: release builds have no gallery route.
+            if (kDebugMode)
+              GoRoute(
+                path: '/v1/gallery',
+                builder: (_, _) => const GalleryPage(),
+              ),
           ],
         ),
       ],
@@ -109,80 +119,6 @@ class _AnnotationsAppState extends State<AnnotationsApp> {
     super.dispose();
   }
 
-  ThemeData theme(Brightness brightness) {
-    final dark = brightness == Brightness.dark;
-    final background = dark ? const Color(0xFF0B0C10) : const Color(0xFFFAF9F6);
-    final surface = dark ? const Color(0xFF15171D) : Colors.white;
-    final scheme = ColorScheme.fromSeed(
-      seedColor: const Color(0xFF7C3AED),
-      brightness: brightness,
-      surface: surface,
-    );
-    return ThemeData(
-      useMaterial3: true,
-      brightness: brightness,
-      colorScheme: scheme,
-      fontFamily: 'Ubuntu Sans',
-      fontFamilyFallback: const ['IBM Plex Sans Thai'],
-      package: 'annotations_shared',
-      scaffoldBackgroundColor: background,
-      dividerColor: dark ? const Color(0xFF30323B) : const Color(0xFFE5E3DF),
-      appBarTheme: AppBarTheme(
-        backgroundColor: background,
-        surfaceTintColor: Colors.transparent,
-        elevation: 0,
-      ),
-      inputDecorationTheme: InputDecorationTheme(
-        filled: true,
-        fillColor: surface,
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 16,
-          vertical: 18,
-        ),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(6),
-          borderSide: BorderSide(
-            color: dark ? const Color(0xFF30323B) : const Color(0xFFE5E3DF),
-          ),
-        ),
-      ),
-      textTheme: TextTheme(
-        headlineLarge: TextStyle(
-          fontSize: 48,
-          fontWeight: FontWeight.w700,
-          height: 1.08,
-          letterSpacing: -1.8,
-          color: scheme.onSurface,
-        ),
-        headlineMedium: TextStyle(
-          fontSize: 32,
-          fontWeight: FontWeight.w700,
-          height: 1.15,
-          color: scheme.onSurface,
-        ),
-        titleLarge: const TextStyle(
-          fontSize: 23,
-          fontWeight: FontWeight.w700,
-          height: 1.25,
-        ),
-        bodyLarge: const TextStyle(fontSize: 17, height: 1.65),
-        bodyMedium: const TextStyle(fontSize: 15, height: 1.55),
-      ),
-      filledButtonTheme: FilledButtonThemeData(
-        style: FilledButton.styleFrom(
-          padding: const EdgeInsets.symmetric(horizontal: 23, vertical: 20),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
-        ),
-      ),
-      outlinedButtonTheme: OutlinedButtonThemeData(
-        style: OutlinedButton.styleFrom(
-          padding: const EdgeInsets.symmetric(horizontal: 23, vertical: 20),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
     animation: preferences,
@@ -190,10 +126,10 @@ class _AnnotationsAppState extends State<AnnotationsApp> {
       preferences: preferences,
       service: service,
       child: MaterialApp.router(
-        title: 'Annotations · Asodya',
+        title: 'Annotations',
         debugShowCheckedModeBanner: false,
-        theme: theme(Brightness.light),
-        darkTheme: theme(Brightness.dark),
+        theme: appTheme(Brightness.light),
+        darkTheme: appTheme(Brightness.dark),
         themeMode: preferences.theme,
         routerConfig: router,
         builder: (context, child) => ScreenTrailRoot(

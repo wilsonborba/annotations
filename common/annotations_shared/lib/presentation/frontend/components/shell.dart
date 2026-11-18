@@ -3,7 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../core/settings.dart';
+import 'controls.dart';
+import 'icons.dart';
 import 'scope.dart';
+import 'theme.dart';
+import 'tokens.dart';
 
 class PageShell extends StatelessWidget {
   final Widget child;
@@ -17,89 +21,65 @@ class PageShell extends StatelessWidget {
     final dark = Theme.of(context).brightness == Brightness.dark;
     return Scaffold(
       appBar: AppBar(
-        toolbarHeight: 80,
-        titleSpacing: width > 740 ? 40 : 18,
+        toolbarHeight: 72,
+        titleSpacing: width > 740 ? 34 : 12,
         title: track(
           'shell.navigation.home',
-          InkWell(
-            onTap: () => context.go('/v1/home'),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Image.asset(
-                  'lib/presentation/frontend/assets/images/asodya_logo.png',
-                  package: 'annotations_shared',
-                  height: 29,
-                ),
-                if (width >= 430) ...[
-                  const SizedBox(width: 12),
-                  const Text(
-                    'Annotations',
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
-                  ),
-                ],
-              ],
-            ),
+          AppBrand(
+            homeLabel: context.tr('home'),
+            showTitle: width >= 430,
+            onHome: () => context.go('/v1/home'),
           ),
         ),
         actions: [
           if (wide) ...[
             track(
               'shell.navigation.notes',
-              TextButton(
+              AppButton.subtle(
+                label: context.tr('notes'),
                 onPressed: () => context.go('/v1/menu'),
-                child: Text(context.tr('notes')),
               ),
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: 4),
             track(
               'shell.navigation.instant',
-              TextButton(
+              AppButton.subtle(
+                label: context.tr('instant'),
                 onPressed: () => context.go('/v1/instant'),
-                child: Text(context.tr('instant')),
               ),
             ),
             const SizedBox(width: 16),
           ],
           LanguageSwitch(selected: prefs.locale, onChanged: prefs.language),
-          const SizedBox(width: 4),
+          const SizedBox(width: 6),
           track(
             'shell.theme.toggle',
-            IconButton(
+            AppIconButton.navigation(
               key: const Key('theme-toggle'),
-              tooltip: context.tr('theme'),
+              icon: AppIcons.contrast,
+              label: context.tr('theme'),
               onPressed: () => prefs.toggle(dark),
-              icon: Icon(
-                dark ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
-                color: Theme.of(
-                  context,
-                ).colorScheme.onSurface.withValues(alpha: 0.85),
-              ),
             ),
           ),
           if (!wide)
             track(
               'shell.navigation.menu',
-              PopupMenuButton<String>(
-                onSelected: (value) {
-                  trackChoice(context, 'shell.navigation.menu', value);
-                  context.go(value);
-                },
-                itemBuilder: (_) => [
-                  PopupMenuItem(
-                    value: '/v1/menu',
-                    child: track(
-                      'shell.navigation.notes',
-                      Text(context.tr('notes')),
+              AppMenuButton(
+                icon: AppIcons.menu,
+                label: context.tr('menu'),
+                round: true,
+                entries: [
+                  for (final (route, key) in const [
+                    ('/v1/menu', 'notes'),
+                    ('/v1/instant', 'instant'),
+                  ])
+                    AppMenuEntry(
+                      label: context.tr(key),
+                      onSelected: () {
+                        trackChoice(context, 'shell.navigation.menu', route);
+                        context.go(route);
+                      },
                     ),
-                  ),
-                  PopupMenuItem(
-                    value: '/v1/instant',
-                    child: track(
-                      'shell.navigation.instant',
-                      Text(context.tr('instant')),
-                    ),
-                  ),
                 ],
               ),
             ),
@@ -127,21 +107,22 @@ class LanguageSwitch extends StatelessWidget {
   });
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
+    final c = context.colors;
+    final label = Theme.of(context).textTheme.labelMedium!;
     return Tooltip(
       message: context.tr('language'),
       child: Container(
         key: const Key('language-switch'),
-        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+        padding: const EdgeInsets.all(3),
         decoration: BoxDecoration(
-          color: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: scheme.outline.withValues(alpha: 0.3)),
+          color: c.subtle,
+          borderRadius: BorderRadius.circular(appRadius + 2),
+          border: Border.all(color: c.border),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            for (final (code, label) in const [
+            for (final (code, text) in const [
               ('en', 'EN'),
               ('pt-BR', 'PT'),
               ('th', 'TH'),
@@ -152,35 +133,39 @@ class LanguageSwitch extends StatelessWidget {
                     : code == 'th'
                     ? 'shell.language.thai'
                     : 'shell.language.portuguese',
-                InkWell(
-                  key: Key('language-$code'),
-                  onTap: () {
-                    trackChoice(context, 'shell.language.select', code);
-                    onChanged(code);
-                  },
-                  borderRadius: BorderRadius.circular(14),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 150),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      color: code == selected
-                          ? scheme.primary
-                          : Colors.transparent,
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: Text(
-                      label,
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: code == selected
-                            ? FontWeight.bold
-                            : FontWeight.normal,
+                Semantics(
+                  selected: code == selected,
+                  child: InkWell(
+                    key: Key('language-$code'),
+                    onTap: () {
+                      trackChoice(context, 'shell.language.select', code);
+                      onChanged(code);
+                    },
+                    borderRadius: BorderRadius.circular(appRadius),
+                    // The current choice is a selection: green fill, dark text.
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
                         color: code == selected
-                            ? scheme.onPrimary
-                            : scheme.onSurface.withValues(alpha: 0.75),
+                            ? c.selection
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(appRadius),
+                        border: Border.all(
+                          color: code == selected && !c.isDark
+                              ? c.selectionOutline
+                              : Colors.transparent,
+                        ),
+                      ),
+                      child: Text(
+                        text,
+                        style: label.copyWith(
+                          color: code == selected
+                              ? c.onSelection
+                              : c.textSecondary,
+                        ),
                       ),
                     ),
                   ),
@@ -280,7 +265,7 @@ class FooterLink extends StatelessWidget {
           label,
           style: TextStyle(
             fontWeight: FontWeight.w600,
-            color: Theme.of(context).colorScheme.primary,
+            color: context.colors.link,
           ),
         ),
       ),
@@ -296,15 +281,16 @@ class NotFoundState extends StatelessWidget {
     padding: const EdgeInsets.symmetric(vertical: 48),
     child: Column(
       children: [
-        const Icon(Icons.search_off_rounded, size: 32),
+        AppIcon(AppIcons.search, size: 32, color: context.colors.iconSecondary),
         const SizedBox(height: 12),
         Text(context.tr('notFound'), key: const Key('not-found')),
         const SizedBox(height: 12),
         track(
           'shell.error.back',
-          OutlinedButton(
+          AppButton(
+            label: context.tr('back'),
+            icon: AppIcons.chevronLeft,
             onPressed: () => context.go('/v1/menu'),
-            child: Text(context.tr('back')),
           ),
         ),
       ],
@@ -324,7 +310,11 @@ class LoadError extends StatelessWidget {
     padding: const EdgeInsets.symmetric(vertical: 48),
     child: Column(
       children: [
-        const Icon(Icons.cloud_off_outlined, size: 32),
+        AppIcon(
+          AppIcons.cloudDisconnected,
+          size: 32,
+          color: context.colors.danger,
+        ),
         const SizedBox(height: 12),
         Text(context.tr('error')),
         if (reference != null) ...[
@@ -338,7 +328,7 @@ class LoadError extends StatelessWidget {
         const SizedBox(height: 12),
         track(
           'shell.error.retry',
-          OutlinedButton(onPressed: retry, child: Text(context.tr('retry'))),
+          AppButton(label: context.tr('retry'), onPressed: retry),
         ),
       ],
     ),
