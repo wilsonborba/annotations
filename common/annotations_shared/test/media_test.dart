@@ -1,10 +1,10 @@
 import 'dart:convert';
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:annotations_shared/app.dart';
 import 'fixtures.dart';
+import 'package:annotations_shared/presentation/frontend/components/icons.dart';
 
 void main() {
   testWidgets('provider cards and one Reports embed render in an article', (
@@ -57,7 +57,10 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.text('Study PDF'), findsOneWidget);
-    expect(find.byIcon(Icons.picture_as_pdf_outlined), findsOneWidget);
+    expect(
+      find.byWidgetPredicate((w) => w is AppIcon && w.icon == AppIcons.file),
+      findsOneWidget,
+    );
     expect(find.text('Open original'), findsOneWidget);
   });
   testWidgets('a failed link preview falls back to the URL domain', (

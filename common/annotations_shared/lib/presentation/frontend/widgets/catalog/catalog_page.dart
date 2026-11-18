@@ -2,9 +2,12 @@ import 'package:annotations_shared/core/tracking_manifest.dart';
 import 'package:annotations_shared/core/tracking.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
+import '../../components/icons.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../domain/models/content.dart';
+import '../../components/controls.dart';
 import '../../components/scope.dart';
+import '../../components/tokens.dart';
 import '../../components/shell.dart';
 import '../../components/post_card.dart';
 import '../../handlers/content_handler.dart';
@@ -81,7 +84,7 @@ class _CatalogPageState extends State<CatalogPage> {
             letterSpacing: 1.7,
             fontSize: 11,
             fontWeight: FontWeight.w700,
-            color: Theme.of(context).colorScheme.primary,
+            color: context.colors.textSecondary,
           ),
         ),
         const SizedBox(height: 18),
@@ -97,7 +100,7 @@ class _CatalogPageState extends State<CatalogPage> {
             controller: search,
             decoration: InputDecoration(
               hintText: context.tr('search'),
-              prefixIcon: const Icon(Icons.search_rounded),
+              prefixIcon: const AppIcon(AppIcons.search),
             ),
             onChanged: (value) {
               debounce?.cancel();
@@ -144,6 +147,7 @@ class _CatalogPageState extends State<CatalogPage> {
                         'catalog.topic.select',
                         DropdownButtonFormField<String>(
                           isExpanded: true,
+                          icon: const AppIcon(AppIcons.chevronDown),
                           initialValue:
                               records(
                                 catalog['topics'],
@@ -184,6 +188,7 @@ class _CatalogPageState extends State<CatalogPage> {
                         'catalog.channel.select',
                         DropdownButtonFormField<String>(
                           isExpanded: true,
+                          icon: const AppIcon(AppIcons.chevronDown),
                           initialValue:
                               records(
                                 catalog['channels'],
@@ -297,10 +302,7 @@ class _MoreNotesState extends State<MoreNotes> {
       if (!done)
         track(
           'catalog.pagination.more',
-          OutlinedButton(
-            onPressed: busy ? null : more,
-            child: Text(context.tr('more')),
-          ),
+          AppButton(label: context.tr('more'), onPressed: busy ? null : more),
         ),
     ],
   );

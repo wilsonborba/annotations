@@ -1,11 +1,14 @@
 import 'package:annotations_shared/core/tracking_manifest.dart';
 import 'package:flutter/material.dart';
+import '../../components/icons.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../../dal/remote/browser/transfers.dart' as browser;
 import '../../../../domain/models/content.dart';
+import '../../components/controls.dart';
 import '../../components/scope.dart';
+import '../../components/tokens.dart';
 import '../../components/shell.dart';
 import '../../handlers/room_handler.dart';
 
@@ -53,10 +56,10 @@ class _InstantPageState extends State<InstantPage> {
 
   Future<void> editItem(Data item) async {
     final value = TextEditingController(text: item['text']);
-    final result = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(context.tr('edit')),
+    final result = await showAppDialog<String>(
+      context,
+      (context) => AppDialog(
+        title: context.tr('edit'),
         content: SizedBox(
           width: 440,
           child: track(
@@ -68,19 +71,19 @@ class _InstantPageState extends State<InstantPage> {
         actions: [
           track(
             'instant.edit.cancel',
-            TextButton(
+            AppButton(
+              label: context.tr('cancel'),
               onPressed: () => Navigator.pop(context),
-              child: Text(context.tr('cancel')),
             ),
           ),
           track(
             'instant.edit.save',
-            FilledButton(
+            AppButton.primary(
+              label: context.tr('save'),
               onPressed: () {
                 trackSubmit(context, 'instant.edit.save');
                 Navigator.pop(context, value.text);
               },
-              child: Text(context.tr('save')),
             ),
           ),
         ],
@@ -103,23 +106,23 @@ class _InstantPageState extends State<InstantPage> {
 
   Widget removeButton(RoomHandler h, Data item) => track(
     'instant.item.remove',
-    IconButton(
+    AppIconButton(
       key: Key('remove-${item['id']}'),
+      icon: AppIcons.delete,
+      label: context.tr('remove'),
+      iconSize: 18,
       onPressed: h.busy ? null : () => h.remove(item['id']),
-      tooltip: context.tr('remove'),
-      icon: const Icon(Icons.delete_outline_rounded, size: 18),
     ),
   );
 
   /// Open writing sheet: a plain page with the actions underneath.
   Widget paper(RoomHandler h) {
     final theme = Theme.of(context);
-    final dark = theme.brightness == Brightness.dark;
     final margin = MediaQuery.sizeOf(context).width > 740 ? 48.0 : 22.0;
     return Container(
       key: const Key('room-sheet'),
       decoration: BoxDecoration(
-        color: dark ? theme.colorScheme.surfaceContainerLow : Colors.white,
+        color: context.colors.surface,
         border: Border.all(color: theme.dividerColor),
         borderRadius: BorderRadius.circular(4),
       ),
@@ -162,23 +165,23 @@ class _InstantPageState extends State<InstantPage> {
               children: [
                 track(
                   'instant.composer.add',
-                  FilledButton.icon(
+                  AppButton.primary(
+                    label: context.tr('add'),
+                    icon: AppIcons.add,
                     onPressed: h.busy
                         ? null
                         : () async {
                             trackSubmit(context, 'instant.composer.add');
                             if (await h.edit(text.text)) text.clear();
                           },
-                    icon: const Icon(Icons.add_rounded),
-                    label: Text(context.tr('add')),
                   ),
                 ),
                 track(
                   'instant.composer.upload',
-                  OutlinedButton.icon(
+                  AppButton(
+                    label: context.tr('upload'),
+                    icon: AppIcons.upload,
                     onPressed: h.uploadName != null ? null : h.choose,
-                    icon: const Icon(Icons.upload_file_rounded),
-                    label: Text(context.tr('upload')),
                   ),
                 ),
                 Text(context.tr('drop'), style: theme.textTheme.bodySmall),
@@ -200,15 +203,19 @@ class _InstantPageState extends State<InstantPage> {
     if (h.expired) {
       return Column(
         children: [
-          const Icon(Icons.timer_off_outlined, size: 35),
+          AppIcon(
+            AppIcons.clock,
+            size: 35,
+            color: context.colors.iconSecondary,
+          ),
           const SizedBox(height: 16),
           Text(context.tr('expired')),
           const SizedBox(height: 18),
           track(
             'instant.room.reopen',
-            OutlinedButton(
+            AppButton(
+              label: context.tr('openRoom'),
               onPressed: () => context.go('/v1/instant'),
-              child: Text(context.tr('openRoom')),
             ),
           ),
         ],
@@ -243,10 +250,7 @@ class _InstantPageState extends State<InstantPage> {
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(
-                    Icons.meeting_room_outlined,
-                    color: Theme.of(context).colorScheme.primary,
-                  ),
+                  AppIcon(AppIcons.peopleGroup, color: context.colors.icon),
                   const SizedBox(width: 12),
                   Text(
                     widget.code!,
@@ -260,7 +264,7 @@ class _InstantPageState extends State<InstantPage> {
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(Icons.schedule_rounded, size: 17),
+                  const AppIcon(AppIcons.clock, size: 17),
                   const SizedBox(width: 8),
                   Text(
                     '${seconds ~/ 60}:${(seconds % 60).toString().padLeft(2, '0')}',
@@ -268,7 +272,9 @@ class _InstantPageState extends State<InstantPage> {
                   const SizedBox(width: 20),
                   track(
                     'instant.room.copy',
-                    OutlinedButton.icon(
+                    AppButton(
+                      label: context.tr('copy'),
+                      icon: AppIcons.link,
                       onPressed: () async {
                         await Clipboard.setData(
                           ClipboardData(
@@ -281,13 +287,9 @@ class _InstantPageState extends State<InstantPage> {
                           ),
                         );
                         if (mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text(context.tr('copied'))),
-                          );
+                          showAppToast(context, context.tr('copied'));
                         }
                       },
-                      icon: const Icon(Icons.link_rounded, size: 16),
-                      label: Text(context.tr('copy')),
                     ),
                   ),
                 ],
@@ -331,9 +333,12 @@ class _InstantPageState extends State<InstantPage> {
         if (h.error != null)
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 16),
-            child: Text(
-              h.error!,
-              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            child: Row(
+              children: [
+                AppIcon(AppIcons.alertDiamond, color: context.colors.danger),
+                const SizedBox(width: 8),
+                Expanded(child: Text(h.error!)),
+              ],
             ),
           ),
         const SizedBox(height: 28),
@@ -361,8 +366,7 @@ class _InstantPageState extends State<InstantPage> {
                       h.fileUrl(item),
                       height: 250,
                       fit: BoxFit.contain,
-                      errorBuilder: (_, _, _) =>
-                          const Icon(Icons.broken_image_outlined),
+                      errorBuilder: (_, _, _) => const AppIcon(AppIcons.image),
                     ),
                   ),
                 if (item['kind'] == 'text')
@@ -377,10 +381,11 @@ class _InstantPageState extends State<InstantPage> {
                       ),
                       track(
                         'instant.item.edit',
-                        IconButton(
+                        AppIconButton(
+                          icon: AppIcons.edit,
+                          label: context.tr('edit'),
+                          iconSize: 18,
                           onPressed: () => editItem(item),
-                          tooltip: context.tr('edit'),
-                          icon: const Icon(Icons.edit_outlined, size: 18),
                         ),
                       ),
                       removeButton(h, item),
@@ -389,7 +394,7 @@ class _InstantPageState extends State<InstantPage> {
                 if (item['kind'] == 'link')
                   Row(
                     children: [
-                      const Icon(Icons.link_rounded, size: 20),
+                      const AppIcon(AppIcons.link, size: 20),
                       const SizedBox(width: 12),
                       Expanded(
                         child: track(
@@ -398,19 +403,18 @@ class _InstantPageState extends State<InstantPage> {
                             onTap: () => open(item['text']),
                             child: Text(
                               item['text'],
-                              style: TextStyle(
-                                color: Theme.of(context).colorScheme.primary,
-                              ),
+                              style: TextStyle(color: context.colors.link),
                             ),
                           ),
                         ),
                       ),
                       track(
                         'instant.item.edit',
-                        IconButton(
+                        AppIconButton(
+                          icon: AppIcons.edit,
+                          label: context.tr('edit'),
+                          iconSize: 18,
                           onPressed: () => editItem(item),
-                          tooltip: context.tr('edit'),
-                          icon: const Icon(Icons.edit_outlined, size: 18),
                         ),
                       ),
                       removeButton(h, item),
@@ -419,7 +423,7 @@ class _InstantPageState extends State<InstantPage> {
                 if (item['kind'] == 'file' || item['kind'] == 'image')
                   Row(
                     children: [
-                      const Icon(Icons.insert_drive_file_outlined),
+                      const AppIcon(AppIcons.file),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Text(
@@ -428,10 +432,10 @@ class _InstantPageState extends State<InstantPage> {
                       ),
                       track(
                         'instant.item.download',
-                        IconButton(
+                        AppIconButton(
+                          icon: AppIcons.download,
+                          label: context.tr('download'),
                           onPressed: () => open(h.fileUrl(item)),
-                          tooltip: context.tr('download'),
-                          icon: const Icon(Icons.download_rounded),
                         ),
                       ),
                       removeButton(h, item),
@@ -457,7 +461,7 @@ class _InstantPageState extends State<InstantPage> {
             fontSize: 11,
             letterSpacing: 1.7,
             fontWeight: FontWeight.w700,
-            color: Theme.of(context).colorScheme.primary,
+            color: context.colors.textSecondary,
           ),
         ),
         const SizedBox(height: 20),
@@ -492,11 +496,9 @@ class _InstantPageState extends State<InstantPage> {
                 alignment: Alignment.centerLeft,
                 child: track(
                   'instant.room.open',
-                  FilledButton(
-                    onPressed: () {
-                      openCode(code.text);
-                    },
-                    child: Text(context.tr('openRoom')),
+                  AppButton.primary(
+                    label: context.tr('openRoom'),
+                    onPressed: () => openCode(code.text),
                   ),
                 ),
               ),

@@ -1,12 +1,16 @@
 import 'package:annotations_shared/core/tracking_manifest.dart';
 import 'package:annotations_shared/core/tracking.dart';
 import 'package:flutter/material.dart';
+import '../../components/icons.dart';
 import '../../../../dal/remote/api_adapter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../domain/models/content.dart';
+import '../../components/controls.dart';
 import '../../components/scope.dart';
+import '../../components/theme.dart';
+import '../../components/tokens.dart';
 import '../../components/shell.dart';
 import '../../components/body_blocks.dart';
 import '../../handlers/content_handler.dart';
@@ -79,10 +83,10 @@ class _ArticlePageState extends State<ArticlePage> {
             children: [
               track(
                 'article.catalog.back',
-                TextButton.icon(
+                AppButton.subtle(
+                  label: context.tr('back'),
+                  icon: AppIcons.chevronLeft,
                   onPressed: () => context.go('/v1/menu'),
-                  icon: const Icon(Icons.arrow_back_rounded, size: 17),
-                  label: Text(context.tr('back')),
                 ),
               ),
               const SizedBox(height: 28),
@@ -133,8 +137,9 @@ class _ArticlePageState extends State<ArticlePage> {
                   ),
                   track(
                     'article.share.copy',
-                    IconButton(
-                      tooltip: context.tr('copy'),
+                    AppIconButton(
+                      icon: AppIcons.link,
+                      label: context.tr('copy'),
                       onPressed: () async {
                         final uri = Uri.base.replace(
                           path: '/v1/menu/${widget.channel}/${widget.slug}',
@@ -144,12 +149,9 @@ class _ArticlePageState extends State<ArticlePage> {
                           ClipboardData(text: uri.toString()),
                         );
                         if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text(context.tr('copied'))),
-                          );
+                          showAppToast(context, context.tr('copied'));
                         }
                       },
-                      icon: const Icon(Icons.link_rounded),
                     ),
                   ),
                 ],
@@ -213,23 +215,18 @@ class ContentLanguageSelector extends StatelessWidget {
       decoration: BoxDecoration(
         color: scheme.surface,
         border: Border.all(color: theme.dividerColor),
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(appRadius),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            Icons.translate_rounded,
+          AppIcon(
+            AppIcons.translate,
             size: 17,
-            color: scheme.onSurface.withValues(alpha: 0.7),
+            color: context.colors.iconSecondary,
           ),
           const SizedBox(width: 8),
-          Text(
-            context.tr('contentLanguage'),
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: scheme.onSurface.withValues(alpha: 0.7),
-            ),
-          ),
+          Text(context.tr('contentLanguage'), style: theme.textTheme.bodySmall),
           const SizedBox(width: 10),
           Container(width: 1, height: 22, color: theme.dividerColor),
           const SizedBox(width: 4),
@@ -239,9 +236,9 @@ class ContentLanguageSelector extends StatelessWidget {
               DropdownButton<String>(
                 key: const Key('content-language-dropdown'),
                 value: languages.contains(selected) ? selected : null,
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: BorderRadius.circular(appPanelRadius),
                 padding: const EdgeInsets.symmetric(horizontal: 8),
-                icon: const Icon(Icons.expand_more_rounded, size: 20),
+                icon: const AppIcon(AppIcons.chevronDown, size: 20),
                 style: theme.textTheme.bodyMedium?.copyWith(
                   fontWeight: FontWeight.w600,
                 ),
@@ -286,7 +283,7 @@ class AboutAuthor extends StatelessWidget {
       (author['name'] ?? '').toString(),
       style: theme.textTheme.titleMedium?.copyWith(
         fontWeight: FontWeight.w700,
-        color: url.isEmpty ? null : theme.colorScheme.primary,
+        color: url.isEmpty ? null : context.colors.link,
       ),
     );
     return Container(
@@ -318,10 +315,10 @@ class AboutAuthor extends StatelessWidget {
                   children: [
                     name,
                     const SizedBox(width: 6),
-                    Icon(
-                      Icons.north_east_rounded,
+                    AppIcon(
+                      AppIcons.openIn,
                       size: 16,
-                      color: theme.colorScheme.primary,
+                      color: context.colors.link,
                     ),
                   ],
                 ),

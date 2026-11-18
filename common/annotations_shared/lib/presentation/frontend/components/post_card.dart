@@ -1,5 +1,7 @@
 import 'package:annotations_shared/core/tracking_manifest.dart';
 import 'package:flutter/material.dart';
+import 'icons.dart';
+import 'tokens.dart';
 import 'package:go_router/go_router.dart';
 import '../../../domain/models/content.dart';
 
@@ -48,10 +50,10 @@ class PostCard extends StatelessWidget {
                     children: [
                       Row(
                         children: [
-                          Icon(
-                            Icons.article_outlined,
+                          AppIcon(
+                            AppIcons.fileText,
                             size: 17,
-                            color: Theme.of(context).colorScheme.primary,
+                            color: context.colors.iconSecondary,
                           ),
                           const SizedBox(width: 8),
                           Expanded(
@@ -65,7 +67,7 @@ class PostCard extends StatelessWidget {
                                 fontSize: 10,
                                 letterSpacing: 1.2,
                                 fontWeight: FontWeight.w700,
-                                color: Theme.of(context).colorScheme.primary,
+                                color: context.colors.textSecondary,
                               ),
                             ),
                           ),
@@ -98,7 +100,11 @@ class PostCard extends StatelessWidget {
                               style: Theme.of(context).textTheme.bodySmall,
                             ),
                           ),
-                          const Icon(Icons.north_east_rounded, size: 18),
+                          AppIcon(
+                            AppIcons.openIn,
+                            size: 18,
+                            color: context.colors.iconSecondary,
+                          ),
                         ],
                       ),
                     ],
