@@ -15,6 +15,7 @@
 - *(ui)* Build the Annotations design system with tokens, typography, Spectrum 2 icons and solid surfaces (#18)
 - *(canvas)* Build the long paper canvas with zoom and pan, paper backgrounds, hover borders and honest save states (#26)
 - *(ui)* Add typed text blocks with the text tools and the type C limit feedback (#27)
+- *(ui)* Add Type and Draw modes, the four pens with remembered settings, color choices with a custom picker, and shapes with Edit as path (#28)
 
 ### 🐛 Bug Fixes
 
