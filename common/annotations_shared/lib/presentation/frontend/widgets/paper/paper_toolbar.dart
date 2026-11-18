@@ -73,8 +73,15 @@ class PaperToolbar extends StatefulWidget {
 class _PaperToolbarState extends State<PaperToolbar> {
   bool _collapsed = false;
 
-  /// The space of one icon control in the toolbar direction.
-  static const _slot = 38.0;
+  /// The space of one icon control in the toolbar direction (the button
+  /// with its tap target and focus ring), and of a divider.
+  static const _slot = 56.0;
+  static const _gap = 9.0;
+
+  /// Below this length the position and collapse controls share one menu.
+  static const _narrow = 640.0;
+
+  bool get _isNarrow => widget.extent < _narrow;
 
   Axis get _axis =>
       widget.placement.edge.vertical ? Axis.vertical : Axis.horizontal;
@@ -130,6 +137,14 @@ class _PaperToolbarState extends State<PaperToolbar> {
         entry(ToolbarEdge.left, 'toolbarLeft'),
         entry(ToolbarEdge.right, 'toolbarRight'),
         entry(ToolbarEdge.floating, 'toolbarFloating'),
+        // On a narrow screen Collapse sits in the same menu.
+        if (_isNarrow && !_collapsed)
+          AppMenuEntry(
+            key: const Key('toolbar-collapse-entry'),
+            label: context.tr('toolbarCollapse'),
+            icon: AppIcons.collapse,
+            onSelected: () => setState(() => _collapsed = true),
+          ),
       ],
     );
   }
@@ -239,7 +254,7 @@ class _PaperToolbarState extends State<PaperToolbar> {
     final children = <Widget>[
       _handle(context),
       _positionMenu(context),
-      _collapse(context),
+      if (!_isNarrow || _collapsed) _collapse(context),
       _divider(c),
     ];
     if (_collapsed) {
@@ -263,7 +278,7 @@ class _PaperToolbarState extends State<PaperToolbar> {
           mode: draw.mode,
           onChanged: draw.setMode,
           axis: _axis,
-          compact: vertical || widget.extent < 640,
+          compact: vertical || _isNarrow,
         ),
       );
       final history = _history(context);
@@ -275,11 +290,14 @@ class _PaperToolbarState extends State<PaperToolbar> {
         ]);
       } else if (drawMode) {
         // Room for the drawing tools after the fixed controls.
+        final compact = vertical || _isNarrow;
         final fixed =
-            _slot * (3 + (history.isEmpty ? 0 : 2)) +
-            (vertical || widget.extent < 640 ? 2 * _slot : 180) +
+            36 +
+            _slot * ((_isNarrow ? 1 : 2) + (history.isEmpty ? 0 : 2)) +
+            (compact ? 104 : 190) +
+            _gap * (history.isEmpty ? 2 : 3) +
             (points.selectedTarget != null ? _slot : 0) +
-            40;
+            8;
         final (shown, rest) = _fit(widget.extent - fixed - _slot);
         children.addAll([
           _divider(c),
@@ -334,9 +352,10 @@ class _PaperToolbarState extends State<PaperToolbar> {
           borderRadius: BorderRadius.circular(appPanelRadius),
           border: Border.all(color: c.border),
         ),
-        child: Flex(
+        // A very small window wraps the controls instead of cutting them.
+        child: Wrap(
           direction: _axis,
-          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: WrapCrossAlignment.center,
           children: children,
         ),
       ),

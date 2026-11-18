@@ -422,6 +422,24 @@ class DrawHandler extends ChangeNotifier implements PaperInput {
     final erasing =
         e.kind == PointerDeviceKind.invertedStylus ||
         (_tools.active == DrawTool.eraser && _accepts(e));
+    // The selection tool selects the drawing under the pointer (B7 rule 3);
+    // selecting is not drawing, so a finger selects even with finger drawing
+    // off. Box and lasso gestures come with annotations#32.
+    if (isDrawMode &&
+        _pointer == null &&
+        _tools.active == DrawTool.select &&
+        e.kind != PointerDeviceKind.trackpad &&
+        (e.kind != PointerDeviceKind.mouse ||
+            e.buttons == kPrimaryMouseButton)) {
+      final p = _page(e.localPosition);
+      if (p == null || paper.document is! PaperDocument) return;
+      final hit = paper.selector.hit(paper.document, p, SelectionTool.draw);
+      paper.select(
+        hit == null ? ObjectSelection.empty : ObjectSelection([hit]),
+      );
+      notifyListeners();
+      return;
+    }
     if (!isDrawMode || !(erasing || _accepts(e)) || _touches.length > 1) {
       return;
     }
@@ -435,18 +453,6 @@ class DrawHandler extends ChangeNotifier implements PaperInput {
     }
     if (erasing) {
       _beginErase(e, p);
-      return;
-    }
-    if (_tools.active == DrawTool.select) {
-      // The selection tool selects the drawing under the pointer (B7 rule 3);
-      // box and lasso gestures come with annotations#32.
-      final hit = paper.selector.hit(paper.document, p, SelectionTool.draw);
-      paper.select(
-        hit == null ? ObjectSelection.empty : ObjectSelection([hit]),
-      );
-      _pointer = null;
-      _kind = null;
-      notifyListeners();
       return;
     }
     final pen = _tools.active.pen;

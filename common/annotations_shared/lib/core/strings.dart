@@ -255,7 +255,11 @@ const strings = <String, List<String>>{
   'editPoints': ['Edit points', 'Editar pontos', 'แก้ไขจุด'],
   'toolbar': ['Toolbar', 'Barra de ferramentas', 'แถบเครื่องมือ'],
   'toolbarMove': ['Move toolbar', 'Mover barra', 'ย้ายแถบเครื่องมือ'],
-  'toolbarPosition': ['Toolbar position', 'Posição da barra', 'ตำแหน่งแถบเครื่องมือ'],
+  'toolbarPosition': [
+    'Toolbar position',
+    'Posição da barra',
+    'ตำแหน่งแถบเครื่องมือ',
+  ],
   'toolbarTop': ['Top', 'Em cima', 'ด้านบน'],
   'toolbarBottom': ['Bottom', 'Embaixo', 'ด้านล่าง'],
   'toolbarLeft': ['Left', 'Esquerda', 'ด้านซ้าย'],
