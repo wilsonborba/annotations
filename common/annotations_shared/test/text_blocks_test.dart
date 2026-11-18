@@ -5,6 +5,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:annotations_shared/core/draw_settings.dart';
+import 'package:annotations_shared/core/paper_settings.dart';
 import 'package:annotations_shared/dal/local/quill_text_engine.dart';
 import 'package:annotations_shared/dal/local/text_engine.dart';
 import 'package:annotations_shared/domain/models/ink.dart';
@@ -88,6 +90,54 @@ void main() {
       minWidth: 40,
       lineHeight: line,
     );
+
+    test('the text colors are the pen palette (B6.2)', () {
+      expect(const PaperSettings().textColors, const DrawSettings().colors);
+    });
+
+    test('a click on ink over empty paper starts a block in Type mode', () {
+      final d = NoteDocument.fromJson({
+        'page': {
+          'width': 1000,
+          'background': {'kind': 'blank'},
+        },
+        'items': [
+          {
+            'id': 's1',
+            'kind': 'stroke',
+            'tool': 'round',
+            'brush_version': 1,
+            'width': 3,
+            'color': '#000000FF',
+            'opacity': 1,
+            'samples': {
+              'x': [4000, 30000],
+              'y': [10000, 10000],
+              't': [0, 8],
+            },
+            'nodes': [
+              {
+                'x': 4000,
+                'y': 10000,
+                'mode': 'smooth',
+                'corner': false,
+                'sample': 0,
+              },
+              {
+                'x': 30000,
+                'y': 10000,
+                'mode': 'smooth',
+                'corner': false,
+                'sample': 1,
+              },
+            ],
+          },
+        ],
+      }, schema: schema);
+      final layout = DocumentLayout.of(d)!;
+      expect(blocks.isEmptyPaper(layout, InkVec(100, 100)), isTrue);
+      expect(place(d, 100, 100), isNotNull);
+    });
 
     test('a new block takes the free width and stores nothing', () {
       final d = neighborNote();
@@ -268,6 +318,45 @@ void main() {
       await clickAt(tester, 70, 405);
       expect(texts.editing, 'new0');
       expect(texts.controller!.selection.baseOffset, greaterThan(0));
+      await finish(tester);
+    });
+
+    testWidgets('the Color tool has the pen palette and a custom color', (
+      tester,
+    ) async {
+      await pump(tester);
+      await clickAt(tester, 60, 400);
+      await input(tester, 'hello world');
+      texts.controller!.updateSelection(
+        const TextSelection(baseOffset: 0, extentOffset: 5),
+        ChangeSource.local,
+      );
+      await tester.pump();
+      await tester.tap(byKey('text-tool-color'));
+      await tester.pumpAndSettle();
+      for (final (name, _) in const DrawSettings().colors) {
+        expect(byKey('text-color-$name'), findsOneWidget);
+      }
+      await tester.tap(byKey('text-color-custom'));
+      await tester.pumpAndSettle();
+      expect(byKey('text-color-picker'), findsOneWidget);
+      final hue = tester.getRect(byKey('custom-hue'));
+      await tester.tapAt(Offset(hue.left + hue.width * 0.4, hue.bottom - 14));
+      await tester.pumpAndSettle();
+      final color = (item('new0')!['spans'] as List).first as Map;
+      expect(color['text'], 'hello');
+      expect(
+        const DrawSettings().colors.any((c) => c.$2 == color['color']),
+        isFalse,
+      );
+      // The selection stays while the picker is used.
+      expect(texts.controller!.selection.extentOffset, 5);
+      if (Platform.environment['ANNOTATIONS_REVIEW_DIR'] case final dir?) {
+        await expectLater(
+          find.byType(MaterialApp),
+          matchesGoldenFile('$dir/text_color_custom_light.png'),
+        );
+      }
       await finish(tester);
     });
 
@@ -540,17 +629,16 @@ void main() {
       await finish(tester);
     });
 
-    testWidgets('reduced motion removes the shake, the red border stays', (
+    testWidgets('the shake plays also with reduced motion; the border is red', (
       tester,
     ) async {
       await pump(tester, reducedMotion: true);
       await startBlocked(tester);
       await input(tester, 'a\nb');
-      for (var i = 0; i < 6; i++) {
-        await tester.pump(const Duration(milliseconds: 30));
-        expect(shakeOffset(tester), 0);
-      }
-      expect(tester.hasRunningAnimations, isFalse);
+      await tester.pump(const Duration(milliseconds: 40));
+      expect(shakeOffset(tester), isNot(0));
+      await tester.pumpAndSettle();
+      expect(shakeOffset(tester), 0);
       final border = tester.widget<DecoratedBox>(byKey('text-limit-border'));
       final colors = AppColors.light;
       expect(

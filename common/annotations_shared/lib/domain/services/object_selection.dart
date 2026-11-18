@@ -86,9 +86,10 @@ final class ObjectSelector {
   final SelectionSettings settings;
   final InkSettings ink;
 
-  /// The unit at [point], or null for empty paper. Type mode takes the top
-  /// structured block first (text under ink stays reachable), then the top
-  /// drawing. Draw mode takes only units that are drawing.
+  /// The unit at [point], or null for empty paper. In Type mode ink is
+  /// transparent to input (B2.4): only structured blocks are hit, so text
+  /// under ink stays reachable and a click on ink over empty paper is empty
+  /// paper. Draw mode takes only units that are drawing.
   String? hit(NoteDocument document, InkVec point, SelectionTool tool) {
     final layout = DocumentLayout.of(document);
     return layout == null ? null : hitIn(layout, point, tool);
@@ -105,6 +106,7 @@ final class ObjectSelector {
           return layout.unitOf(id);
         }
       }
+      return null;
     }
     for (final id in ids) {
       if (!_isInk(layout, id)) continue;
@@ -139,7 +141,8 @@ final class ObjectSelector {
   }
 
   /// A box drawn on empty paper from [a] to [b]: the units that lie
-  /// completely inside it. In Draw mode only drawing units. With [addTo] the
+  /// completely inside it. Ink is selected only in Draw mode (B2.4): Type
+  /// mode takes the units with a block, Draw mode only drawing units. With [addTo] the
   /// units are added to that selection (box with the modifier).
   ObjectSelection box(
     NoteDocument document,
@@ -159,7 +162,7 @@ final class ObjectSelector {
     return ObjectSelection([
       ...?addTo?.ids,
       for (final unit in layout.units)
-        if (tool == SelectionTool.type || layout.isDrawing(unit))
+        if ((tool == SelectionTool.draw) == layout.isDrawing(unit))
           if (layout.rectOf(unit) case final r? when inside(r)) unit,
     ]);
   }
@@ -191,8 +194,8 @@ final class ObjectSelector {
     return ObjectSelection(out);
   }
 
-  /// Select all (Ctrl or Cmd with A): every unit, or every drawing unit in
-  /// Draw mode.
+  /// Select all (Ctrl or Cmd with A): every unit with a block in Type mode,
+  /// every drawing unit in Draw mode (ink is selected only in Draw mode).
   ObjectSelection all(
     NoteDocument document, {
     SelectionTool tool = SelectionTool.type,
@@ -201,7 +204,7 @@ final class ObjectSelector {
     if (layout == null) return ObjectSelection.empty;
     return ObjectSelection([
       for (final unit in layout.units)
-        if (tool == SelectionTool.type || layout.isDrawing(unit)) unit,
+        if ((tool == SelectionTool.draw) == layout.isDrawing(unit)) unit,
     ]);
   }
 
