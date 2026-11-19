@@ -27,6 +27,7 @@
 - *(ui)* Add selection, move and resize with the proposed place and red rejected drops, box, lasso and touch selection, group, ungroup, copy, cut, paste, duplicate and delete with shortcuts and a touch menu, arrow and size controls, and the Undo notice (#32)
 - *(ui)* Add the corner view lock for every input kind, the finger navigation and finger drawing settings, and Focus with Exit Focus (#33)
 - *(ui)* Add pictures, files, links, websites, YouTube, CSV tables and PDF previews as cards from the file picker, paste and drag and drop, with copy progress, Retry and Cancel, and the card actions (#34)
+- *(ui)* Add the simple typed editor for phones and open every other note read-only there without changing it (#35)
 - *(ui)* Add the explicit Apply pen style action that reshapes only the selected strokes in one step (#28)
 - *(domain)* Store stroke samples as compact varint columns, allow 50,000 items and 64 MB per note, autosave only changed items and build sync operations against the base revision (#19)
 - *(domain)* Check only the changed items of each edit, Undo and Redo included, so a stroke on a 30-page note takes a few milliseconds (#62)

@@ -459,6 +459,9 @@ class AttachmentHandler extends ChangeNotifier {
         uri,
       );
 
+  /// Opens a web link with the system browser.
+  Future<bool> launchLink(String url) => _launch(Uri.parse(url));
+
   /// Opens the link, or the stored copy of the file with the system.
   Future<bool> open(String id) async {
     final it = _json(id);
