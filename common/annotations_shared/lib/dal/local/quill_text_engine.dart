@@ -710,28 +710,6 @@ class GuardedQuillController extends QuillController {
     length: len,
   );
 
-  /// The formatting of the selection (for a collapsed selection: of the
-  /// next typed text) in the stored span fields: `bold`, `italic` and
-  /// `strikethrough` as booleans, `color` as #RRGGBBAA and `size` when set.
-  Map<String, Object?> get selectionFormat {
-    final attributes = getSelectionStyle().attributes;
-    final color = attributes[Attribute.color.key]?.value;
-    final size = attributes[Attribute.size.key]?.value;
-    final number = size is num ? size : num.tryParse('$size');
-    return {
-      for (final MapEntry(:key, :value) in _flags.entries)
-        key: attributes[value]?.value == true,
-      if (color is String && _storedColor.hasMatch(color))
-        'color': _storedColorOf(color),
-      if (size != null && number != null) 'size': number,
-    };
-  }
-
-  /// Applies [format] to the current selection only. With a collapsed
-  /// selection the format is kept for the next typed text, like Quill does.
-  void formatSelectionWith(TextFormat format) =>
-      formatSelection(_attribute(format));
-
   @override
   void indentSelection(bool isIncrease) => _guard(
     TextChangeKind.formatting,
@@ -866,4 +844,30 @@ final class _Composition {
     endB--;
   }
   return (start, endA - start, b.substring(start, endB));
+}
+
+/// The stored text formats of a Quill selection, for every Quill editor of
+/// the app (paper text blocks and the phone typed editor, annotations#35).
+extension TextFormatting on QuillController {
+  /// The formatting of the selection (for a collapsed selection: of the
+  /// next typed text) in the stored span fields: `bold`, `italic` and
+  /// `strikethrough` as booleans, `color` as #RRGGBBAA and `size` when set.
+  Map<String, Object?> get selectionFormat {
+    final attributes = getSelectionStyle().attributes;
+    final color = attributes[Attribute.color.key]?.value;
+    final size = attributes[Attribute.size.key]?.value;
+    final number = size is num ? size : num.tryParse('$size');
+    return {
+      for (final MapEntry(:key, :value) in _flags.entries)
+        key: attributes[value]?.value == true,
+      if (color is String && _storedColor.hasMatch(color))
+        'color': _storedColorOf(color),
+      if (size != null && number != null) 'size': number,
+    };
+  }
+
+  /// Applies [format] to the current selection only. With a collapsed
+  /// selection the format is kept for the next typed text, like Quill does.
+  void formatSelectionWith(TextFormat format) =>
+      formatSelection(_attribute(format));
 }

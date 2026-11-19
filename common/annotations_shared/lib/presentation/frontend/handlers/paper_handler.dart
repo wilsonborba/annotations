@@ -89,11 +89,12 @@ class PaperHandler extends ChangeNotifier {
     required this.noteId,
     required NoteDocument document,
     required this.autosave,
-    this.title,
+    String? title,
     this.settings = const PaperSettings(),
     this.selector = const ObjectSelector(),
     this.textStyle = annotationsTextStyle,
-  }) : session = EditorSession.open(document),
+  }) : _title = title,
+       session = EditorSession.open(document),
        page = PaperPage(settings: settings);
 
   /// Opens a saved local note.
@@ -110,7 +111,19 @@ class PaperHandler extends ChangeNotifier {
   );
 
   final String noteId;
-  final String? title;
+
+  /// The note title (annotations#35: the phone editor renames it).
+  String? get title => _title;
+  String? _title;
+
+  /// Sets the title and saves it with the note; no history step.
+  void rename(String value) {
+    final next = value.trim().isEmpty ? null : value.trim();
+    if (next == _title) return;
+    _title = next;
+    _changed();
+  }
+
   final NoteAutosave autosave;
   final PaperSettings settings;
   final ObjectSelector selector;
