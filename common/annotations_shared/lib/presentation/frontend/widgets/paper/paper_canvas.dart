@@ -63,6 +63,9 @@ class _PaperCanvasState extends State<PaperCanvas>
   /// True when a stroke blocked this gesture: it ends without momentum.
   bool _blocked = false;
 
+  /// True for a finger gesture while finger navigation is off.
+  bool _fingerOff = false;
+
   @override
   void initState() {
     super.initState();
@@ -111,12 +114,14 @@ class _PaperCanvasState extends State<PaperCanvas>
 
   void _scaleStart(ScaleStartDetails d) {
     _fling.stop();
+    _fingerOff = d.kind == PointerDeviceKind.touch && !handler.fingerNavigation;
     _lastFocal = d.localFocalPoint;
     _lastScale = 1;
     _blocked = handler.navigationBlocked;
   }
 
   void _scaleUpdate(ScaleUpdateDetails d) {
+    if (_fingerOff) return;
     if (handler.navigationBlocked) _blocked = true;
     final last = _lastFocal ?? d.localFocalPoint;
     if (d.scale != _lastScale && d.scale > 0) {
@@ -130,7 +135,8 @@ class _PaperCanvasState extends State<PaperCanvas>
   void _scaleEnd(ScaleEndDetails d) {
     _lastFocal = null;
     final v = d.velocity.pixelsPerSecond;
-    if (d.pointerCount > 1 ||
+    if (_fingerOff ||
+        d.pointerCount > 1 ||
         v.distance < 50 ||
         handler.navigationBlocked ||
         _blocked) {

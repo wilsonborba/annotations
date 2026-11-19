@@ -252,6 +252,20 @@ const strings = <String, List<String>>{
     '{n} passos para frente',
     'ไปข้างหน้าได้ {n} ขั้น',
   ],
+  'lockView': ['Lock the view', 'Travar a visualização', 'ล็อกมุมมอง'],
+  'unlockView': [
+    'Unlock the view',
+    'Destravar a visualização',
+    'ปลดล็อกมุมมอง',
+  ],
+  'focus': ['Focus', 'Foco', 'โฟกัส'],
+  'fingerSettings': ['Finger input', 'Entrada pelo dedo', 'การป้อนด้วยนิ้ว'],
+  'fingerNavigation': [
+    'Move the page with a finger',
+    'Mover a página com o dedo',
+    'เลื่อนหน้าด้วยนิ้ว',
+  ],
+  'fingerDrawing': ['Draw with a finger', 'Desenhar com o dedo', 'วาดด้วยนิ้ว'],
   'eraserDangerOn': [
     'Delete anything is on',
     'Apagar tudo está ativo',

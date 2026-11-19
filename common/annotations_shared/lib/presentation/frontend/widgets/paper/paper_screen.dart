@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../components/controls.dart';
+import '../../components/icons.dart';
 import '../../components/paper_controls.dart';
 import '../../components/save_state.dart';
 import '../../components/scope.dart';
@@ -49,6 +51,10 @@ class PaperScreen extends StatefulWidget {
 
   /// Selection, move, resize and the object actions; made when null.
   final SelectionHandler? selection;
+
+  /// Focus started or ended (B8): the host hides its own navigation while
+  /// Focus is on.
+  final ValueChanged<bool>? onFocusChanged;
   const PaperScreen({
     super.key,
     required this.handler,
@@ -57,6 +63,7 @@ class PaperScreen extends StatefulWidget {
     this.draw,
     this.points,
     this.selection,
+    this.onFocusChanged,
   });
 
   @override
@@ -71,6 +78,17 @@ class _PaperScreenState extends State<PaperScreen> {
 
   ToolbarPlacement? _placement;
 
+  /// Focus (B8): the tools, Type and Draw, the lock and Exit Focus stay;
+  /// the status panel goes. Content, selection, mode, view and history stay,
+  /// and Focus does not lock the view. It ends with the editor.
+  bool _focus = false;
+
+  void _setFocus(bool on) {
+    if (on == _focus) return;
+    setState(() => _focus = on);
+    widget.onFocusChanged?.call(on);
+  }
+
   /// The toolbar position while its move handle drags it (local offset).
   Offset? _dragAt;
 
@@ -84,6 +102,9 @@ class _PaperScreenState extends State<PaperScreen> {
     });
     AppScope.of(context).preferences.saveToolbar(value);
   }
+
+  /// The side of the corner lock control.
+  static const _lockSide = 62.0;
 
   /// The margin between the toolbar and the screen edges.
   static const _margin = 12.0;
@@ -150,6 +171,7 @@ class _PaperScreenState extends State<PaperScreen> {
       onPlacement: _place,
       onDrag: (g) => setState(() => _dragAt = _local(g)),
       onDrop: (g) => _drop(g, size),
+      onExitFocus: _focus ? () => _setFocus(false) : null,
       extent: (vertical ? size.height : size.width) - 2 * _margin,
     );
     final drag = _dragAt;
@@ -193,6 +215,7 @@ class _PaperScreenState extends State<PaperScreen> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     final preferences = AppScope.of(context).preferences;
+    widget.handler.fingerNavigation = preferences.fingerNavigation;
     if (widget.text == null && _own == null) {
       _own = TextHandler(paper: widget.handler, preferences: preferences);
     }
@@ -260,10 +283,24 @@ class _PaperScreenState extends State<PaperScreen> {
           ),
         ),
       ),
+      // Right of the corner lock; a narrow screen wraps the panel.
+      if (!_focus)
+        Positioned(
+          left: 12 + _lockSide + 8,
+          right: 12,
+          bottom: 12,
+          child: Align(
+            alignment: Alignment.bottomRight,
+            child: PaperStatusPanel(
+              handler: widget.handler,
+              onFocus: () => _setFocus(true),
+            ),
+          ),
+        ),
       Positioned(
-        right: 12,
+        left: 12,
         bottom: 12,
-        child: PaperStatusPanel(handler: widget.handler),
+        child: ViewLockButton(handler: widget.handler),
       ),
       Positioned(
         left: 0,
@@ -281,7 +318,10 @@ class _PaperScreenState extends State<PaperScreen> {
 /// the Paper button; Zoom out, the zoom level and Zoom in.
 class PaperStatusPanel extends StatelessWidget {
   final PaperHandler handler;
-  const PaperStatusPanel({super.key, required this.handler});
+
+  /// Starts Focus; the Focus button shows when it is set.
+  final VoidCallback? onFocus;
+  const PaperStatusPanel({super.key, required this.handler, this.onFocus});
 
   @override
   Widget build(BuildContext context) {
@@ -300,8 +340,9 @@ class PaperStatusPanel extends StatelessWidget {
         borderRadius: BorderRadius.circular(appPanelRadius),
         border: Border.all(color: c.border),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
+      child: Wrap(
+        alignment: WrapAlignment.end,
+        crossAxisAlignment: WrapCrossAlignment.center,
         children: [
           SaveStateIndicator(
             state: handler.saveState,
@@ -318,13 +359,94 @@ class PaperStatusPanel extends StatelessWidget {
               onCommit: handler.setGuides,
             ),
           ),
-          ValueListenableBuilder(
-            valueListenable: handler.view,
-            builder: (context, view, _) => ZoomControls(
-              zoom: view?.zoom ?? 1,
-              onZoomIn: handler.canZoomIn ? handler.zoomIn : null,
-              onZoomOut: handler.canZoomOut ? handler.zoomOut : null,
+          ListenableBuilder(
+            listenable: Listenable.merge([handler.view, handler]),
+            builder: (context, _) => ZoomControls(
+              zoom: handler.view.value?.zoom ?? 1,
+              onZoomIn: handler.canZoomIn && !handler.locked
+                  ? handler.zoomIn
+                  : null,
+              onZoomOut: handler.canZoomOut && !handler.locked
+                  ? handler.zoomOut
+                  : null,
             ),
+          ),
+          FingerSettingsButton(handler: handler),
+          if (onFocus != null)
+            AppButton(
+              key: const Key('focus-start'),
+              label: context.tr('focus'),
+              onPressed: onFocus,
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The corner lock (B8): a tap, a click or the keyboard locks or unlocks
+/// the page position and zoom. It shows in Focus too.
+class ViewLockButton extends StatelessWidget {
+  final PaperHandler handler;
+  const ViewLockButton({super.key, required this.handler});
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: handler,
+    builder: (context, _) {
+      final c = context.colors;
+      final locked = handler.locked;
+      return Container(
+        decoration: BoxDecoration(
+          color: c.surface,
+          borderRadius: BorderRadius.circular(appPanelRadius),
+          border: Border.all(color: c.border),
+        ),
+        padding: const EdgeInsets.all(2),
+        child: AppIconButton(
+          key: const Key('view-lock'),
+          icon: locked ? AppIcons.lock : AppIcons.lockOpen,
+          label: context.tr(locked ? 'unlockView' : 'lockView'),
+          selected: locked,
+          onPressed: () => handler.locked = !locked,
+        ),
+      );
+    },
+  );
+}
+
+/// The finger settings (B8): finger navigation (on at first) and finger
+/// drawing (off at first), kept on this device.
+class FingerSettingsButton extends StatelessWidget {
+  final PaperHandler handler;
+  const FingerSettingsButton({super.key, required this.handler});
+
+  @override
+  Widget build(BuildContext context) {
+    final preferences = AppScope.of(context).preferences;
+    return ListenableBuilder(
+      listenable: preferences,
+      builder: (context, _) => AppMenuButton(
+        key: const Key('finger-settings'),
+        icon: AppIcons.hand,
+        label: context.tr('fingerSettings'),
+        entries: [
+          AppMenuEntry(
+            key: const Key('finger-navigation'),
+            label: context.tr('fingerNavigation'),
+            checked: preferences.fingerNavigation,
+            onSelected: () {
+              final on = !preferences.fingerNavigation;
+              handler.fingerNavigation = on;
+              preferences.setFingerNavigation(on);
+            },
+          ),
+          AppMenuEntry(
+            key: const Key('finger-drawing'),
+            label: context.tr('fingerDrawing'),
+            checked: preferences.fingerDrawing,
+            onSelected: () =>
+                preferences.setFingerDrawing(!preferences.fingerDrawing),
           ),
         ],
       ),

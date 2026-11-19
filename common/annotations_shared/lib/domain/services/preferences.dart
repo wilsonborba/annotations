@@ -15,8 +15,11 @@ class Preferences extends ChangeNotifier {
   bool spaceLimitMessage = true;
 
   /// Finger drawing in Draw mode (B8): off at first, kept on this device.
-  /// Its control comes with the finger settings (annotations#33).
   bool fingerDrawing = false;
+
+  /// Moving and zooming the page with fingers (B8): on at first, kept on
+  /// this device. Off leaves toolbar taps, the pen and the mouse as they are.
+  bool fingerNavigation = true;
 
   /// The active drawing tool and the settings that each tool remembers
   /// (B6.2), kept on this device. Never note data.
@@ -37,6 +40,7 @@ class Preferences extends ChangeNotifier {
         : ThemeMode.system;
     spaceLimitMessage = await storage.read('spaceLimitMessage') != 'off';
     fingerDrawing = await storage.read('fingerDrawing') == 'on';
+    fingerNavigation = await storage.read('fingerNavigation') != 'off';
     final toolbarValue = await storage.read('toolbar');
     if (toolbarValue != null) {
       try {
@@ -78,6 +82,12 @@ class Preferences extends ChangeNotifier {
     fingerDrawing = on;
     notifyListeners();
     await storage.write('fingerDrawing', on ? 'on' : 'off');
+  }
+
+  Future<void> setFingerNavigation(bool on) async {
+    fingerNavigation = on;
+    notifyListeners();
+    await storage.write('fingerNavigation', on ? 'on' : 'off');
   }
 
   Future<void> saveToolbar(ToolbarPlacement value) async {
