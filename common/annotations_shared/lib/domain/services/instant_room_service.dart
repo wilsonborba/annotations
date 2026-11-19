@@ -1,6 +1,12 @@
 import '../../dal/remote/api_adapter.dart';
 
-enum InstantSharingState { connecting, sharing, shared, connectionLost, expired }
+enum InstantSharingState {
+  connecting,
+  sharing,
+  shared,
+  connectionLost,
+  expired,
+}
 
 final class InstantRuleError implements Exception {
   final String code;
@@ -82,13 +88,16 @@ class InstantRoomService {
   bool get canExtend => false;
   bool get canConvertToNote => false;
   bool get canEdit =>
-      state == InstantSharingState.sharing || state == InstantSharingState.shared;
+      state == InstantSharingState.sharing ||
+      state == InstantSharingState.shared;
 
   InstantRoomService(this.api);
 
   /// Encodes integer coordinate/dimension fields as true integers so web Dart
   /// never sends fractional floats where the server expects integers (#20/#43).
-  static Map<String, Object?> normalizeIntegerFields(Map<String, Object?> item) {
+  static Map<String, Object?> normalizeIntegerFields(
+    Map<String, Object?> item,
+  ) {
     const intKeys = {'x', 'y', 'width', 'height', 'level', 'revision', 'size'};
     final out = Map<String, Object?>.from(item);
     for (final k in intKeys) {
@@ -98,9 +107,30 @@ class InstantRoomService {
     return out;
   }
 
-  Future<void> createRoom() async {
+  int revision = 0;
+
+  Future<void> createRoom({
+    String code = 'ROOM12',
+    int schemaVersion = 1,
+    Map<String, Object?>? document,
+  }) async {
     state = InstantSharingState.connecting;
-    final resp = await api.request('/instant', method: 'POST', body: const {});
+    final resp = await api.request(
+      '/instant/$code',
+      method: 'PUT',
+      body: {
+        'schema_version': schemaVersion,
+        'document':
+            document ??
+            const {
+              'page': {
+                'width': 1000,
+                'background': {'kind': 'blank'},
+              },
+              'items': [],
+            },
+      },
+    );
     _applyRoomState(resp);
     state = InstantSharingState.shared;
   }
@@ -133,23 +163,49 @@ class InstantRoomService {
 
   void _applyRoomState(Map<String, dynamic> resp) {
     roomCode = '${resp['code'] ?? roomCode ?? ''}';
-    final expStr = resp['expires_at'] as String?;
-    if (expStr != null) expiresAt = DateTime.tryParse(expStr);
-    final rawItems = (resp['items'] as List?) ?? const [];
+    if (resp['revision'] is num) {
+      revision = (resp['revision'] as num).toInt();
+    }
+    final rawExp = resp['expires_at'];
+    if (rawExp is num) {
+      expiresAt = DateTime.fromMillisecondsSinceEpoch(
+        rawExp.toInt() * 1000,
+        isUtc: true,
+      );
+    } else if (rawExp is String) {
+      expiresAt = DateTime.tryParse(rawExp);
+    }
+    final doc = resp['document'];
+    final rawItems =
+        (doc is Map ? doc['items'] as List? : null) ??
+        (resp['items'] as List?) ??
+        const [];
+    final revMap = (resp['item_revisions'] as Map?) ?? const {};
     items.clear();
     itemRevisions.clear();
     for (final raw in rawItems) {
       final map = Map<String, Object?>.from(raw as Map);
       final id = '${map['id']}';
       items[id] = map;
-      itemRevisions[id] = (map['item_revision'] as num?)?.toInt() ?? 1;
+      final r = revMap[id] ?? map['item_revision'];
+      itemRevisions[id] = (r as num?)?.toInt() ?? 1;
     }
-    if (resp['allowance'] is Map) {
+    if (resp['max_file_bytes'] is num || resp['max_ip_bytes'] is num) {
+      allowance = InstantUploadAllowance(
+        maxFileBytes:
+            (resp['max_file_bytes'] as num?)?.toInt() ?? allowance.maxFileBytes,
+        usedBytes: allowance.usedBytes,
+        maxTotalBytes:
+            (resp['max_ip_bytes'] as num?)?.toInt() ?? allowance.maxTotalBytes,
+      );
+    } else if (resp['allowance'] is Map) {
       final a = Map<String, dynamic>.from(resp['allowance'] as Map);
       allowance = InstantUploadAllowance(
-        maxFileBytes: (a['max_file_bytes'] as num?)?.toInt() ?? allowance.maxFileBytes,
+        maxFileBytes:
+            (a['max_file_bytes'] as num?)?.toInt() ?? allowance.maxFileBytes,
         usedBytes: (a['used_bytes'] as num?)?.toInt() ?? 0,
-        maxTotalBytes: (a['max_total_bytes'] as num?)?.toInt() ?? allowance.maxTotalBytes,
+        maxTotalBytes:
+            (a['max_total_bytes'] as num?)?.toInt() ?? allowance.maxTotalBytes,
       );
     }
   }
@@ -184,19 +240,22 @@ class InstantRoomService {
     final item = normalizeIntegerFields(rawItem);
     final id = '${item['id']}';
     final expectedRev = itemRevisions[id] ?? 0;
+    final isNew = expectedRev == 0;
 
     state = InstantSharingState.sharing;
     try {
       final resp = await api.request(
-        '/instant/$roomCode/items/$id',
-        method: 'PUT',
-        body: {
-          'expected_revision': expectedRev,
-          'item': item,
-        },
+        isNew ? '/instant/$roomCode/items' : '/instant/$roomCode/items/$id',
+        method: isNew ? 'POST' : 'PUT',
+        body: {'expected_revision': expectedRev, 'item': item},
       );
-      items[id] = item;
-      itemRevisions[id] = (resp['item_revision'] as num?)?.toInt() ?? (expectedRev + 1);
+      if (resp['document'] is Map || resp['item_revisions'] is Map) {
+        _applyRoomState(resp);
+      } else {
+        items[id] = item;
+        itemRevisions[id] =
+            (resp['item_revision'] as num?)?.toInt() ?? (expectedRev + 1);
+      }
       state = InstantSharingState.shared;
       return true;
     } on ApiError catch (err) {
@@ -217,8 +276,20 @@ class InstantRoomService {
             rejectedPayload: item,
           ),
         );
-        // Refresh from server state before any retry (no blind replay).
-        await joinRoom(roomCode!);
+        final details = err.details;
+        if (details != null && details['current_item'] is Map) {
+          items[id] = Map<String, Object?>.from(details['current_item'] as Map);
+          if (details['item_revision'] is num) {
+            itemRevisions[id] = (details['item_revision'] as num).toInt();
+          }
+          if (details['revision'] is num) {
+            revision = (details['revision'] as num).toInt();
+          }
+          state = InstantSharingState.shared;
+        } else {
+          // Refresh from server state before any retry (no blind replay).
+          await joinRoom(roomCode!);
+        }
         return false;
       }
       if (err.status == 400 || err.status == 422) {
@@ -231,10 +302,12 @@ class InstantRoomService {
     }
   }
 
-  /// Two-stage upload: checks allowance, stages, then commits. Failed uploads
-  /// are never marked ready.
+  /// Two-stage upload: reserves via `POST /instant/{code}/files`, then uploads
+  /// raw bytes via [uploadBytes] (to `PUT /instant/{code}/files/{id}/content`).
+  /// Failed uploads are never marked ready.
   Future<InstantUploadedFile> uploadFile({
     required String name,
+    String contentType = 'application/octet-stream',
     required int sizeBytes,
     required Future<void> Function(String uploadId) uploadBytes,
   }) async {
@@ -251,12 +324,15 @@ class InstantRoomService {
     final staged = await api.request(
       '/instant/$roomCode/files',
       method: 'POST',
-      body: {'name': name, 'size_bytes': sizeBytes},
+      body: {
+        'filename': name,
+        'content_type': contentType,
+        'size_bytes': sizeBytes,
+      },
     );
-    final fileId = '${staged['file_id']}';
+    final fileId = '${staged['id'] ?? staged['file_id']}';
     try {
       await uploadBytes(fileId);
-      await api.request('/instant/$roomCode/files/$fileId/commit', method: 'POST');
       final uploaded = InstantUploadedFile(
         fileId: fileId,
         name: name,
@@ -273,7 +349,12 @@ class InstantRoomService {
     } catch (_) {
       // Never leave a failed upload looking ready.
       files.add(
-        InstantUploadedFile(fileId: fileId, name: name, sizeBytes: sizeBytes, ready: false),
+        InstantUploadedFile(
+          fileId: fileId,
+          name: name,
+          sizeBytes: sizeBytes,
+          ready: false,
+        ),
       );
       rethrow;
     }
