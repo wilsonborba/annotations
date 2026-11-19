@@ -69,37 +69,45 @@ class _AnnotationsAppState extends State<AnnotationsApp> {
         ShellRoute(
           builder: (_, _, child) => PageShell(child: child),
           routes: [
-            GoRoute(path: '/v1/home', builder: (_, _) => const LandingPage()),
+            GoRoute(
+              path: '/v1/home',
+              builder: (_, _) => const ShellPage(child: LandingPage()),
+            ),
             GoRoute(
               path: '/v1/menu',
-              builder: (_, state) => CatalogPage(
-                query: state.uri.queryParameters['q'] ?? '',
-                topic: state.uri.queryParameters['topic'] ?? '',
-                channel: state.uri.queryParameters['channel'] ?? '',
+              builder: (_, state) => ShellPage(
+                child: CatalogPage(
+                  query: state.uri.queryParameters['q'] ?? '',
+                  topic: state.uri.queryParameters['topic'] ?? '',
+                  channel: state.uri.queryParameters['channel'] ?? '',
+                ),
               ),
             ),
             GoRoute(
               path: '/v1/menu/:channel/:slug',
-              builder: (_, state) => ArticlePage(
-                channel: state.pathParameters['channel']!,
-                slug: state.pathParameters['slug']!,
-                language: state.uri.queryParameters['lang'] ?? '',
+              builder: (_, state) => ShellPage(
+                child: ArticlePage(
+                  channel: state.pathParameters['channel']!,
+                  slug: state.pathParameters['slug']!,
+                  language: state.uri.queryParameters['lang'] ?? '',
+                ),
               ),
             ),
             GoRoute(
               path: '/v1/instant',
-              builder: (_, _) => const InstantPage(),
+              builder: (_, _) => const ShellPage(child: InstantPage()),
             ),
             GoRoute(
               path: '/v1/instant/:code',
-              builder: (_, state) =>
-                  InstantPage(code: state.pathParameters['code']!),
+              builder: (_, state) => ShellPage(
+                child: InstantPage(code: state.pathParameters['code']!),
+              ),
             ),
             // Design review only: release builds have no gallery route.
             if (kDebugMode)
               GoRoute(
                 path: '/v1/gallery',
-                builder: (_, _) => const GalleryPage(),
+                builder: (_, _) => const ShellPage(child: GalleryPage()),
               ),
           ],
         ),

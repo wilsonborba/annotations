@@ -86,14 +86,28 @@ class PageShell extends StatelessWidget {
           const SizedBox(width: 12),
         ],
       ),
-      body: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [child, const Footer()],
-        ),
-      ),
+      // The router's navigator fills the body; each page scrolls on its
+      // own (ShellPage). A scroll view around the navigator gave the
+      // outgoing page the height of the incoming one during a transition
+      // (annotations#58).
+      body: child,
     );
   }
+}
+
+/// One page of the shell: the page and the footer in their own scroll
+/// view, so a page transition never sizes one page by another.
+class ShellPage extends StatelessWidget {
+  final Widget child;
+  const ShellPage({super.key, required this.child});
+
+  @override
+  Widget build(BuildContext context) => SingleChildScrollView(
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [child, const Footer()],
+    ),
+  );
 }
 
 /// Interface language: the same segmented switcher as the other Asodya apps.
