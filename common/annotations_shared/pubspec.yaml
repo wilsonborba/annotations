@@ -10,6 +10,7 @@ dependencies:
   flutter:
     sdk: flutter
   http: ^1.6.0
+  crypto: ^3.0.6
   pdf: ^3.12.0
   # image 4.11.0 needs archive 4.1 while pdf allows archive below 4.1 only.
   image: ">=4.10.2 <4.11.0"
