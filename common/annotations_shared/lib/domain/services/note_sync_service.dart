@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:io';
+
 import '../models/local_note.dart';
 import '../models/note_document.dart';
 import '../../dal/remote/api_adapter.dart';
@@ -26,11 +29,9 @@ final class SyncResult {
   final LocalNote? conflictCopy;
   final int? serverRevision;
 
-  const SyncResult.synced({
-    required this.localNote,
-    this.serverRevision,
-  })  : isConflict = false,
-        conflictCopy = null;
+  const SyncResult.synced({required this.localNote, this.serverRevision})
+    : isConflict = false,
+      conflictCopy = null;
 
   const SyncResult.conflict({
     required this.localNote,
@@ -51,14 +52,29 @@ final class PublicationResult {
   });
 }
 
-/// Counts non-public/restricted report embeds in [document] before publishing.
+/// Store extension for deleting a local note copy without affecting cloud state.
+abstract interface class DeletableLocalNoteStore implements LocalNoteStore {
+  Future<void> deleteNote(String id);
+}
+
+/// Counts non-public/restricted embedded cards (`reports_embed`, `task_card`, `quiz_card`)
+/// in [document] before publishing (annotations_api `lib/domain/publication.rs`).
 int countRestrictedEmbeds(NoteDocument document) {
+  const embedKinds = {
+    'reports_embed',
+    'report_embed',
+    'task_card',
+    'quiz_card',
+  };
   var count = 0;
   void visit(Object? v) {
     if (v is Map) {
-      if (v['kind'] == 'report_embed' || v['type'] == 'report_embed') {
-        final vis = '${v['visibility'] ?? 'public'}';
-        if (vis != 'public') count++;
+      final kind = '${v['kind'] ?? v['type'] ?? ''}';
+      if (embedKinds.contains(kind)) {
+        if (v['restricted'] == true ||
+            '${v['visibility'] ?? 'restricted'}' != 'public') {
+          count++;
+        }
       }
       for (final val in v.values) {
         visit(val);
@@ -75,17 +91,13 @@ int countRestrictedEmbeds(NoteDocument document) {
 }
 
 /// Explicit per-note sync, publication, account binding, deletion scopes, and
-/// headless typed-note API operations (annotations#37).
+/// headless typed-note API operations aligned with `annotations_api/lib/presentation/notes.rs`
+/// and `lib/domain/publication.rs` (annotations#37).
 class NoteSyncService {
   final LocalNoteStore store;
   final ApiAdapter api;
-  final Future<void> Function(String noteId)? onDeleteLocal;
 
-  NoteSyncService({
-    required this.store,
-    required this.api,
-    this.onDeleteLocal,
-  });
+  NoteSyncService({required this.store, required this.api});
 
   /// Returns only notes visible to [accountId]: unbound local notes (`accountId == null`)
   /// plus notes bound to [accountId]. Another account's notes are never exposed.
@@ -93,7 +105,9 @@ class NoteSyncService {
     final all = await store.notes();
     return [
       for (final n in all)
-        if (n.accountId == null || (accountId != null && n.accountId == accountId)) n,
+        if (n.accountId == null ||
+            (accountId != null && n.accountId == accountId))
+          n,
     ];
   }
 
@@ -106,11 +120,12 @@ class NoteSyncService {
   }
 
   /// Explicitly syncs [note] for [accountId].
-  /// - First upload sends the whole document and binds [note] to [accountId].
-  /// - Subsequent syncs compute `syncOperation(baseDocument, note.document)` and send
-  ///   a compressed (`gzipBody`) incremental operation.
-  /// - On 409 Conflict, keeps the local note untouched and saves the server version
-  ///   as a separate conflict copy for review.
+  /// - First upload (`note.accountId == null`): `POST /me/notes` with full document.
+  /// - Subsequent syncs (`note.accountId != null`): `PATCH /me/notes/{id}` (with `syncOperation`
+  ///   when [baseDocument] is present) or `PUT /me/notes/{id}`, always sending `If-Match`.
+  /// - Uses `gzipBody` (`compress: true`).
+  /// - On `409 Conflict`, fetches the SERVER version via `GET /me/notes/{id}`, keeps the
+  ///   LOCAL note unchanged, and saves the SERVER document as a separate conflict copy.
   Future<SyncResult> syncNote(
     LocalNote note, {
     required String accountId,
@@ -119,32 +134,56 @@ class NoteSyncService {
   }) async {
     _requireOwner(note, accountId);
 
-    final isFirstUpload = note.accountId == null || baseDocument == null;
-    final op = isFirstUpload ? null : syncOperation(baseDocument, note.document);
+    final isFirstUpload = note.accountId == null;
+    final op = (!isFirstUpload && baseDocument != null)
+        ? syncOperation(baseDocument, note.document)
+        : null;
 
-    final path = isFirstUpload ? '/me/notes' : '/me/notes/${note.id}';
-    final method = isFirstUpload ? 'POST' : 'PATCH';
-    final payload = isFirstUpload
-        ? <String, dynamic>{
-            'note_id': note.id,
-            'title': note.title,
-            'schema': {'name': note.schema.name, 'version': note.schema.version},
-            'document': note.document.toJson(),
-          }
-        : <String, dynamic>{
-            'base_revision': baseRevision ?? note.revision,
-            'title': note.title,
-            if (op != null) 'operation': op else 'document': note.document.toJson(),
-          };
+    final String path;
+    final String method;
+    final Map<String, String>? headers;
+    final Map<String, dynamic> payload;
+
+    if (isFirstUpload) {
+      path = '/me/notes';
+      method = 'POST';
+      headers = null;
+      payload = {
+        'note_id': note.id,
+        'title': note.title,
+        'schema': {'name': note.schema.name, 'version': note.schema.version},
+        'document': note.document.toJson(),
+      };
+    } else {
+      final rev = baseRevision ?? note.revision;
+      path = '/me/notes/${note.id}';
+      method = op != null ? 'PATCH' : 'PUT';
+      headers = {'if-match': '"$rev"'};
+      payload = op != null
+          ? {'title': note.title, 'operation': op}
+          : {
+              'title': note.title,
+              'schema': {
+                'name': note.schema.name,
+                'version': note.schema.version,
+              },
+              'document': note.document.toJson(),
+            };
+    }
 
     try {
       final resp = await api.request(
         path,
         method: method,
         body: payload,
+        headers: headers,
         compress: true,
       );
-      await store.setSync(note.id, state: LocalSyncState.synced, accountId: accountId);
+      await store.setSync(
+        note.id,
+        state: LocalSyncState.synced,
+        accountId: accountId,
+      );
       final updated = (await store.load(note.id)) ?? note;
       return SyncResult.synced(
         localNote: updated,
@@ -152,43 +191,70 @@ class NoteSyncService {
       );
     } on ApiError catch (err) {
       if (err.status != 409) rethrow;
-      final conflictId = '${note.id}__conflict_${DateTime.now().millisecondsSinceEpoch}';
-      final remoteCopy = await store.save(
+      // Fetch the authoritative server version; never overwrite the local note.
+      final serverResp = await api.request(
+        '/me/notes/${note.id}',
+        method: 'GET',
+      );
+      final serverRev = (serverResp['revision'] as num?)?.toInt() ?? 1;
+      final rawSchema = (serverResp['schema'] as Map?) ?? const {};
+      final serverSchema = DocumentSchema(
+        '${rawSchema['name'] ?? note.schema.name}',
+        (rawSchema['version'] as num?)?.toInt() ?? note.schema.version,
+      );
+      final serverDoc = NoteDocument.fromJson(
+        Map<String, dynamic>.from(serverResp['document'] as Map),
+        schema: serverSchema,
+      );
+      final conflictId = '${note.id}__conflict_$serverRev';
+      final serverCopy = await store.save(
         LocalNoteDraft(
           id: conflictId,
-          schema: note.schema,
-          document: note.document,
-          title: '${note.title ?? 'Untitled note'} (conflict copy)',
+          schema: serverSchema,
+          document: serverDoc,
+          title:
+              '${serverResp['title'] ?? note.title ?? 'Untitled note'} (server v$serverRev)',
         ),
       );
-      return SyncResult.conflict(localNote: note, conflictCopy: remoteCopy);
+      return SyncResult.conflict(
+        localNote: note,
+        conflictCopy: serverCopy,
+        serverRevision: serverRev,
+      );
     }
   }
 
-  /// Publishes [note] with [representation] (`original`, `typed`, or `both`).
-  /// If restricted embeds exist and [allowRestrictedEmbeds] is false, returns a warning
+  /// Publishes [note] via `PUT /me/notes/{note_id}/publication` (`If-Match: <pubRev>`).
+  /// When restricted embeds exist and [allowRestrictedEmbeds] is false, returns a warning
   /// result with `published: false` and `restrictedEmbedCount`.
   Future<PublicationResult> publishNote(
     LocalNote note, {
     required String accountId,
     required PublicationRepresentation representation,
+    int publicationRevision = 0,
     bool allowRestrictedEmbeds = false,
   }) async {
     _requireOwner(note, accountId);
     final restricted = countRestrictedEmbeds(note.document);
     if (restricted > 0 && !allowRestrictedEmbeds) {
-      return PublicationResult(published: false, restrictedEmbedCount: restricted);
+      return PublicationResult(
+        published: false,
+        restrictedEmbedCount: restricted,
+      );
     }
 
     final resp = await api.request(
-      '/me/notes/${note.id}/publish',
-      method: 'POST',
-      body: {
-        'representation': representation.code,
-      },
+      '/me/notes/${note.id}/publication',
+      method: 'PUT',
+      headers: {'if-match': '"$publicationRevision"'},
+      body: {'representation': representation.code},
       compress: true,
     );
-    await store.setSync(note.id, state: LocalSyncState.synced, accountId: accountId);
+    await store.setSync(
+      note.id,
+      state: LocalSyncState.synced,
+      accountId: accountId,
+    );
     return PublicationResult(
       published: true,
       restrictedEmbedCount: restricted,
@@ -196,41 +262,54 @@ class NoteSyncService {
     );
   }
 
-  /// Deletion scope 1: removes only the local device copy.
+  /// Deletion scope 1: removes only the local device copy from [store].
   Future<void> deleteLocalCopy(String noteId) async {
-    if (onDeleteLocal != null) {
-      await onDeleteLocal!(noteId);
+    if (store is DeletableLocalNoteStore) {
+      await (store as DeletableLocalNoteStore).deleteNote(noteId);
+    } else {
+      throw UnsupportedError('Store does not support local note deletion');
     }
   }
 
-  /// Deletion scope 2: deletes the cloud note (optionally cascading owned Reports).
+  /// Deletion scope 2: deletes the cloud note via `DELETE /me/notes/{note_id}`
+  /// with `If-Match` and `?delete_owned_reports=true` when requested.
   Future<void> deleteCloudNote(
     String noteId, {
     required String accountId,
-    bool cascadeOwnedReports = false,
+    required int expectedRevision,
+    bool deleteOwnedReports = false,
   }) async {
     final existing = await store.load(noteId);
     if (existing != null) _requireOwner(existing, accountId);
     await api.request(
       '/me/notes/$noteId',
       method: 'DELETE',
-      query: cascadeOwnedReports ? {'cascade_reports': 'true'} : null,
+      headers: {'if-match': '"$expectedRevision"'},
+      query: deleteOwnedReports ? {'delete_owned_reports': 'true'} : null,
     );
     if (existing != null) {
       await store.setSync(noteId, state: LocalSyncState.local, accountId: null);
     }
   }
 
-  /// Deletion scope 3: unpublishes the note while keeping cloud and local copies.
-  Future<void> unpublishNote(String noteId, {required String accountId}) async {
+  /// Deletion scope 3: unpublishes via `DELETE /me/notes/{note_id}/publication`.
+  Future<void> unpublishNote(
+    String noteId, {
+    required String accountId,
+    required int publicationRevision,
+  }) async {
     final existing = await store.load(noteId);
     if (existing != null) _requireOwner(existing, accountId);
-    await api.request('/me/notes/$noteId/unpublish', method: 'POST');
+    await api.request(
+      '/me/notes/$noteId/publication',
+      method: 'DELETE',
+      headers: {'if-match': '"$publicationRevision"'},
+    );
   }
 
   /// Creates and publishes a typed note directly via the API without opening the editor.
+  /// Never sends `account_id` in the body (identity comes from the gateway).
   Future<Map<String, dynamic>> createAndPublishTypedNote({
-    required String accountId,
     required String title,
     required List<Map<String, Object?>> blocks,
     PublicationRepresentation representation = PublicationRepresentation.typed,
@@ -239,7 +318,6 @@ class NoteSyncService {
       '/me/notes',
       method: 'POST',
       body: {
-        'account_id': accountId,
         'title': title,
         'schema': {'name': DocumentFamily.typed.schemaName, 'version': 1},
         'document': {'blocks': blocks},
@@ -248,21 +326,67 @@ class NoteSyncService {
     );
     final noteId = '${created['note_id'] ?? created['id']}';
     return api.request(
-      '/me/notes/$noteId/publish',
-      method: 'POST',
+      '/me/notes/$noteId/publication',
+      method: 'PUT',
+      headers: const {'if-match': '"0"'},
       body: {'representation': representation.code},
       compress: true,
     );
   }
 }
 
-/// Local + synced project and tag catalog following backend normalization rules.
+/// Persistent local + synced project and tag catalog (`annotations_api/lib/presentation/projects.rs`).
 class ProjectTagCatalog {
+  final File? persistenceFile;
   final Map<String, String> _projectsByNormalizedName = {};
+  final Map<String, String> _projectNamesById = {};
   final Map<String, Set<String>> _tagsByNoteId = {};
   final Map<String, String> _projectByNoteId = {};
 
+  ProjectTagCatalog({this.persistenceFile}) {
+    _loadFromDisk();
+  }
+
   static String normalizeProjectName(String name) => name.trim().toLowerCase();
+
+  void _loadFromDisk() {
+    final f = persistenceFile;
+    if (f == null || !f.existsSync()) return;
+    final raw = jsonDecode(f.readAsStringSync()) as Map<String, dynamic>;
+    final projs = (raw['projects'] as Map?) ?? const {};
+    for (final e in projs.entries) {
+      final id = '${e.key}';
+      final name = '${e.value}';
+      _projectNamesById[id] = name;
+      _projectsByNormalizedName[normalizeProjectName(name)] = id;
+    }
+    final noteProjs = (raw['note_projects'] as Map?) ?? const {};
+    for (final e in noteProjs.entries) {
+      _projectByNoteId['${e.key}'] = '${e.value}';
+    }
+    final noteTags = (raw['note_tags'] as Map?) ?? const {};
+    for (final e in noteTags.entries) {
+      _tagsByNoteId['${e.key}'] = ((e.value as List?) ?? const [])
+          .map((t) => '$t')
+          .toSet();
+    }
+  }
+
+  void _saveToDisk() {
+    final f = persistenceFile;
+    if (f == null) return;
+    f.parent.createSync(recursive: true);
+    f.writeAsStringSync(
+      jsonEncode({
+        'projects': _projectNamesById,
+        'note_projects': _projectByNoteId,
+        'note_tags': {
+          for (final e in _tagsByNoteId.entries)
+            e.key: (e.value.toList()..sort()),
+        },
+      }),
+    );
+  }
 
   String createLocalProject(String id, String displayName) {
     final norm = normalizeProjectName(displayName);
@@ -271,11 +395,14 @@ class ProjectTagCatalog {
       throw StateError('Duplicate project name: $displayName');
     }
     _projectsByNormalizedName[norm] = id;
+    _projectNamesById[id] = displayName.trim();
+    _saveToDisk();
     return id;
   }
 
   void assignNoteToProject(String noteId, String projectId) {
     _projectByNoteId[noteId] = projectId;
+    _saveToDisk();
   }
 
   String? projectForNote(String noteId) => _projectByNoteId[noteId];
@@ -284,23 +411,38 @@ class ProjectTagCatalog {
     final clean = tag.trim().toLowerCase();
     if (clean.isEmpty) return;
     _tagsByNoteId.putIfAbsent(noteId, () => <String>{}).add(clean);
+    _saveToDisk();
   }
 
   void removeTag(String noteId, String tag) {
     _tagsByNoteId[noteId]?.remove(tag.trim().toLowerCase());
+    _saveToDisk();
   }
 
   Set<String> tagsForNote(String noteId) =>
       Set.unmodifiable(_tagsByNoteId[noteId] ?? const <String>{});
 
-  Future<Map<String, dynamic>> syncNoteMetadata(ApiAdapter api, String noteId) =>
-      api.request(
-        '/me/notes/$noteId/metadata',
-        method: 'PATCH',
-        body: {
-          'project_id': _projectByNoteId[noteId],
-          'tags': tagsForNote(noteId).toList()..sort(),
-        },
-        compress: true,
+  Future<void> syncProjectAndTags(
+    ApiAdapter api, {
+    required String noteId,
+    required int noteRevision,
+  }) async {
+    final projectId = _projectByNoteId[noteId];
+    if (projectId != null) {
+      final name = _projectNamesById[projectId] ?? projectId;
+      await api.request(
+        '/me/projects',
+        method: 'POST',
+        body: {'project_id': projectId, 'name': name},
       );
+      await api.request('/me/projects/$projectId/notes/$noteId', method: 'PUT');
+    }
+    await api.request(
+      '/me/notes/$noteId',
+      method: 'PATCH',
+      headers: {'if-match': '"$noteRevision"'},
+      body: {'tags': tagsForNote(noteId).toList()..sort()},
+      compress: true,
+    );
+  }
 }

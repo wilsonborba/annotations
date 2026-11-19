@@ -25,6 +25,7 @@ class ApiAdapter {
     String method = 'GET',
     Map<String, dynamic>? body,
     Map<String, String>? query,
+    Map<String, String>? headers,
     bool compress = false,
   }) async {
     try {
@@ -33,6 +34,7 @@ class ApiAdapter {
         method: method,
         body: body,
         query: query,
+        headers: headers,
         compress: compress,
       );
     } catch (error, stack) {
@@ -46,6 +48,7 @@ class ApiAdapter {
     String method = 'GET',
     Map<String, dynamic>? body,
     Map<String, String>? query,
+    Map<String, String>? headers,
     bool compress = false,
   }) async {
     final uri = Uri.parse(
@@ -53,6 +56,7 @@ class ApiAdapter {
     ).replace(queryParameters: query?.isEmpty == true ? null : query);
     final request = http.Request(method, uri)
       ..headers['content-type'] = 'application/json';
+    if (headers != null) request.headers.addAll(headers);
     if (body != null) {
       final rawJson = jsonEncode(body);
       if (compress) {

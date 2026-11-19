@@ -28,6 +28,7 @@ import '../../core/local_store_settings.dart';
 import '../../domain/models/local_note.dart';
 import '../../domain/models/note_document.dart';
 import '../../domain/services/local_note_store.dart';
+import '../../domain/services/note_sync_service.dart';
 
 /// Schema steps, applied in order. Step n moves `user_version` from n - 1 to
 /// n. A later change adds a step; a released step never changes.
@@ -92,7 +93,7 @@ int _hash(String body) {
 /// the same file system, so the rename to the final name is atomic.
 const _partialFolder = '.partial';
 
-final class SqliteNoteStore implements LocalNoteStore {
+final class SqliteNoteStore implements DeletableLocalNoteStore {
   SqliteNoteStore._(this._db, this._files);
 
   final Database _db;
@@ -479,6 +480,16 @@ final class SqliteNoteStore implements LocalNoteStore {
     _db.execute('DELETE FROM attachments WHERE id = ?', [id]);
     final file = _file(rows.first['file'] as String);
     if (await file.exists()) await file.delete();
+  }
+
+  /// Deletes only the local note row and its item/attachment links from SQLite.
+  @override
+  Future<void> deleteNote(String id) async {
+    _transaction(_db, () {
+      _db.execute('DELETE FROM note_items WHERE note_id = ?', [id]);
+      _db.execute('DELETE FROM note_attachments WHERE note_id = ?', [id]);
+      _db.execute('DELETE FROM notes WHERE id = ?', [id]);
+    });
   }
 
   @override
