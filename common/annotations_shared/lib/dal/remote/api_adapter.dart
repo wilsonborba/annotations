@@ -6,7 +6,8 @@ import 'gzip_body.dart';
 class ApiError implements Exception {
   final int status;
   final String message;
-  ApiError(this.status, this.message);
+  final Map<String, dynamic>? details;
+  ApiError(this.status, this.message, {this.details});
   @override
   String toString() => message;
 }
@@ -85,6 +86,7 @@ class ApiAdapter {
       throw ApiError(
         response.statusCode,
         (value['error'] ?? value['message'] ?? 'Request failed').toString(),
+        details: value,
       );
     }
     return value;
