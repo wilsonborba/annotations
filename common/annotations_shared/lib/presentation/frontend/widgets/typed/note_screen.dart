@@ -403,7 +403,8 @@ class TypedNoteReader extends StatelessWidget {
             );
           }
         case 'table':
-          final header = (j['header'] as List? ?? const []).cast<Map>();
+          // `header` marks the first row as the header row.
+          final header = j['header'] == true;
           final rows = (j['rows'] as List? ?? const []).cast<Map>();
           Widget cell(Map cell, bool bold) => Padding(
             padding: const EdgeInsets.all(6),
@@ -423,16 +424,12 @@ class TypedNoteReader extends StatelessWidget {
                   defaultColumnWidth: const IntrinsicColumnWidth(),
                   border: TableBorder.all(color: c.border),
                   children: [
-                    if (header.isNotEmpty)
-                      TableRow(
-                        children: [for (final h in header) cell(h, true)],
-                      ),
-                    for (final r in rows)
+                    for (final (i, r) in rows.indexed)
                       TableRow(
                         children: [
                           for (final x
                               in (r['cells'] as List? ?? const []).cast<Map>())
-                            cell(x, false),
+                            cell(x, header && i == 0),
                         ],
                       ),
                   ],

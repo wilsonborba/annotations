@@ -98,7 +98,8 @@ class TypedNoteHandler extends ChangeNotifier {
     final schema = paper.document.schema;
     _writing = true;
     final decision = paper.apply(
-      HistoryCommand(CommandKind.text),
+      // One step per paused burst of typing; it never joins another step.
+      HistoryCommand.text('typed-note', TextInput.replacing(0, 0)),
       (rules, _) => rules.check(
         NoteDocument.fromJson({'blocks': blocks}, schema: schema),
       ),
