@@ -30,6 +30,7 @@ import '../../../domain/services/note_autosave.dart';
 import '../../../domain/services/note_history.dart';
 import '../../../domain/services/object_selection.dart';
 import '../../../domain/services/paper_page.dart';
+import 'attachment_cache.dart';
 
 /// What the notice after Undo or Redo says: the steps back and forward.
 @immutable
@@ -119,6 +120,9 @@ class PaperHandler extends ChangeNotifier {
   /// The paragraph style of text items: the style that the text engine
   /// measures with, so drawn text has the stored block size.
   final TextStyle textStyle;
+
+  /// The stored files that cards show (annotations#34).
+  late final files = AttachmentCache(autosave.store);
 
   /// The view, null until the canvas has its size.
   final view = ValueNotifier<PaperView?>(null);
@@ -469,6 +473,7 @@ class PaperHandler extends ChangeNotifier {
     preview.dispose();
     _noticeTimer?.cancel();
     historyNotice.dispose();
+    files.dispose();
     super.dispose();
   }
 }

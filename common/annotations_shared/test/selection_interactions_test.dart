@@ -183,7 +183,10 @@ void main() {
     await shortcut(tester, LogicalKeyboardKey.keyG, shift: true);
     expect(h.selection.value.ids, {'img', copy});
     await tester.sendKeyEvent(LogicalKeyboardKey.delete);
-    await tester.pump();
+    await tester.pumpAndSettle();
+    // Pictures, files and links ask before they leave the note (B9.5).
+    await tester.tap(find.byKey(const Key('remove-confirm')));
+    await tester.pumpAndSettle();
     expect(
       (h.document as PaperDocument).itemsJson.where((i) => i['id'] == 'img'),
       isEmpty,
@@ -252,11 +255,15 @@ void main() {
   testWidgets('toolbar controls move and size without a drag', (tester) async {
     final h = await open(tester);
     await click(tester, screen(h, 700, 380));
+    await tester.tap(find.byKey(const Key('selection-arrange')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('selection-move-right')));
-    await tester.pump();
+    await tester.pumpAndSettle();
     expect(item(h, 'img')['x'], 608);
+    await tester.tap(find.byKey(const Key('selection-arrange')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('selection-wider')));
-    await tester.pump();
+    await tester.pumpAndSettle();
     expect(item(h, 'img')['width'], 312);
     await tester.pump(const Duration(seconds: 1));
   });

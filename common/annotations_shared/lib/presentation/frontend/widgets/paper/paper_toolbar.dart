@@ -9,12 +9,14 @@ import '../../components/scope.dart';
 import '../../components/text_tools.dart';
 import '../../components/theme.dart';
 import '../../components/tokens.dart';
+import '../../handlers/attachment_handler.dart';
 import '../../handlers/draw_handler.dart';
 import '../../handlers/paper_handler.dart';
 import '../../handlers/point_edit_handler.dart';
 import '../../handlers/selection_handler.dart';
 import '../../handlers/text_handler.dart';
 import 'draw_toolbar.dart';
+import 'attachment_layer.dart';
 import 'point_edit_layer.dart';
 import 'selection_layer.dart';
 
@@ -44,6 +46,9 @@ class PaperToolbar extends StatefulWidget {
   /// The object actions, the move and the size controls of a selection in
   /// Type mode (annotations#32), the ways that need no drag.
   final SelectionHandler? selection;
+
+  /// The Add menu and the card actions (annotations#34).
+  final AttachmentHandler? attachments;
   final ToolbarPlacement placement;
   final ValueChanged<ToolbarPlacement> onPlacement;
 
@@ -65,6 +70,7 @@ class PaperToolbar extends StatefulWidget {
     required this.text,
     required this.points,
     this.selection,
+    this.attachments,
     required this.placement,
     required this.onPlacement,
     required this.onDrag,
@@ -225,33 +231,41 @@ class _PaperToolbarState extends State<PaperToolbar> {
     ],
   );
 
-  /// Arrow buttons that move the selection by one grid cell, and for one
-  /// object Narrower and Wider by one cell (B2.2, B3.4).
+  /// Move by one grid cell and, for one object, Narrower and Wider by one
+  /// cell (B2.2, B3.4): the ways without a drag, in one menu so the toolbar
+  /// keeps one row. The arrow keys move too.
   List<Widget> _moveAndSize(BuildContext context, SelectionHandler s) => [
-    for (final (key, icon, label, x, y) in [
-      ('left', AppIcons.chevronLeft, 'selectionMoveLeft', -1, 0),
-      ('up', AppIcons.chevronUp, 'selectionMoveUp', 0, -1),
-      ('down', AppIcons.chevronDown, 'selectionMoveDown', 0, 1),
-      ('right', AppIcons.chevronRight, 'selectionMoveRight', 1, 0),
-    ])
-      AppIconButton(
-        key: Key('selection-move-$key'),
-        icon: icon,
-        label: context.tr(label),
-        onPressed: () => s.nudge(x, y),
-      ),
-    if (s.sizeTarget != null) ...[
-      AppButton(
-        key: const Key('selection-narrower'),
-        label: context.tr('selectionNarrower'),
-        onPressed: () => s.resizeBy(-1),
-      ),
-      AppButton(
-        key: const Key('selection-wider'),
-        label: context.tr('selectionWider'),
-        onPressed: () => s.resizeBy(1),
-      ),
-    ],
+    AppMenuButton(
+      key: const Key('selection-arrange'),
+      icon: AppIcons.move,
+      label: context.tr('selectionArrange'),
+      entries: [
+        for (final (key, icon, label, x, y) in [
+          ('left', AppIcons.chevronLeft, 'selectionMoveLeft', -1, 0),
+          ('up', AppIcons.chevronUp, 'selectionMoveUp', 0, -1),
+          ('down', AppIcons.chevronDown, 'selectionMoveDown', 0, 1),
+          ('right', AppIcons.chevronRight, 'selectionMoveRight', 1, 0),
+        ])
+          AppMenuEntry(
+            key: Key('selection-move-$key'),
+            icon: icon,
+            label: context.tr(label),
+            onSelected: () => s.nudge(x, y),
+          ),
+        if (s.sizeTarget != null) ...[
+          AppMenuEntry(
+            key: const Key('selection-narrower'),
+            label: context.tr('selectionNarrower'),
+            onSelected: () => s.resizeBy(-1),
+          ),
+          AppMenuEntry(
+            key: const Key('selection-wider'),
+            label: context.tr('selectionWider'),
+            onSelected: () => s.resizeBy(1),
+          ),
+        ],
+      ],
+    ),
   ];
 
   Widget _dangerNotice(BuildContext context) {
@@ -325,6 +339,12 @@ class _PaperToolbarState extends State<PaperToolbar> {
       );
       final history = _history(context);
       if (history.isNotEmpty) children.addAll([_divider(c), ...history]);
+      if (widget.attachments case final files?
+          when !drawMode &&
+              text.controller == null &&
+              (widget.selection?.selection.isEmpty ?? true)) {
+        children.add(AddMenu(attachments: files));
+      }
       if (drawMode && points.active) {
         children.addAll([
           _divider(c),
@@ -356,9 +376,13 @@ class _PaperToolbarState extends State<PaperToolbar> {
         if (draw.dangerous && vertical) children.add(_dangerNotice(context));
       } else if (widget.selection case final selection?
           when selection.selection.isNotEmpty && text.controller == null) {
+        final card = selection.sizeTarget;
+        final files = widget.attachments;
         children.addAll([
           _divider(c),
           ...selectionActions(context, selection),
+          if (files != null && card != null && files.cardKind(card) != null)
+            CardMenu(attachments: files, id: card),
           _divider(c),
           ..._moveAndSize(context, selection),
         ]);
