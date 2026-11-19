@@ -184,7 +184,7 @@ class AttachmentJobsLayer extends StatelessWidget {
               top: view.toScreen(job.at).dy,
               child: Container(
                 key: Key('attachment-job-${job.source.name}'),
-                constraints: const BoxConstraints(maxWidth: 360),
+                constraints: const BoxConstraints(maxWidth: 440),
                 padding: const EdgeInsets.fromLTRB(12, 6, 6, 6),
                 decoration: BoxDecoration(
                   color: c.surface,

@@ -275,11 +275,31 @@ class AttachmentHandler extends ChangeNotifier {
     final y0 = EditorGrid.floor(math.max(0, at.dy));
     final document = paper.document;
     for (var step = 0; step < 2000; step++) {
-      final candidate = {...item, 'x': x, 'y': y0 + step * EditorGrid.cell};
-      final d = paper.session.rules.check(document, {
+      final y = y0 + step * EditorGrid.cell;
+      final candidate = {...item, 'x': x, 'y': y};
+      // A free cell around a new card, so cards do not touch (a probe
+      // only: the card itself keeps its size).
+      const gap = EditorGrid.cell;
+      final room = {
+        ...item,
+        'x': math.max(0, x - gap),
+        'y': math.max(0, y - gap),
+        'width': math.min(
+          (item['width'] as num) + 2 * gap,
+          EditorGrid.floor(paper.pageWidth),
+        ),
+        'height': (item['height'] as num) + 2 * gap,
+      };
+      final probe = paper.session.rules.check(document, {
         'op': 'add',
-        'item': candidate,
+        'item': room,
       });
+      final d = probe.accepted
+          ? paper.session.rules.check(document, {
+              'op': 'add',
+              'item': candidate,
+            })
+          : probe;
       if (d.accepted) {
         final decision = paper.apply(
           HistoryCommand(CommandKind.card),

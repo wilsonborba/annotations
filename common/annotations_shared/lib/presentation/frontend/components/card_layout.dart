@@ -223,7 +223,8 @@ class CardLayout {
       case 'pdf_preview':
         final fileId = item['file_id'] as String? ?? '';
         final info = files?.info(fileId);
-        final pdf = files?.pdf(fileId);
+        // The page shape comes from the file when it is added.
+        files?.pdf(fileId);
         return CardLayout._(kind, width, null, (canvas, r) {
           // The page itself, with its name and page count.
           canvas.drawRect(r, Paint()..color = const Color(0xFFFFFFFF));
@@ -248,13 +249,7 @@ class CardLayout {
             const Color(0xFF5B6170),
           );
           final label = TextPainter(
-            text: TextSpan(
-              text: [
-                if (info != null) info.name,
-                if (pdf != null) '${pdf.pages} p.',
-              ].join('\n'),
-              style: page,
-            ),
+            text: TextSpan(text: info?.name ?? '', style: page),
             textAlign: TextAlign.center,
             textDirection: TextDirection.ltr,
             textScaler: TextScaler.noScaling,
