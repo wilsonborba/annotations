@@ -1,6 +1,9 @@
 import 'dart:convert';
+import 'dart:io';
 
+import '../models/local_note.dart';
 import '../models/note_document.dart';
+import 'local_note_store.dart';
 
 enum TranscriptionPassageKind { text, inkFallback, table, image, card }
 
@@ -35,18 +38,46 @@ final class TranscriptionPassage {
     bool? uncertain,
     bool? keepAsInk,
     bool? userCorrected,
-  }) =>
+  }) => TranscriptionPassage(
+    partId: partId,
+    sourceHash: sourceHash ?? this.sourceHash,
+    y: y,
+    x: x,
+    kind: kind,
+    text: text ?? this.text,
+    uncertain: uncertain ?? this.uncertain,
+    keepAsInk: keepAsInk ?? this.keepAsInk,
+    userCorrected: userCorrected ?? this.userCorrected,
+    preservedData: preservedData,
+  );
+
+  Map<String, Object?> toJson() => {
+    'part_id': partId,
+    'source_hash': sourceHash,
+    'y': y,
+    'x': x,
+    'kind': kind.name,
+    'text': text,
+    'uncertain': uncertain,
+    'keep_as_ink': keepAsInk,
+    'user_corrected': userCorrected,
+    if (preservedData != null) 'preserved_data': preservedData,
+  };
+
+  factory TranscriptionPassage.fromJson(Map<String, dynamic> j) =>
       TranscriptionPassage(
-        partId: partId,
-        sourceHash: sourceHash ?? this.sourceHash,
-        y: y,
-        x: x,
-        kind: kind,
-        text: text ?? this.text,
-        uncertain: uncertain ?? this.uncertain,
-        keepAsInk: keepAsInk ?? this.keepAsInk,
-        userCorrected: userCorrected ?? this.userCorrected,
-        preservedData: preservedData,
+        partId: '${j['part_id']}',
+        sourceHash: '${j['source_hash'] ?? ''}',
+        y: (j['y'] as num?)?.toDouble() ?? 0,
+        x: (j['x'] as num?)?.toDouble() ?? 0,
+        kind: TranscriptionPassageKind.values.byName('${j['kind'] ?? 'text'}'),
+        text: '${j['text'] ?? ''}',
+        uncertain: (j['uncertain'] as bool?) ?? false,
+        keepAsInk: (j['keep_as_ink'] as bool?) ?? false,
+        userCorrected: (j['user_corrected'] as bool?) ?? false,
+        preservedData: j['preserved_data'] is Map
+            ? Map<String, Object?>.from(j['preserved_data'] as Map)
+            : null,
       );
 }
 
@@ -67,20 +98,68 @@ final class TranscriptionDraft {
     int? sourceRevision,
     bool? needsReview,
     List<TranscriptionPassage>? passages,
-  }) =>
+  }) => TranscriptionDraft(
+    noteId: noteId,
+    sourceRevision: sourceRevision ?? this.sourceRevision,
+    needsReview: needsReview ?? this.needsReview,
+    passages: passages ?? this.passages,
+  );
+
+  Map<String, Object?> toJson() => {
+    'note_id': noteId,
+    'source_revision': sourceRevision,
+    'needs_review': needsReview,
+    'passages': [for (final p in passages) p.toJson()],
+  };
+
+  factory TranscriptionDraft.fromJson(Map<String, dynamic> j) =>
       TranscriptionDraft(
-        noteId: noteId,
-        sourceRevision: sourceRevision ?? this.sourceRevision,
-        needsReview: needsReview ?? this.needsReview,
-        passages: passages ?? this.passages,
+        noteId: '${j['note_id']}',
+        sourceRevision: (j['source_revision'] as num?)?.toInt() ?? 1,
+        needsReview: (j['needs_review'] as bool?) ?? false,
+        passages: ((j['passages'] as List?) ?? const [])
+            .map(
+              (e) => TranscriptionPassage.fromJson(
+                Map<String, dynamic>.from(e as Map),
+              ),
+            )
+            .toList(),
       );
 }
 
-/// Manages saved private transcription drafts, top-to-bottom / left-to-right typed
-/// ordering, user corrections, changed-part updates, and Typed acceptance while
-/// keeping Original strokes byte-identical (annotations#46).
+/// Manages saved private transcription drafts (persisted across restarts when
+/// [persistenceFile] is provided), top-to-bottom / left-to-right typed ordering,
+/// user corrections, changed-part updates, and Typed acceptance while keeping
+/// Original strokes byte-identical (annotations#46).
 class TranscriptionDraftService {
+  final File? persistenceFile;
   final Map<String, TranscriptionDraft> _savedDrafts = {};
+
+  TranscriptionDraftService({this.persistenceFile}) {
+    _loadFromDisk();
+  }
+
+  void _loadFromDisk() {
+    final f = persistenceFile;
+    if (f == null || !f.existsSync()) return;
+    final raw = jsonDecode(f.readAsStringSync()) as Map<String, dynamic>;
+    for (final e in raw.entries) {
+      _savedDrafts[e.key] = TranscriptionDraft.fromJson(
+        Map<String, dynamic>.from(e.value as Map),
+      );
+    }
+  }
+
+  void _saveToDisk() {
+    final f = persistenceFile;
+    if (f == null) return;
+    f.parent.createSync(recursive: true);
+    f.writeAsStringSync(
+      jsonEncode({
+        for (final e in _savedDrafts.entries) e.key: e.value.toJson(),
+      }),
+    );
+  }
 
   TranscriptionDraft? reopenDraft(String noteId) => _savedDrafts[noteId];
 
@@ -132,7 +211,8 @@ class TranscriptionDraftService {
     required int sourceRevision,
     required List<TranscriptionPassage> passages,
   }) {
-    final sorted = [...passages]..sort((a, b) {
+    final sorted = [...passages]
+      ..sort((a, b) {
         final c = a.y.compareTo(b.y);
         return c != 0 ? c : a.x.compareTo(b.x);
       });
@@ -142,6 +222,7 @@ class TranscriptionDraftService {
       passages: sorted,
     );
     _savedDrafts[noteId] = draft;
+    _saveToDisk();
     return draft;
   }
 
@@ -154,6 +235,7 @@ class TranscriptionDraftService {
     list.insert(newIndex, item);
     final updated = draft.copyWith(passages: list);
     _savedDrafts[noteId] = updated;
+    _saveToDisk();
     return updated;
   }
 
@@ -180,15 +262,23 @@ class TranscriptionDraftService {
     ];
     final updated = draft.copyWith(passages: updatedPassages);
     _savedDrafts[noteId] = updated;
+    _saveToDisk();
     return updated;
   }
 
   /// Marks the draft for review when the source Original note changes.
-  TranscriptionDraft markSourceChanged(String noteId, {required int newSourceRevision}) {
+  TranscriptionDraft markSourceChanged(
+    String noteId, {
+    required int newSourceRevision,
+  }) {
     final draft = _savedDrafts[noteId];
     if (draft == null) throw StateError('Missing draft for $noteId');
-    final updated = draft.copyWith(sourceRevision: newSourceRevision, needsReview: true);
+    final updated = draft.copyWith(
+      sourceRevision: newSourceRevision,
+      needsReview: true,
+    );
     _savedDrafts[noteId] = updated;
+    _saveToDisk();
     return updated;
   }
 
@@ -199,7 +289,9 @@ class TranscriptionDraftService {
   ) {
     final draft = _savedDrafts[noteId];
     if (draft == null) return const [];
-    final existingHashes = {for (final p in draft.passages) p.partId: p.sourceHash};
+    final existingHashes = {
+      for (final p in draft.passages) p.partId: p.sourceHash,
+    };
     return [
       for (final it in orderForTyped(currentItems))
         if (existingHashes['${it['id']}'] != hashPart(it)) '${it['id']}',
@@ -241,6 +333,7 @@ class TranscriptionDraftService {
 
     final updated = draft.copyWith(needsReview: false, passages: merged);
     _savedDrafts[noteId] = updated;
+    _saveToDisk();
     return updated;
   }
 
@@ -281,9 +374,29 @@ class TranscriptionDraftService {
             ],
           },
     ];
-    return NoteDocument.fromJson(
-      {'blocks': blocks},
-      schema: DocumentSchema(DocumentFamily.typed.schemaName, 1),
+    return NoteDocument.fromJson({
+      'blocks': blocks,
+    }, schema: DocumentSchema(DocumentFamily.typed.schemaName, 1));
+  }
+
+  /// Accepts [noteId]'s draft and writes the Typed representation into [store]
+  /// under [typedNoteId] (default `'${noteId}__typed'`), leaving the Original note
+  /// and its strokes untouched in [store].
+  Future<LocalNote> acceptToTypedNote(
+    String noteId, {
+    required LocalNoteStore store,
+    String? typedNoteId,
+    String? title,
+  }) async {
+    final typedDoc = acceptToTyped(noteId);
+    final orig = await store.load(noteId);
+    return store.save(
+      LocalNoteDraft(
+        id: typedNoteId ?? '${noteId}__typed',
+        schema: typedDoc.schema,
+        document: typedDoc,
+        title: title ?? orig?.title,
+      ),
     );
   }
 }
