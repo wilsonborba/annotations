@@ -20,15 +20,16 @@ final class DiscoveryQuery {
   });
 
   Map<String, String> toQueryParams({String? browseToken, String? cursor}) => {
-        if (q.trim().isNotEmpty) 'q': q.trim(),
-        if (authorId != null && authorId!.isNotEmpty) 'author_id': authorId!,
-        if (language != null && language!.isNotEmpty) 'language': language!,
-        if (tag != null && tag!.isNotEmpty) 'tag': tag!,
-        if (projectId != null && projectId!.isNotEmpty) 'project_id': projectId!,
-        if (browseToken != null && browseToken.isNotEmpty) 'browse_token': browseToken,
-        if (cursor != null && cursor.isNotEmpty) 'cursor': cursor,
-        'limit': '$limit',
-      };
+    if (q.trim().isNotEmpty) 'q': q.trim(),
+    if (authorId != null && authorId!.isNotEmpty) 'author_id': authorId!,
+    if (language != null && language!.isNotEmpty) 'language': language!,
+    if (tag != null && tag!.isNotEmpty) 'tag': tag!,
+    if (projectId != null && projectId!.isNotEmpty) 'project_id': projectId!,
+    if (browseToken != null && browseToken.isNotEmpty)
+      'browse_token': browseToken,
+    if (cursor != null && cursor.isNotEmpty) 'cursor': cursor,
+    'limit': '$limit',
+  };
 }
 
 final class PublicNoteSummary {
@@ -48,7 +49,8 @@ final class PublicNoteSummary {
     this.tags = const [],
   });
 
-  factory PublicNoteSummary.fromJson(Map<String, dynamic> j) => PublicNoteSummary(
+  factory PublicNoteSummary.fromJson(Map<String, dynamic> j) =>
+      PublicNoteSummary(
         id: '${j['note_id'] ?? j['id'] ?? ''}',
         title: '${j['title'] ?? 'Untitled note'}',
         authorId: '${j['author_id'] ?? ''}',
@@ -63,19 +65,18 @@ final class DiscoveryPage {
   final String? nextCursor;
   final String? browseToken;
 
-  const DiscoveryPage({
-    required this.items,
-    this.nextCursor,
-    this.browseToken,
-  });
+  const DiscoveryPage({required this.items, this.nextCursor, this.browseToken});
 
   factory DiscoveryPage.fromJson(Map<String, dynamic> j) => DiscoveryPage(
-        items: ((j['items'] as List?) ?? const [])
-            .map((e) => PublicNoteSummary.fromJson(Map<String, dynamic>.from(e as Map)))
-            .toList(),
-        nextCursor: j['next_cursor'] as String?,
-        browseToken: j['browse_token'] as String?,
-      );
+    items: ((j['items'] as List?) ?? const [])
+        .map(
+          (e) =>
+              PublicNoteSummary.fromJson(Map<String, dynamic>.from(e as Map)),
+        )
+        .toList(),
+    nextCursor: j['next_cursor'] as String?,
+    browseToken: j['browse_token'] as String?,
+  );
 }
 
 final class ReaderEmbed {
@@ -92,11 +93,11 @@ final class ReaderEmbed {
   });
 
   factory ReaderEmbed.fromJson(Map<String, dynamic> j) {
-    final isRestricted = (j['restricted'] as bool?) ??
-        ('${j['visibility'] ?? 'public'}' != 'public');
+    final isRestricted = (j['restricted'] as bool?) ?? false;
     return ReaderEmbed(
       kind: '${j['kind'] ?? 'embed'}',
-      refId: '${j['ref_id'] ?? j['id'] ?? ''}',
+      refId:
+          '${j['report_id'] ?? j['task_id'] ?? j['quiz_id'] ?? j['ref_id'] ?? j['id'] ?? ''}',
       restricted: isRestricted,
       payload: isRestricted || j['payload'] is! Map
           ? null
@@ -111,7 +112,9 @@ final class ReaderNoteView {
   final NoteViewMode activeView;
   final bool hasOriginal;
   final bool hasTyped;
+  final bool canSwitchView;
   final bool isTypedStale;
+  final Map<NoteViewMode, Map<String, dynamic>> documentsByView;
   final List<ReaderEmbed> embeds;
   final Map<String, dynamic> raw;
 
@@ -121,12 +124,14 @@ final class ReaderNoteView {
     required this.activeView,
     required this.hasOriginal,
     required this.hasTyped,
+    required this.canSwitchView,
     required this.isTypedStale,
+    this.documentsByView = const {},
     required this.embeds,
     required this.raw,
   });
 
-  bool get canSwitchView => hasOriginal && hasTyped;
+  Map<String, dynamic>? get activeDocument => documentsByView[activeView];
 
   static NoteViewMode selectView({
     required NoteViewMode mainView,
@@ -134,21 +139,78 @@ final class ReaderNoteView {
     required bool hasTyped,
     NoteViewMode? requestedView,
   }) {
-    if (requestedView == NoteViewMode.original && hasOriginal) return NoteViewMode.original;
-    if (requestedView == NoteViewMode.typed && hasTyped) return NoteViewMode.typed;
-    if (mainView == NoteViewMode.original && hasOriginal) return NoteViewMode.original;
-    if (mainView == NoteViewMode.typed && hasTyped) return NoteViewMode.typed;
+    if (requestedView == NoteViewMode.original && hasOriginal) {
+      return NoteViewMode.original;
+    }
+    if (requestedView == NoteViewMode.typed && hasTyped) {
+      return NoteViewMode.typed;
+    }
+    if (mainView == NoteViewMode.original && hasOriginal) {
+      return NoteViewMode.original;
+    }
+    if (mainView == NoteViewMode.typed && hasTyped) {
+      return NoteViewMode.typed;
+    }
     if (hasOriginal) return NoteViewMode.original;
     return NoteViewMode.typed;
+  }
+
+  static List<ReaderEmbed> _extractEmbedsFromDocument(
+    Map<String, dynamic>? doc,
+  ) {
+    if (doc == null) return const [];
+    const embedKinds = {
+      'reports_embed',
+      'report_embed',
+      'task_card',
+      'quiz_card',
+    };
+    final found = <ReaderEmbed>[];
+    for (final key in const ['items', 'blocks']) {
+      final list = doc[key];
+      if (list is! List) continue;
+      for (final rawItem in list) {
+        if (rawItem is! Map) continue;
+        final item = Map<String, dynamic>.from(rawItem);
+        if (embedKinds.contains('${item['kind'] ?? ''}')) {
+          found.add(ReaderEmbed.fromJson(item));
+        }
+      }
+    }
+    return found;
   }
 
   factory ReaderNoteView.fromJson(
     Map<String, dynamic> j, {
     NoteViewMode? requestedView,
   }) {
-    final hasOriginal = (j['has_original'] as bool?) ?? (j['original'] != null);
-    final hasTyped = (j['has_typed'] as bool?) ?? (j['typed'] != null);
-    final mainView = '${j['main_view'] ?? 'original'}' == 'typed'
+    final reps =
+        (j['representations'] as List?)
+            ?.whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList() ??
+        const <Map<String, dynamic>>[];
+    final docs = <NoteViewMode, Map<String, dynamic>>{};
+    for (final rep in reps) {
+      final mode = '${rep['representation'] ?? ''}' == 'typed'
+          ? NoteViewMode.typed
+          : NoteViewMode.original;
+      if (rep['document'] is Map) {
+        docs[mode] = Map<String, dynamic>.from(rep['document'] as Map);
+      }
+    }
+
+    final viewsList = (j['views'] as List?)?.map((e) => '$e').toSet();
+    final hasOriginal = viewsList != null
+        ? viewsList.contains('original')
+        : (docs.containsKey(NoteViewMode.original) ||
+              ((j['has_original'] as bool?) ?? (j['original'] != null)));
+    final hasTyped = viewsList != null
+        ? viewsList.contains('typed')
+        : (docs.containsKey(NoteViewMode.typed) ||
+              ((j['has_typed'] as bool?) ?? (j['typed'] != null)));
+    final mainView =
+        '${j['default_view'] ?? j['main_view'] ?? 'original'}' == 'typed'
         ? NoteViewMode.typed
         : NoteViewMode.original;
     final activeView = selectView(
@@ -157,16 +219,28 @@ final class ReaderNoteView {
       hasTyped: hasTyped,
       requestedView: requestedView,
     );
-    final embeds = ((j['embeds'] as List?) ?? const [])
-        .map((e) => ReaderEmbed.fromJson(Map<String, dynamic>.from(e as Map)))
-        .toList();
+    final docEmbeds = _extractEmbedsFromDocument(docs[activeView]);
+    final embeds = docEmbeds.isNotEmpty
+        ? docEmbeds
+        : ((j['embeds'] as List?) ?? const [])
+              .map(
+                (e) =>
+                    ReaderEmbed.fromJson(Map<String, dynamic>.from(e as Map)),
+              )
+              .toList();
     return ReaderNoteView(
       noteId: '${j['note_id'] ?? j['id'] ?? ''}',
       title: '${j['title'] ?? 'Untitled note'}',
       activeView: activeView,
       hasOriginal: hasOriginal,
       hasTyped: hasTyped,
-      isTypedStale: (j['typed_stale'] as bool?) ?? false,
+      canSwitchView:
+          (j['can_switch_view'] as bool?) ?? (hasOriginal && hasTyped),
+      isTypedStale:
+          (j['typed_uses_earlier_revision'] as bool?) ??
+          (j['typed_stale'] as bool?) ??
+          false,
+      documentsByView: docs,
       embeds: embeds,
       raw: j,
     );
@@ -214,19 +288,21 @@ class DiscoveryReaderAdapter {
     String authorId, {
     String? cursor,
     int limit = 20,
-  }) =>
-      api.request(
-        '/authors/$authorId/projects',
-        query: {
-          if (cursor != null && cursor.isNotEmpty) 'cursor': cursor,
-          'limit': '$limit',
-        },
-      );
+  }) => api.request(
+    '/authors/$authorId/projects',
+    query: {
+      if (cursor != null && cursor.isNotEmpty) 'cursor': cursor,
+      'limit': '$limit',
+    },
+  );
 
   Future<Map<String, dynamic>> getProject(String projectId) =>
       api.request('/projects/$projectId');
 
-  Future<DiscoveryPage> listMySyncedNotes({String? cursor, int limit = 20}) async {
+  Future<DiscoveryPage> listMySyncedNotes({
+    String? cursor,
+    int limit = 20,
+  }) async {
     final json = await api.request(
       '/me/notes',
       query: {
@@ -237,7 +313,10 @@ class DiscoveryReaderAdapter {
     return DiscoveryPage.fromJson(json);
   }
 
-  Future<ReaderNoteView> getMySyncedNote(String noteId, {NoteViewMode? view}) async {
+  Future<ReaderNoteView> getMySyncedNote(
+    String noteId, {
+    NoteViewMode? view,
+  }) async {
     final json = await api.request(
       '/me/notes/$noteId',
       query: {if (view != null) 'view': view.name},
