@@ -53,7 +53,10 @@ class PaperCanvas extends StatefulWidget {
 class _PaperCanvasState extends State<PaperCanvas>
     with SingleTickerProviderStateMixin {
   PaperHandler get handler => widget.handler;
-  late final cache = ContentCache(textStyle: handler.textStyle);
+  late final cache = ContentCache(
+    textStyle: handler.textStyle,
+    files: handler.files,
+  );
   late final Ticker _fling;
   FrictionSimulation? _flingX, _flingY;
   Offset _flingLast = Offset.zero;
@@ -71,6 +74,7 @@ class _PaperCanvasState extends State<PaperCanvas>
     super.initState();
     _fling = createTicker(_flingTick);
     handler.addListener(_documentChanged);
+    handler.files.addListener(_documentChanged);
   }
 
   @override
@@ -85,6 +89,7 @@ class _PaperCanvasState extends State<PaperCanvas>
   @override
   void dispose() {
     handler.removeListener(_documentChanged);
+    handler.files.removeListener(_documentChanged);
     _fling.dispose();
     cache.dispose();
     super.dispose();

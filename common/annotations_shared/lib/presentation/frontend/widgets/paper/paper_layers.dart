@@ -22,9 +22,11 @@ import '../../../../domain/models/note_document.dart';
 import '../../../../domain/services/ink_outline.dart';
 import '../../../../domain/services/object_selection.dart';
 import '../../../../domain/services/paper_page.dart';
+import '../../components/card_layout.dart';
 import '../../components/icons.dart';
 import '../../components/paper_guides.dart';
 import '../../components/tokens.dart';
+import '../../handlers/attachment_cache.dart';
 import '../../handlers/paper_handler.dart';
 
 /// Paint calls per layer, for the repaint tests and the performance record.
@@ -104,6 +106,12 @@ class PaperLayerPainter extends CustomPainter {
 final class _Drawing {
   _Drawing(this.json, this.bounds, this.draw, [this.dispose]);
   final Map<String, Object?> json;
+
+  /// The decoded item it was made from: the same object means unchanged.
+  DocumentItem? item;
+
+  /// For cards: the file reads it saw ([AttachmentCache.version]).
+  int? files;
   final void Function()? dispose;
 
   /// The visible area in page units, for culling and borders.
@@ -115,17 +123,27 @@ final class _Drawing {
 /// did not change keeps its paths and text layout, so an edit prepares only
 /// the changed items.
 class ContentCache {
-  ContentCache({required this.textStyle});
+  ContentCache({required this.textStyle, this.files});
 
   final TextStyle textStyle;
+
+  /// Stored files of the cards (annotations#34); a finished read draws the
+  /// cards again.
+  final AttachmentCache? files;
   final _byId = <String, _Drawing>{};
   var _order = <_Drawing>[];
   NoteDocument? _document;
   AppColors? _colors;
+  int? _filesVersion;
 
   /// Prepares [document]; cheap when nothing changed.
   void update(NoteDocument document, AppColors colors) {
-    if (identical(document, _document) && identical(colors, _colors)) return;
+    if (identical(document, _document) &&
+        identical(colors, _colors) &&
+        files?.version == _filesVersion) {
+      return;
+    }
+    _filesVersion = files?.version;
     if (!identical(colors, _colors)) _clear();
     _document = document;
     _colors = colors;
@@ -134,15 +152,22 @@ class ContentCache {
         : const <DocumentItem>[];
     final next = <String, _Drawing>{};
     final order = <_Drawing>[];
+    final version = files?.version;
     for (final item in items) {
       final id = item.id;
       if (id == null) continue;
-      final json = item.toJson();
       var d = _byId[id];
-      // A changed item gets a new drawing; the loop below releases the old
-      // one once.
-      if (d == null || !_sameJson(d.json, json)) {
-        d = _prepare(item, json, colors);
+      final fresh = d != null && d.files != null && d.files != version;
+      // The same decoded item is unchanged (annotations#62 keeps unchanged
+      // items), so a long note does not copy every item on each edit.
+      if (d == null || fresh || !identical(d.item, item)) {
+        final json = item.toJson();
+        // A changed item gets a new drawing; the loop below releases the
+        // old one once.
+        if (d == null || fresh || !_sameJson(d.json, json)) {
+          d = _prepare(item, json, colors);
+        }
+        d?.item = item;
       }
       if (d == null) continue;
       next[id] = d;
@@ -240,8 +265,24 @@ class ContentCache {
             }
           },
         );
+      case StructuredItem(:final bounds?) when isCardKind(json['kind']):
+        final rect = _rect(bounds);
+        final card = CardLayout(
+          json,
+          rect.width,
+          CardStyle(text: textStyle, colors: colors),
+          files,
+          scroll: files?.tableScroll(item.id) ?? Offset.zero,
+        );
+        return _Drawing(
+          json,
+          rect,
+          (canvas) => card.paint(canvas, rect),
+          card.dispose,
+        )..files = files?.version;
       case StructuredItem(:final bounds?):
-        // A neutral block until its card arrives (annotations#34).
+        // A neutral block for kinds without a card yet (tasks, quizzes,
+        // Reports).
         final rect = _rect(bounds);
         final icon = _blockIcon(item);
         final fill = Paint()..color = colors.subtle;

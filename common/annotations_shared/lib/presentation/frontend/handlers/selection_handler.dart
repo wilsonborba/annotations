@@ -39,6 +39,8 @@ import '../../../domain/services/editor_rules.dart';
 import '../../../domain/services/note_history.dart';
 import '../../../domain/services/object_clipboard.dart';
 import '../../../domain/services/object_selection.dart';
+import '../components/card_layout.dart';
+import '../components/tokens.dart';
 import 'draw_handler.dart';
 import 'paper_handler.dart';
 import 'text_handler.dart';
@@ -382,14 +384,23 @@ class SelectionHandler extends ChangeNotifier implements PaperInput {
     final layout = paper.layout;
     final kind = layout?.kindOf(id);
     num? measured;
-    if (kind == 'text' && _document is PaperDocument) {
-      final it = (_document as PaperDocument).itemsJson.firstWhere(
-        (i) => i['id'] == id,
-      );
-      measured = text.engine.measureHeight(
-        (it['spans'] as List?) ?? const [],
-        EditorGrid.round(width),
-      );
+    final document = _document;
+    if (document is PaperDocument) {
+      final it = document.itemsJson.firstWhere((i) => i['id'] == id);
+      if (kind == 'text') {
+        measured = text.engine.measureHeight(
+          (it['spans'] as List?) ?? const [],
+          EditorGrid.round(width),
+        );
+      } else {
+        // A card whose text wraps takes its measured height (annotations#34).
+        measured = measureCard(
+          it,
+          EditorGrid.round(width).toDouble(),
+          CardStyle(text: paper.textStyle, colors: AppColors.light),
+          paper.files,
+        );
+      }
     }
     return _rules.resize(
       _document,
