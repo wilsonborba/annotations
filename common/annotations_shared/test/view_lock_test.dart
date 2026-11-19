@@ -16,7 +16,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'design_goldens_test.dart' show loadAppFonts;
 import 'paper_canvas_test.dart'
-    show desktop, handlerFor, host, longNote, phone, setWindow;
+    show desktop, handlerFor, host, longNote, phone, schema, setWindow;
 
 Future<PaperHandler> open(
   WidgetTester tester, {
@@ -25,7 +25,12 @@ Future<PaperHandler> open(
   Brightness brightness = Brightness.light,
 }) async {
   await setWindow(tester, size);
-  final handler = handlerFor(longNote(60));
+  // The long note with its blocks on the 8-unit grid, so edits pass.
+  final json = longNote(60).toJson();
+  for (final it in (json['items'] as List).cast<Map<String, Object?>>()) {
+    if (it['kind'] == 'text') it['width'] = 304;
+  }
+  final handler = handlerFor(NoteDocument.fromJson(json, schema: schema));
   await tester.pumpWidget(
     host(
       PaperScreen(handler: handler, onFocusChanged: onFocus),
@@ -104,6 +109,49 @@ Future<void> pinch(WidgetTester tester) async {
   }
   await a.up();
   await b.up();
+  await tester.pump();
+}
+
+/// A stroke with real pressure range and time stamps, as the pens send.
+Future<void> stroke(
+  WidgetTester tester,
+  PointerDeviceKind kind,
+  Offset from,
+  Offset by,
+) async {
+  const id = 41;
+  PointerEvent at(int i, Offset p) => i == 0
+      ? PointerDownEvent(
+          pointer: id,
+          kind: kind,
+          position: p,
+          pressure: 0.5,
+          pressureMin: 0,
+          pressureMax: 1,
+        )
+      : PointerMoveEvent(
+          pointer: id,
+          kind: kind,
+          position: p,
+          pressure: 0.5,
+          pressureMin: 0,
+          pressureMax: 1,
+          timeStamp: Duration(milliseconds: 16 * i),
+        );
+  for (var i = 0; i <= 8; i++) {
+    tester.binding.handlePointerEvent(at(i, from + by * (i / 8)));
+    await tester.pump(const Duration(milliseconds: 16));
+  }
+  tester.binding.handlePointerEvent(
+    PointerUpEvent(
+      pointer: id,
+      kind: kind,
+      position: from + by,
+      pressureMin: 0,
+      pressureMax: 1,
+      timeStamp: const Duration(milliseconds: 144),
+    ),
+  );
   await tester.pump();
 }
 
@@ -191,19 +239,12 @@ void main() {
     await tester.tap(find.byKey(const Key('mode-draw')));
     await tester.pump();
     final items = (h.document as PaperDocument).items.length;
-    final pen = await tester.startGesture(
+    await stroke(
+      tester,
+      PointerDeviceKind.stylus,
       center(tester),
-      kind: PointerDeviceKind.stylus,
+      const Offset(96, 24),
     );
-    for (var i = 0; i < 8; i++) {
-      await pen.moveBy(
-        const Offset(12, 3),
-        timeStamp: Duration(milliseconds: 16 * (i + 1)),
-      );
-      await tester.pump(const Duration(milliseconds: 16));
-    }
-    await pen.up(timeStamp: const Duration(milliseconds: 144));
-    await tester.pump();
     expect((h.document as PaperDocument).items.length, items + 1);
     expect(h.view.value, at);
     // A keyboard or a toolbar that takes more room moves only the toolbar.
@@ -213,10 +254,10 @@ void main() {
     final zoomIn = tester.widget<TextButton>(
       find
           .descendant(
-            of: find.byKey(const Key('paper-status')),
+            of: find.byKey(const Key('zoom-in')),
             matching: find.byType(TextButton),
           )
-          .last,
+          .first,
     );
     expect(zoomIn.onPressed, isNull);
     // Unlock with the keyboard: the lock control takes the focus, Enter.
@@ -268,13 +309,23 @@ void main() {
     await tester.tap(find.byKey(const Key('mode-draw')));
     await tester.pump();
     final items = (h.document as PaperDocument).items.length;
-    await finger(tester, const Offset(120, 30));
+    await stroke(
+      tester,
+      PointerDeviceKind.touch,
+      center(tester),
+      const Offset(120, 30),
+    );
     expect((h.document as PaperDocument).items.length, items);
     await tester.tap(find.byKey(const Key('finger-settings')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('finger-drawing')));
     await tester.pumpAndSettle();
-    await finger(tester, const Offset(120, 30));
+    await stroke(
+      tester,
+      PointerDeviceKind.touch,
+      center(tester),
+      const Offset(120, 30),
+    );
     expect((h.document as PaperDocument).items.length, items + 1);
     await tester.pump(const Duration(seconds: 1));
   });
