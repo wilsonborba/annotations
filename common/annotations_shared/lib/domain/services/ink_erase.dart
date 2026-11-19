@@ -9,8 +9,11 @@ part of 'editor_rules.dart';
 // outside the eraser stay as new strokes with new ids, at the same place in
 // the item order, with the same tool, brush version, width, color, opacity,
 // tip angle and the raw samples (position, time, pressure, tilt) of their own
-// part. A geometric shape is always removed whole: partial erasing of shapes
-// was not aligned.
+// part. A touched shape becomes editable paths in partial mode (manager
+// resolution of the open B6.6 case under owner rule 2): the parts of its
+// outline outside the eraser stay as open paths with new ids and the same
+// color, line width and opacity; the fill goes, because an open outline has
+// no inside. Whole-stroke mode removes a touched shape.
 //
 // Dangerous mode: removes whole objects (text, cards, images, groups with all
 // their members, strokes and shapes). At each eraser position it takes only the
@@ -40,6 +43,8 @@ extension InkErasing on EditorRules {
       if (!layout.grouped[i] && _role(it) == _Role.ink) {
         if (it['kind'] == 'stroke' && mode == EraserMode.partialStroke) {
           replaced = _cutStroke(it, from, to, radius, newId, settings);
+        } else if (mode == EraserMode.partialStroke) {
+          replaced = _cutShape(it, from, to, radius, newId, settings);
         } else if (_touches(it, from, to, radius, settings)) {
           replaced = const [];
         }
@@ -193,7 +198,8 @@ List<InkNode> _nodesOf(JsonObject stroke) => [
 /// Half of the widest mark of a stroke, in page units.
 double _halfWidth(JsonObject stroke) {
   final brush = Brushes.of(stroke['tool'], stroke['brush_version']);
-  final pressure = (stroke['samples'] as Map)['pressure'] != null;
+  final pressure =
+      SampleCodec.decodeJson(stroke['samples'] as Map).pressure != null;
   final scale = brush != null && pressure ? brush.maxWidthScale : 1.0;
   return (stroke['width'] as num) / 2 * scale;
 }
@@ -251,6 +257,94 @@ List<JsonObject>? _cutStroke(
     out.add(_fragment(stroke, nodes, piece, u0, u1, newId()));
   }
   return out;
+}
+
+/// Partial erasing of a shape: the parts of its outline outside the eraser as
+/// open path shapes, [] when nothing stays, null when it is not touched.
+List<JsonObject>? _cutShape(
+  JsonObject it,
+  InkVec a,
+  InkVec b,
+  double radius,
+  String Function() newId,
+  InkSettings settings,
+) {
+  if (!_touches(it, a, b, radius, settings)) return null;
+  final shape = DocumentItem.fromJson(it, family: DocumentFamily.original);
+  if (shape is! ShapeItem) return const [];
+  final closed = shape is! PathShape || it['closed'] == true;
+  final nodes = _geometricNodes(shape) ?? _nodesOf(it);
+  final segments = segmentsOf(nodes, closed: closed);
+  if (segments.isEmpty) return const [];
+  final reach = radius + shape.lineWidth / 2;
+  final path = flatten(segments, settings.flattenTolerance);
+  final erased = <(double, double)>[];
+  for (var k = 1; k < path.length; k++) {
+    final p = path[k - 1], q = path[k];
+    if (segmentDistance(p.point, q.point, a, b) > reach) continue;
+    final (s0, s1) = _insideSpan(p.point, q.point, a, b, reach);
+    erased.add((p.u + (q.u - p.u) * s0, p.u + (q.u - p.u) * s1));
+  }
+  if (erased.isEmpty) return null;
+  final end = segments.length.toDouble();
+  final kept = <(double, double)>[];
+  var cursor = 0.0;
+  for (final (s, e) in erased) {
+    if (s > cursor) kept.add((cursor, s));
+    cursor = math.max(cursor, e);
+  }
+  if (cursor < end) kept.add((cursor, end));
+  final pieces = [for (final (u0, u1) in kept) _piece(segments, u0, u1)];
+  // A closed outline continues through its start: the last and the first
+  // part are one piece.
+  if (closed && kept.length > 1 && kept.first.$1 == 0 && kept.last.$2 == end) {
+    pieces.first = [...pieces.removeLast(), ...pieces.first];
+  }
+  final style = {
+    for (final key in const ['color', 'line_width', 'opacity']) key: it[key],
+  };
+  return [
+    for (final piece in pieces)
+      if (_length(piece, settings) >= settings.minFragmentLength)
+        {
+          'id': newId(),
+          'kind': 'shape',
+          'shape': 'path',
+          ...style,
+          'closed': false,
+          'nodes': [for (final n in _pieceNodes(piece)) n.toJson()],
+        },
+  ];
+}
+
+double _length(List<CubicSegment> piece, InkSettings settings) {
+  final points = flatten(piece, settings.flattenTolerance);
+  var total = 0.0;
+  for (var k = 1; k < points.length; k++) {
+    total += points[k - 1].point.distanceTo(points[k].point);
+  }
+  return total;
+}
+
+/// The nodes of an open path through the cubic pieces: a straight side has
+/// no handles; a node without a handle is a corner.
+List<InkNode> _pieceNodes(List<CubicSegment> piece) {
+  InkVec? handle(InkVec h, InkVec p) => h == p ? null : h;
+  return [
+    for (var k = 0; k <= piece.length; k++)
+      () {
+        final p = k < piece.length ? piece[k].p0 : piece.last.p3;
+        final incoming = k > 0 ? handle(piece[k - 1].p2, p) : null;
+        final outgoing = k < piece.length ? handle(piece[k].p1, p) : null;
+        return InkNode.at(
+          p,
+          incoming: incoming,
+          outgoing: outgoing,
+          mode: NodeMode.independent,
+          corner: incoming == null || outgoing == null,
+        );
+      }(),
+  ];
 }
 
 /// The part of the straight piece [p]-[q] (as fractions 0 to 1) within
@@ -313,8 +407,8 @@ JsonObject _fragment(
   double u1,
   String id,
 ) {
-  final samples = stroke['samples'] as JsonObject;
-  final count = (samples['x'] as List).length;
+  final samples = SampleCodec.decodeJson(stroke['samples'] as Map);
+  final count = samples.length;
   final position = sampleMap(nodes, count);
   final (s0, s1) = (position(u0), position(u1));
   // Raw samples inside the part, with interpolated samples at the cuts.
@@ -323,23 +417,20 @@ JsonObject _fragment(
     if (k > s0) at.add(k.toDouble());
   }
   if (s1 > at.last) at.add(s1);
-  List<int> column(String key) {
-    final values = (samples[key] as List).cast<int>();
-    return [for (final p in at) columnAt(values, p).round()];
-  }
+  List<int> column(List<int> values) => [
+    for (final p in at) columnAt(values, p).round(),
+  ];
 
-  final time = column('t');
-  final columns = <String, Object?>{
-    for (final key in samples.keys)
-      key: switch (key) {
-        't' => [for (final v in time) v - time.first],
-        'x' ||
-        'y' ||
-        'pressure' ||
-        'tilt' when samples[key] != null => column(key),
-        _ => samples[key],
-      },
-  };
+  final time = column(samples.t);
+  final columns = SampleCodec.encode(
+    SampleColumns(
+      x: column(samples.x),
+      y: column(samples.y),
+      t: [for (final v in time) v - time.first],
+      pressure: samples.pressure == null ? null : column(samples.pressure!),
+      tilt: samples.tilt == null ? null : column(samples.tilt!),
+    ),
+  );
   final linked = nodes.any((n) => n.sample != null);
   int? link(double p) {
     if (!linked) return null;

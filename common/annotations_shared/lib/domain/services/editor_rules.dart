@@ -13,11 +13,13 @@ import '../../core/ink_settings.dart';
 import '../../core/note_limits.dart';
 import '../models/ink.dart';
 import '../models/note_document.dart';
+import '../models/stroke_samples_codec.dart';
 import 'ink_geometry.dart';
 import 'ink_outline.dart';
 
 part 'editor_actions.dart';
 part 'editor_geometry.dart';
+part 'editor_incremental.dart';
 part 'editor_validation.dart';
 part 'ink_edits.dart';
 part 'ink_erase.dart';
@@ -69,19 +71,31 @@ final class EditDecision {
     this.error,
     Object? candidate,
     Object? operation,
-  ) : _candidate = _jsonCopy(candidate),
+  ) : _candidate = candidate,
+      _candidateOf = null,
+      _operation = _jsonCopy(operation);
+
+  /// An accepted decision from the changed items only (annotations#62): the
+  /// working copy is the new document, built only when asked for.
+  EditDecision._lazy(this.document, Object? operation)
+    : error = null,
+      _candidate = null,
+      _candidateOf = document.toJson,
       _operation = _jsonCopy(operation);
 
   final NoteDocument document;
   final EditorRuleError? error;
+  // The working copy is owned by the decision: the rules never keep it.
   final Object? _candidate;
+  final JsonObject Function()? _candidateOf;
   final Object? _operation;
 
   bool get accepted => error == null;
 
   /// The working copy after the operation, for the proposed position or size
   /// while dragging. Null when the operation could not be applied at all.
-  JsonObject? get candidate => _jsonCopy(_candidate) as JsonObject?;
+  JsonObject? get candidate =>
+      _candidateOf?.call() ?? _jsonCopy(_candidate) as JsonObject?;
 
   /// The requested operation, kept for the UI after a rejection.
   Object? get operation => _jsonCopy(_operation);
@@ -114,18 +128,26 @@ final class EditorRules {
     } on JsonUnsupportedObjectError {
       return _reject(document, _opError('invalid_operation', 'operation'));
     }
+    if (document is PaperDocument) {
+      if (op == null && _known(document, limits) != null) {
+        return EditDecision._lazy(document, null);
+      }
+      if (_incremental(document, op, limits) case final fast?) return fast;
+    }
     JsonObject? candidate;
     try {
       final copy = document.toJson();
       if (op != null) _apply(schema, copy, op);
       candidate = copy;
+      final _Ctx ctx;
       try {
-        _checkDocument(schema, candidate, limits);
+        ctx = _checkDocument(schema, candidate, limits);
       } on DocumentFormatException catch (e) {
         throw _schemaError(e, candidate);
       }
+      _Layout? layout;
       if (schema.family != DocumentFamily.typed) {
-        _Layout(candidate['items'] as List<Object?>).check();
+        layout = _Layout(candidate['items'] as List<Object?>)..check();
       }
       final NoteDocument next;
       try {
@@ -133,10 +155,53 @@ final class EditorRules {
       } on DocumentFormatException catch (e) {
         throw _schemaError(e, candidate);
       }
+      if (next is PaperDocument && layout != null) {
+        _remember(next, limits, ctx, layout);
+      }
       return EditDecision._(next, null, candidate, op);
     } on EditorRuleError catch (e) {
       return EditDecision._(document, e, candidate, op);
     }
+  }
+
+  /// The page offset that [move] applies for [dx], [dy]: rounded to 1/100,
+  /// and on whole grid cells when a block moves. The proposed position
+  /// while dragging (annotations#32).
+  (num, num) moveDelta(
+    NoteDocument document,
+    List<String> ids,
+    num dx,
+    num dy,
+  ) {
+    if (document is! PaperDocument) return (dx, dy);
+    final layout = _Layout(document.itemsJson);
+    try {
+      final moved = _indexes(layout, ids, withDescendants: true);
+      return _delta([for (final i in moved) layout.items[i]], dx, dy);
+    } on EditorRuleError {
+      return (dx, dy);
+    }
+  }
+
+  /// Checks [document] with its items replaced by [items], in that order.
+  /// Unchanged items are the same objects as [PaperDocument.itemsJson]; the
+  /// others are new JSON. On a checked document only the changed items are
+  /// checked (annotations#62), so Undo and Redo stay fast on a long note.
+  EditDecision checkItems(PaperDocument document, List<Object?> items) {
+    if (_incrementalList(document, items, limits) case final fast?) {
+      return fast;
+    }
+    final json = {...document.toJsonWithoutItems(), 'items': _jsonCopy(items)};
+    final NoteDocument candidate;
+    try {
+      candidate = NoteDocument.fromJson(json, schema: document.schema);
+    } on DocumentFormatException catch (e) {
+      return _reject(document, _schemaError(e, json));
+    }
+    final decision = check(candidate);
+    return decision.accepted
+        ? decision
+        : EditDecision._(document, decision.error, json, null);
   }
 
   /// Moves the items [ids] by [dx], [dy] page units (rounded to 1/100). A group
@@ -245,21 +310,30 @@ final class EditorRules {
     if (document is! PaperDocument) {
       return _reject(document, _opError('invalid_operation', 'operation'));
     }
-    final current = document.toJson();
-    try {
-      _checkDocument(document.schema, current, limits);
-    } on DocumentFormatException catch (e) {
-      return _reject(document, _schemaError(e, current));
+    final List<Object?> items;
+    if (_known(document, limits) != null) {
+      // Checked before (annotations#62): the builders read the stored items.
+      items = document.itemsJson;
+    } else {
+      final current = document.toJson();
+      try {
+        _checkDocument(document.schema, current, limits);
+      } on DocumentFormatException catch (e) {
+        return _reject(document, _schemaError(e, current));
+      }
+      items = current['items'] as List<Object?>;
     }
     final JsonObject? operation;
     try {
-      operation = build(_Layout(current['items'] as List<Object?>));
+      operation = build(_Layout(items));
     } on _Rejected catch (r) {
       return EditDecision._(document, r.error, null, r.operation);
     } on EditorRuleError catch (e) {
       return _reject(document, e);
     }
-    if (operation == null) return EditDecision._(document, null, current, null);
+    if (operation == null) {
+      return EditDecision._(document, null, document.toJson(), null);
+    }
     return check(document, operation);
   }
 

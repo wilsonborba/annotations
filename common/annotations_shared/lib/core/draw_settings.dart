@@ -7,15 +7,7 @@
 /// light or dark mode (B4.4).
 final class DrawSettings {
   const DrawSettings({
-    this.colors = const [
-      ('colorRed', '#FF1744FF'),
-      ('colorGreen', '#00C853FF'),
-      ('colorBlue', '#3D5AFEFF'),
-      ('colorYellow', '#FFD600FF'),
-      ('colorBlack', '#000000FF'),
-      ('colorGray', '#757575FF'),
-      ('colorWhite', '#FFFFFFFF'),
-    ],
+    this.colors = palette,
     this.minWidth = 1,
     this.maxWidth = 40,
     this.maxHighlighterWidth = 60,
@@ -30,11 +22,30 @@ final class DrawSettings {
     this.highlighterColor = '#FFD600FF',
     this.shapeLineWidth = 3,
     this.minShapeSize = 4,
+    this.eraserRadius = 8,
+    this.minEraserRadius = 2,
+    this.maxEraserRadius = 40,
   });
+
+  /// The eraser circle radius in page units: the first value and the range
+  /// of its size control (annotations#30).
+  final num eraserRadius, minEraserRadius, maxEraserRadius;
 
   /// The fixed colors of every drawing tool (B6.2): the string key of the
   /// name and the stored value. The custom picker adds any other color.
   final List<(String, String)> colors;
+
+  /// The one palette of the app: the pens and the text Color tool use the
+  /// same values (annotations#27).
+  static const palette = [
+    ('colorRed', '#FF1744FF'),
+    ('colorGreen', '#00C853FF'),
+    ('colorBlue', '#3D5AFEFF'),
+    ('colorYellow', '#FFD600FF'),
+    ('colorBlack', '#000000FF'),
+    ('colorGray', '#757575FF'),
+    ('colorWhite', '#FFFFFFFF'),
+  ];
 
   /// The range of the width control. The highlighter goes wider.
   final num minWidth, maxWidth, maxHighlighterWidth;

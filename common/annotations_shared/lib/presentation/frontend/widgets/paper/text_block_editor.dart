@@ -205,8 +205,8 @@ class SpaceLimitMessage extends StatelessWidget {
 }
 
 /// A brief sideways shake on each new tick. A tick during a shake does not
-/// start it again (no repeated movement on a held key), and reduced motion
-/// has no shake: the red border stays as the static indicator.
+/// start it again (no repeated movement on a held key). It plays also with
+/// reduced motion (owner decision, annotations#60).
 class _Shake extends StatefulWidget {
   final ValueListenable<int> ticks;
   final Duration duration;
@@ -246,7 +246,8 @@ class _ShakeState extends State<_Shake> with SingleTickerProviderStateMixin {
   }
 
   void _tick() {
-    if (!mounted || MediaQuery.disableAnimationsOf(context)) return;
+    // The shake always plays, also with reduced motion (annotations#60).
+    if (!mounted) return;
     if (!controller.isAnimating) controller.forward(from: 0);
   }
 

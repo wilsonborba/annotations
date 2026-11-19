@@ -16,6 +16,8 @@ import 'package:annotations_shared/domain/services/note_history.dart';
 import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'fixtures.dart' show cols;
+
 const rules = EditorRules();
 const settings = InkSettings();
 
@@ -189,12 +191,12 @@ void main() {
       );
       expect(jsonEncode(loaded.toJson()), saved);
       final stroke = strokeOf(loaded, 's1');
-      final samples = item['samples'] as Map;
-      expect(stroke.samples.x, samples['x']);
-      expect(stroke.samples.y, samples['y']);
-      expect(stroke.samples.time, samples['t']);
-      expect(stroke.samples.pressure, samples['pressure']);
-      expect(stroke.samples.tilt, samples['tilt']);
+      final samples = cols(item['samples']);
+      expect(stroke.samples.x, samples.x);
+      expect(stroke.samples.y, samples.y);
+      expect(stroke.samples.time, samples.t);
+      expect(stroke.samples.pressure, samples.pressure);
+      expect(stroke.samples.tilt, samples.tilt);
       expect(
         jsonEncode([for (final n in stroke.nodes) n.toJson()]),
         jsonEncode(item['nodes']),
@@ -208,12 +210,12 @@ void main() {
       final c = StrokeCapture(round, pageWidth: 1000)
         ..add(10.004, 20.5, 5000, pressure: 0.5, tilt: 0.7854)
         ..add(12, 21, 5016, pressure: 1.2, tilt: 2.0);
-      final s = c.toItem('s')!['samples'] as Map;
-      expect(s['x'], [1000, 1200]);
-      expect(s['y'], [2050, 2100]);
-      expect(s['t'], [0, 16]);
-      expect(s['pressure'], [500, 1000]);
-      expect(s['tilt'], [785, 1571]);
+      final s = cols(c.toItem('s')!['samples']);
+      expect(s.x, [1000, 1200]);
+      expect(s.y, [2050, 2100]);
+      expect(s.t, [0, 16]);
+      expect(s.pressure, [500, 1000]);
+      expect(s.tilt, [785, 1571]);
     });
 
     test('without real pressure there is no pressure column', () {
@@ -226,8 +228,8 @@ void main() {
           color: '#000000FF',
         ),
       );
-      expect((item['samples'] as Map).containsKey('pressure'), isFalse);
-      expect((item['samples'] as Map).containsKey('tilt'), isFalse);
+      expect(cols(item['samples']).pressure, isNull);
+      expect(cols(item['samples']).tilt, isNull);
       // Speed changes a lot, the width does not: every piece is 4 units wide.
       final outline = strokeOutline(strokeOf(paper([item]), 's'))!;
       for (final piece in outline.pieces) {
@@ -261,7 +263,7 @@ void main() {
       }
       for (final n in nodes) {
         final i = n.sample!;
-        final x = ((item['samples'] as Map)['x'] as List)[i];
+        final x = cols(item['samples']).x[i];
         expect(n.x, x);
       }
     });
@@ -646,7 +648,7 @@ void main() {
       expect(ids, hasLength(4));
       expect(ids.contains('s'), isFalse);
       final pieces = [itemOf(d.document, ids[1]), itemOf(d.document, ids[2])];
-      final samples = stroke['samples'] as Map;
+      final samples = cols(stroke['samples']);
       for (final p in pieces) {
         for (final key in [
           'tool',
@@ -657,14 +659,14 @@ void main() {
         ]) {
           expect(p[key], stroke[key]);
         }
-        final s = p['samples'] as Map;
-        expect(s['pressure'], isNotNull);
-        expect(s['tilt'], isNotNull);
-        expect((s['pressure'] as List).length, (s['x'] as List).length);
-        expect((s['t'] as List).first, 0);
+        final s = cols(p['samples']);
+        expect(s.pressure, isNotNull);
+        expect(s.tilt, isNotNull);
+        expect((s.pressure as List).length, (s.x as List).length);
+        expect((s.t as List).first, 0);
         // Every pressure value comes from the raw pressure of the stroke.
-        final raw = (samples['pressure'] as List).cast<int>();
-        for (final v in (s['pressure'] as List).cast<int>()) {
+        final raw = (samples.pressure as List).cast<int>();
+        for (final v in (s.pressure as List).cast<int>()) {
           expect(
             v,
             inInclusiveRange(raw.reduce(math.min), raw.reduce(math.max)),
@@ -677,7 +679,7 @@ void main() {
       expect(left, closeTo(200 - 6.5, 0.05));
       expect(right, closeTo(200 + 6.5, 0.05));
       // Raw samples between the cut ends are kept as they were.
-      final xs = (pieces[0]['samples'] as Map)['x'] as List;
+      final xs = cols(pieces[0]['samples']).x as List;
       expect(xs.first, 10000);
       expect(xs[1], 10100);
       // Saving and loading the fragments is byte-stable.
@@ -718,14 +720,14 @@ void main() {
       expect(pieces.length, greaterThanOrEqualTo(3));
       for (final p in pieces) {
         expect(p['id'], isNot('c'));
-        final s = p['samples'] as Map;
-        expect((s['pressure'] as List).length, (s['x'] as List).length);
-        expect((s['tilt'] as List).toSet(), {1000});
+        final s = cols(p['samples']);
+        expect((s.pressure as List).length, (s.x as List).length);
+        expect((s.tilt as List).toSet(), {1000});
         for (final c in curveOf(nodesOf(p))) {
           expect(distanceToPolyline(c, original), lessThan(0.05));
         }
         for (final n in nodesOf(p)) {
-          expect(n.sample, inInclusiveRange(0, (s['x'] as List).length - 1));
+          expect(n.sample, inInclusiveRange(0, (s.x as List).length - 1));
         }
       }
       expect(rules.check(d).accepted, isTrue);
@@ -868,25 +870,104 @@ void main() {
       expect(jsonEncode(editor.document.toJson()), jsonEncode(doc.toJson()));
     });
 
-    test('a shape is erased whole by the normal eraser', () {
+    NoteDocument square() => paper([
+      InkShapes.rectangle(
+        'r',
+        const InkVec(100, 100),
+        100,
+        100,
+        const ShapeStyle(color: '#000000FF', lineWidth: 2, fill: '#BFDBFE80'),
+      ),
+    ]);
+
+    test('whole-stroke mode removes a touched shape', () {
+      final e = rules.erase(
+        square(),
+        from: const InkVec(100, 150),
+        to: const InkVec(100, 150),
+        radius: 3,
+        mode: EraserMode.wholeStroke,
+        newId: newId,
+      );
+      expect(idsOf(e.document), isEmpty);
+    });
+
+    test('partial mode leaves the untouched outline as an editable path', () {
+      final d = square();
+      final editor = NotesEditor(d);
+      final e = editor.apply(
+        HistoryCommand(CommandKind.erase),
+        (rules, doc) => rules.erase(
+          doc,
+          from: const InkVec(100, 150),
+          to: const InkVec(100, 150),
+          radius: 3,
+          mode: EraserMode.partialStroke,
+          newId: newId,
+        ),
+      );
+      expect(e.accepted, isTrue, reason: '${e.error}');
+      final items = editor.document.toJson()['items'] as List;
+      expect(items, hasLength(1), reason: 'one piece: the outline continues');
+      final path = items.single as Map;
+      expect(path['id'], isNot('r'));
+      expect(path['shape'], 'path');
+      expect(path['closed'], isFalse);
+      expect(path['color'], '#000000FF');
+      expect(path['line_width'], 2);
+      expect(path.containsKey('fill'), isFalse);
+      // The open path runs from below the gap round the square to above it:
+      // the three other corners stay as nodes.
+      final nodes = [
+        for (final n in path['nodes'] as List)
+          ((n as Map)['x'] as int, n['y'] as int),
+      ];
+      expect(nodes, contains((20000, 10000)));
+      expect(nodes, contains((20000, 20000)));
+      expect(nodes, contains((10000, 10000)));
+      final ends = [nodes.first, nodes.last];
+      for (final (x, y) in ends) {
+        expect(x, 10000);
+        expect((y - 15000).abs(), greaterThan(300));
+        expect((y - 15000).abs(), lessThan(800));
+      }
+      // The path is editable like any path: a node moves.
+      final moved = editor.rules.moveNode(
+        editor.document,
+        path['id'] as String,
+        1,
+        5,
+        0,
+      );
+      expect(moved.accepted, isTrue, reason: '${moved.error}');
+      // One Undo restores the original shape.
+      editor.undo();
+      expect(jsonEncode(editor.document.toJson()), jsonEncode(d.toJson()));
+    });
+
+    test('partial mode across a circle splits it into two paths', () {
       final d = paper([
-        InkShapes.rectangle(
-          'r',
-          const InkVec(100, 100),
-          100,
-          100,
-          const ShapeStyle(color: '#000000FF', lineWidth: 2),
+        InkShapes.circle(
+          'c',
+          const InkVec(300, 300),
+          50,
+          const ShapeStyle(color: '#3D5AFEFF', lineWidth: 2),
         ),
       ]);
       final e = rules.erase(
         d,
-        from: const InkVec(100, 150),
-        to: const InkVec(100, 150),
-        radius: 3,
+        from: const InkVec(240, 300),
+        to: const InkVec(360, 300),
+        radius: 4,
         mode: EraserMode.partialStroke,
         newId: newId,
       );
-      expect(idsOf(e.document), isEmpty);
+      final items = e.document.toJson()['items'] as List;
+      expect(items, hasLength(2));
+      for (final it in items.cast<Map>()) {
+        expect(it['shape'], 'path');
+        expect(it['closed'], isFalse);
+      }
     });
   });
 }

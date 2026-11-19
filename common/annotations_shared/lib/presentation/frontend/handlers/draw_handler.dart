@@ -25,6 +25,7 @@ import '../../../domain/models/ink.dart';
 import '../../../domain/models/note_document.dart';
 import '../../../domain/services/draw_tools.dart';
 import '../../../domain/services/editor_rules.dart';
+import '../../../domain/services/ink_eraser.dart';
 import '../../../domain/services/ink_outline.dart';
 import '../../../domain/services/note_history.dart';
 import '../../../domain/services/object_selection.dart';
@@ -81,6 +82,8 @@ class DrawHandler extends ChangeNotifier implements PaperInput {
   void setMode(SelectionTool value) {
     if (value == mode) return;
     cancel();
+    // Leaving Draw mode leaves the eraser too.
+    _dangerous = false;
     if (value == SelectionTool.draw) onDrawMode?.call();
     paper.tool = value;
     notifyListeners();
@@ -90,6 +93,8 @@ class DrawHandler extends ChangeNotifier implements PaperInput {
 
   void selectTool(DrawTool tool) {
     if (tool == _tools.active) return;
+    // Delete anything turns off when the user leaves the eraser (B2.6).
+    if (tool != DrawTool.eraser) _dangerous = false;
     _tools = _tools.withActive(tool);
     preferences.saveDrawTools(_tools);
     notifyListeners();
@@ -99,6 +104,134 @@ class DrawHandler extends ChangeNotifier implements PaperInput {
     _tools = _tools.withShapeKind(kind);
     preferences.saveDrawTools(_tools);
     notifyListeners();
+  }
+
+  // Eraser -----------------------------------------------------------------
+
+  bool _dangerous = false;
+
+  /// Delete-anything mode of the eraser (B2.6): off at first, never kept on
+  /// this device, and off again when the user leaves the eraser.
+  bool get dangerous => _dangerous;
+
+  /// Turns delete-anything on or off. Turning it on selects the eraser and
+  /// shows the warning ([dangerWarning]).
+  void setDangerous(bool on) {
+    _dangerous = on;
+    dangerWarning = on;
+    if (on && _tools.active != DrawTool.eraser) {
+      _tools = _tools.withActive(DrawTool.eraser);
+      preferences.saveDrawTools(_tools);
+    }
+    notifyListeners();
+  }
+
+  /// True after delete-anything was turned on, until the warning is closed.
+  bool dangerWarning = false;
+
+  void closeDangerWarning() {
+    dangerWarning = false;
+    notifyListeners();
+  }
+
+  /// Sets the normal eraser mode or size; the device remembers them.
+  void setEraser({EraserMode? mode, num? radius, bool done = true}) {
+    _tools = _tools.withEraser(
+      _tools.eraser.copyWith(mode: mode, radius: radius),
+    );
+    if (done) preferences.saveDrawTools(_tools);
+    notifyListeners();
+  }
+
+  /// The eraser circle while erasing: center and radius in page units.
+  final eraserAt = ValueNotifier<(InkVec, double)?>(null);
+
+  InkEraseGesture? _erase;
+  NoteDocument? _eraseStart;
+  InkVec? _eraseLast;
+  bool _eraseDangerous = false;
+
+  bool get isErasing => _erase != null || _eraseStart != null;
+
+  void _beginErase(PointerDownEvent e, InkVec p) {
+    // The eraser end of a pen erases with the normal eraser; delete anything
+    // needs the eraser tool itself.
+    _eraseDangerous = _dangerous && _tools.active == DrawTool.eraser;
+    final radius = _tools.eraser.radius.toDouble();
+    eraserAt.value = (p, radius);
+    // An empty mark blocks page navigation while the eraser is down.
+    paper.activeInk.value = const InkOutline([], '#00000000', 1);
+    final session = paper.session;
+    if (session is NotesEditor) {
+      _erase = InkEraseGesture.begin(
+        session,
+        at: p,
+        radius: radius,
+        mode: _tools.eraser.mode,
+        dangerous: _eraseDangerous,
+        newId: newId,
+        settings: paper.selector.ink,
+      );
+      paper.edited();
+    } else {
+      _eraseStart = paper.document;
+      _eraseLast = p;
+      _instantErase(p);
+    }
+  }
+
+  void _moveErase(InkVec p) {
+    eraserAt.value = (p, eraserAt.value?.$2 ?? _tools.eraser.radius.toDouble());
+    if (_erase case final gesture?) {
+      if (gesture.moveTo(p).accepted) paper.edited();
+    } else if (_eraseStart != null) {
+      _instantErase(p);
+    }
+  }
+
+  /// Instant has no history: each move is erased live; a cancel puts back
+  /// the room document of the gesture start.
+  void _instantErase(InkVec to) {
+    final from = _eraseLast ?? to, start = _eraseStart!;
+    _eraseLast = to;
+    final radius = _tools.eraser.radius.toDouble();
+    paper.apply(
+      HistoryCommand(CommandKind.erase),
+      (rules, document) => _eraseDangerous
+          ? rules.eraseObjects(
+              document,
+              start: start,
+              from: from,
+              to: to,
+              radius: radius,
+              settings: paper.selector.ink,
+            )
+          : rules.erase(
+              document,
+              from: from,
+              to: to,
+              radius: radius,
+              mode: _tools.eraser.mode,
+              newId: newId,
+              settings: paper.selector.ink,
+            ),
+    );
+  }
+
+  void _endErase({required bool cancelled}) {
+    if (_erase case final gesture?) {
+      cancelled ? gesture.cancel() : gesture.end();
+      paper.edited();
+    } else if (_eraseStart case final start? when cancelled) {
+      paper.apply(
+        HistoryCommand(CommandKind.erase),
+        (rules, _) => rules.check(start),
+      );
+    }
+    _erase = null;
+    _eraseStart = null;
+    _eraseLast = null;
+    eraserAt.value = null;
   }
 
   /// The stroke and shape items that a setting change reaches now.
@@ -206,6 +339,32 @@ class DrawHandler extends ChangeNotifier implements PaperInput {
     return kind ?? _tools.shape.kind;
   }
 
+  /// The selected strokes that Apply pen style reaches: strokes only,
+  /// because shapes have no pen.
+  List<String> get selectedStrokeIds {
+    final layout = paper.layout;
+    return [
+      for (final id in selectedInkIds)
+        if (layout?.kindOf(id) == 'stroke') id,
+    ];
+  }
+
+  /// Apply pen style (B6.2): the explicit action that reshapes the selected
+  /// strokes with the pen [tool] and its current settings, as one history
+  /// step. Nothing else reshapes an existing line. Null when no stroke is
+  /// selected or [tool] is not a pen.
+  EditDecision? applyPenStyle(DrawTool tool) {
+    final pen = tool.pen;
+    final ids = selectedStrokeIds;
+    if (pen == null || ids.isEmpty) return null;
+    final decision = paper.apply(
+      HistoryCommand(CommandKind.ink),
+      (rules, document) => rules.applyBrush(document, ids, _tools.pen(pen)),
+    );
+    notifyListeners();
+    return decision;
+  }
+
   /// The one selected circle, triangle or rectangle, or null.
   String? get pathTarget {
     final ids = paper.selection.value.ids;
@@ -260,7 +419,30 @@ class DrawHandler extends ChangeNotifier implements PaperInput {
       }
       return;
     }
-    if (!isDrawMode || !_accepts(e) || _touches.length > 1) return;
+    final erasing =
+        e.kind == PointerDeviceKind.invertedStylus ||
+        (_tools.active == DrawTool.eraser && _accepts(e));
+    // The selection tool selects the drawing under the pointer (B7 rule 3);
+    // selecting is not drawing, so a finger selects even with finger drawing
+    // off. Box and lasso gestures come with annotations#32.
+    if (isDrawMode &&
+        _pointer == null &&
+        _tools.active == DrawTool.select &&
+        e.kind != PointerDeviceKind.trackpad &&
+        (e.kind != PointerDeviceKind.mouse ||
+            e.buttons == kPrimaryMouseButton)) {
+      final p = _page(e.localPosition);
+      if (p == null || paper.document is! PaperDocument) return;
+      final hit = paper.selector.hit(paper.document, p, SelectionTool.draw);
+      paper.select(
+        hit == null ? ObjectSelection.empty : ObjectSelection([hit]),
+      );
+      notifyListeners();
+      return;
+    }
+    if (!isDrawMode || !(erasing || _accepts(e)) || _touches.length > 1) {
+      return;
+    }
     if (paper.document is! PaperDocument) return;
     final p = _page(e.localPosition);
     if (p == null) return;
@@ -268,6 +450,10 @@ class DrawHandler extends ChangeNotifier implements PaperInput {
     _kind = e.kind;
     if (paper.selection.value.isNotEmpty) {
       paper.select(ObjectSelection.empty);
+    }
+    if (erasing) {
+      _beginErase(e, p);
+      return;
     }
     final pen = _tools.active.pen;
     if (pen == null) {
@@ -286,7 +472,9 @@ class DrawHandler extends ChangeNotifier implements PaperInput {
     if (e.pointer != _pointer) return;
     final p = _page(e.localPosition);
     if (p == null) return;
-    if (_capture != null) {
+    if (isErasing) {
+      _moveErase(p);
+    } else if (_capture != null) {
       _add(e, p);
     } else if (_shapeStart != null) {
       _previewShape(p);
@@ -297,6 +485,11 @@ class DrawHandler extends ChangeNotifier implements PaperInput {
   void pointerUp(PointerUpEvent e) {
     _touches.remove(e.pointer);
     if (e.pointer != _pointer) return;
+    if (isErasing) {
+      _endErase(cancelled: false);
+      _reset();
+      return;
+    }
     final capture = _capture;
     if (capture != null) {
       _commitStroke(capture);
@@ -319,6 +512,7 @@ class DrawHandler extends ChangeNotifier implements PaperInput {
   /// Drops the stroke or shape in progress without a history step.
   void cancel() {
     if (_pointer == null) return;
+    if (isErasing) _endErase(cancelled: true);
     _reset();
   }
 
@@ -412,6 +606,7 @@ class DrawHandler extends ChangeNotifier implements PaperInput {
   void dispose() {
     paper.selection.removeListener(_selectionChanged);
     pathEditing.dispose();
+    eraserAt.dispose();
     super.dispose();
   }
 }

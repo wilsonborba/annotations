@@ -10,18 +10,33 @@
 - *(domain)* Place structured blocks on the invisible 8-unit grid, snap moves, resizes, pastes and new text blocks to it, and allow CSV tables and PDF previews in Instant (#20)
 - *(domain)* Add one Notes command history with 100 steps and no history in Instant (#21)
 - *(domain)* Add the ink model with four versioned brushes, editable nodes, shapes and partial erasing (#22)
+- *(domain)* Erase part of a shape in partial mode: the untouched outline stays as editable open paths (#22)
 - *(editor)* Pin flutter_quill 11.5.0 behind the Annotations text adapter with the type C guard and the one Notes history (#23)
 - *(domain)* Add the selection and clipboard model for blocks, ink and groups (#24)
+- *(domain)* Copy text and pictures to other apps as one clipboard item, render several pictures as laid out, and duplicate to the first free grid place below (#24)
 - *(dal)* Add the durable local note store with managed attachments, autosave states and crash recovery (#25)
 - *(ui)* Build the Annotations design system with tokens, typography, Spectrum 2 icons and solid surfaces (#18)
 - *(canvas)* Build the long paper canvas with zoom and pan, paper backgrounds, hover borders and honest save states (#26)
 - *(ui)* Add typed text blocks with the text tools and the type C limit feedback (#27)
+- *(ui)* Make ink transparent to input in Type mode, offer the pen palette and a custom color for text, and play the space-limit shake also with reduced motion (#27, #60)
 - *(ui)* Add Type and Draw modes, the four pens with remembered settings, color choices with a custom picker, and shapes with Edit as path (#28)
+- *(ui)* Add Edit points: drag points and curve handles, add, remove, corner, smooth and handle modes, with buttons and keys, one Undo step per change (#29)
+- *(ui)* Add the eraser: live partial and whole-line erasing of drawings, the pen eraser end, and the red Delete anything mode that removes whole objects and turns off when the eraser is left (#30)
+- *(ui)* Hide the eraser line choice while Delete anything is on and bring back the previous choice after (#30)
+- *(ui)* Add the editor toolbar: dock at any edge or float with a move handle and a position menu, contextual tools, collapse with the active tool and the Delete anything mark, a More menu on narrow screens, Notes Undo and Redo, placement kept on the device, keyboard avoidance and long-press names on touch (#31)
+- *(ui)* Add selection, move and resize with the proposed place and red rejected drops, box, lasso and touch selection, group, ungroup, copy, cut, paste, duplicate and delete with shortcuts and a touch menu, arrow and size controls, and the Undo notice (#32)
+- *(ui)* Add the corner view lock for every input kind, the finger navigation and finger drawing settings, and Focus with Exit Focus (#33)
+- *(ui)* Add pictures, files, links, websites, YouTube, CSV tables and PDF previews as cards from the file picker, paste and drag and drop, with copy progress, Retry and Cancel, and the card actions (#34)
+- *(ui)* Add the simple typed editor for phones and open every other note read-only there without changing it (#35)
+- *(ui)* Add the explicit Apply pen style action that reshapes only the selected strokes in one step (#28)
+- *(domain)* Store stroke samples as compact varint columns, allow 50,000 items and 64 MB per note, autosave only changed items and build sync operations against the base revision (#19)
+- *(domain)* Check only the changed items of each edit, Undo and Redo included, so a stroke on a 30-page note takes a few milliseconds (#62)
 
 ### 🐛 Bug Fixes
 
 - *(privacy)* Exclude Instant content from tracking and error reports (#17)
 - *(editor)* Resolve the text engine font family to the package fonts so notes use Ubuntu Sans with the Thai fallback (#59)
+- *(shell)* Give each page its own scroll view so a route transition never overflows the outgoing page (#58)
 
 ### 💼 Other
 

@@ -15,7 +15,7 @@ import '../../../domain/models/ink.dart';
 import '../../../domain/models/note_document.dart';
 import '../../../domain/services/draw_tools.dart';
 import '../../../domain/services/editor_rules.dart'
-    show ShapeStyle, StrokeCapture;
+    show EraserMode, ShapeStyle, StrokeCapture;
 import '../../../domain/services/ink_outline.dart';
 import '../../../domain/services/object_selection.dart';
 import 'controls.dart';
@@ -33,6 +33,8 @@ String drawToolLabel(BuildContext context, DrawTool tool) =>
       DrawTool.brush => 'penBrush',
       DrawTool.highlighter => 'highlighter',
       DrawTool.shapes => 'shapes',
+      DrawTool.eraser => 'eraser',
+      DrawTool.select => 'selectTool',
     });
 
 AppIconData drawToolIcon(DrawTool tool) => switch (tool) {
@@ -41,6 +43,8 @@ AppIconData drawToolIcon(DrawTool tool) => switch (tool) {
   DrawTool.brush => AppIcons.brushPen,
   DrawTool.highlighter => AppIcons.highlighter,
   DrawTool.shapes => AppIcons.shapes,
+  DrawTool.eraser => AppIcons.eraser,
+  DrawTool.select => AppIcons.select,
 };
 
 String shapeLabel(BuildContext context, ShapeKind kind) =>
@@ -78,7 +82,18 @@ BoxDecoration _panel(AppColors c) => BoxDecoration(
 class ModeSwitch extends StatelessWidget {
   final SelectionTool mode;
   final ValueChanged<SelectionTool> onChanged;
-  const ModeSwitch({super.key, required this.mode, required this.onChanged});
+
+  /// Vertical in a toolbar docked at the left or right; [compact] shows the
+  /// icons only, with the names as tooltips and accessible names.
+  final Axis axis;
+  final bool compact;
+  const ModeSwitch({
+    super.key,
+    required this.mode,
+    required this.onChanged,
+    this.axis = Axis.horizontal,
+    this.compact = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -90,7 +105,8 @@ class ModeSwitch extends StatelessWidget {
         key: const Key('mode-switch'),
         padding: const EdgeInsets.all(2),
         decoration: _panel(c),
-        child: Row(
+        child: Flex(
+          direction: axis,
           mainAxisSize: MainAxisSize.min,
           children: [
             _Segment(
@@ -98,14 +114,16 @@ class ModeSwitch extends StatelessWidget {
               icon: AppIcons.type,
               label: context.tr('modeType'),
               selected: mode == SelectionTool.type,
+              compact: compact,
               onTap: () => onChanged(SelectionTool.type),
             ),
-            const SizedBox(width: 2),
+            const SizedBox(width: 2, height: 2),
             _Segment(
               key: const Key('mode-draw'),
               icon: AppIcons.drawMode,
               label: context.tr('modeDraw'),
               selected: mode == SelectionTool.draw,
+              compact: compact,
               onTap: () => onChanged(SelectionTool.draw),
             ),
           ],
@@ -118,7 +136,7 @@ class ModeSwitch extends StatelessWidget {
 class _Segment extends StatelessWidget {
   final AppIconData icon;
   final String label;
-  final bool selected;
+  final bool selected, compact;
   final VoidCallback onTap;
   const _Segment({
     super.key,
@@ -126,6 +144,7 @@ class _Segment extends StatelessWidget {
     required this.label,
     required this.selected,
     required this.onTap,
+    this.compact = false,
   });
 
   @override
@@ -133,7 +152,7 @@ class _Segment extends StatelessWidget {
     final c = context.colors;
     final text = Theme.of(context).textTheme;
     final color = selected ? c.onSelection : c.text;
-    return Semantics(
+    final segment = Semantics(
       button: true,
       selected: selected,
       label: label,
@@ -142,9 +161,11 @@ class _Segment extends StatelessWidget {
         onPressed: onTap,
         style: ButtonStyle(
           minimumSize: const WidgetStatePropertyAll(Size(0, 36)),
-          fixedSize: const WidgetStatePropertyAll(Size.fromHeight(36)),
-          padding: const WidgetStatePropertyAll(
-            EdgeInsets.symmetric(horizontal: 12),
+          fixedSize: WidgetStatePropertyAll(
+            compact ? const Size.square(36) : const Size.fromHeight(36),
+          ),
+          padding: WidgetStatePropertyAll(
+            EdgeInsets.symmetric(horizontal: compact ? 0 : 12),
           ),
           splashFactory: NoSplash.splashFactory,
           overlayColor: const WidgetStatePropertyAll(Colors.transparent),
@@ -166,16 +187,19 @@ class _Segment extends StatelessWidget {
             ),
           ),
         ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            AppIcon(icon, size: 18, color: color),
-            const SizedBox(width: 6),
-            Text(label, style: text.labelLarge!.copyWith(color: color)),
-          ],
-        ),
+        child: compact
+            ? AppIcon(icon, size: 18, color: color)
+            : Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  AppIcon(icon, size: 18, color: color),
+                  const SizedBox(width: 6),
+                  Text(label, style: text.labelLarge!.copyWith(color: color)),
+                ],
+              ),
       ),
     );
+    return compact ? AppTooltip(message: label, child: segment) : segment;
   }
 }
 
@@ -201,6 +225,10 @@ class ToolSettingsPanel extends StatefulWidget {
 
   /// Edit as path; null hides it (no single geometric shape selected).
   final VoidCallback? onEditAsPath;
+
+  /// Apply pen style to the selected strokes; null hides it (no stroke
+  /// selected, or the tool is not a pen).
+  final VoidCallback? onApplyStyle;
   final DrawSettings settings;
   const ToolSettingsPanel({
     super.key,
@@ -213,6 +241,7 @@ class ToolSettingsPanel extends StatefulWidget {
     this.shape,
     this.onShape,
     this.onEditAsPath,
+    this.onApplyStyle,
     this.settings = const DrawSettings(),
   });
 
@@ -350,6 +379,23 @@ class _ToolSettingsPanelState extends State<ToolSettingsPanel> {
               CustomColorPicker(
                 color: w.style.color,
                 onChanged: (v, done) => change(InkStyleChange(color: v), done),
+              ),
+            ],
+            if (w.onApplyStyle != null) ...[
+              const SizedBox(height: 10),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: AppButton.subtle(
+                  key: const Key('apply-pen-style'),
+                  label: context.tr(switch (w.tool) {
+                    DrawTool.round => 'applyPenRound',
+                    DrawTool.flat => 'applyPenFlat',
+                    DrawTool.brush => 'applyPenBrush',
+                    _ => 'applyHighlighter',
+                  }),
+                  icon: drawToolIcon(w.tool),
+                  onPressed: w.onApplyStyle,
+                ),
               ),
             ],
             if (w.onEditAsPath != null) ...[
@@ -680,4 +726,193 @@ class MarkPreviewPainter extends CustomPainter {
       old.style.color != style.color ||
       old.style.opacity != style.opacity ||
       old.style.tipAngle != style.tipAngle;
+}
+
+/// The settings of the eraser (B2.6, B6.6): the circle size, the normal
+/// modes (partial or whole stroke, free ink only) and the dangerous
+/// delete-anything mode. Delete anything is off at first, red while on, and
+/// turned on and off with a text button (a critical action has a label).
+class EraserSettingsPanel extends StatelessWidget {
+  final EraserSettings eraser;
+  final bool dangerous, warning, instant;
+  final DrawSettings settings;
+  final void Function(EraserMode mode) onMode;
+  final void Function(num radius, bool done) onRadius;
+  final ValueChanged<bool> onDangerous;
+  final VoidCallback onCloseWarning;
+  const EraserSettingsPanel({
+    super.key,
+    required this.eraser,
+    required this.dangerous,
+    required this.warning,
+    required this.instant,
+    required this.onMode,
+    required this.onRadius,
+    required this.onDangerous,
+    required this.onCloseWarning,
+    this.settings = const DrawSettings(),
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final text = Theme.of(context).textTheme;
+    final radius = eraser.radius.toDouble().clamp(
+      settings.minEraserRadius.toDouble(),
+      settings.maxEraserRadius.toDouble(),
+    );
+    Widget choice(EraserMode mode, String label) => Expanded(
+      child: _Choice(
+        key: Key('eraser-mode-${mode.name}'),
+        label: context.tr(label),
+        selected: eraser.mode == mode,
+        onTap: () => onMode(mode),
+      ),
+    );
+    return Padding(
+      padding: const EdgeInsets.all(8),
+      child: SizedBox(
+        key: const Key('eraser-settings'),
+        width: 296,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              context.tr(dangerous ? 'eraserDangerous' : 'eraser'),
+              style: text.titleSmall,
+            ),
+            const SizedBox(height: 8),
+            SettingSlider(
+              key: const Key('eraser-size'),
+              label: context.tr('eraserSize'),
+              value: radius,
+              display: '${(radius * 2).round()}',
+              min: settings.minEraserRadius.toDouble(),
+              max: settings.maxEraserRadius.toDouble(),
+              divisions: (settings.maxEraserRadius - settings.minEraserRadius)
+                  .round(),
+              onChanged: (v) => onRadius(v.round(), false),
+              onEnd: (v) => onRadius(v.round(), true),
+            ),
+            // Delete anything removes whole objects, so the line choice is
+            // hidden while it is on; the previous choice comes back after.
+            if (!dangerous) ...[
+              const SizedBox(height: 4),
+              Text(context.tr('eraserMode'), style: text.labelMedium),
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  choice(EraserMode.partialStroke, 'eraserPartial'),
+                  const SizedBox(width: 4),
+                  choice(EraserMode.wholeStroke, 'eraserWhole'),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                context.tr('eraserNormalHint'),
+                style: text.bodySmall?.copyWith(color: c.textSecondary),
+              ),
+            ],
+            const SizedBox(height: 12),
+            if (dangerous)
+              AppButton(
+                key: const Key('eraser-dangerous-off'),
+                label: context.tr('eraserDangerousOff'),
+                onPressed: () => onDangerous(false),
+              )
+            else
+              AppButton.danger(
+                key: const Key('eraser-dangerous-on'),
+                label: context.tr('eraserDangerousOn'),
+                icon: AppIcons.alertTriangle,
+                onPressed: () => onDangerous(true),
+              ),
+            if (dangerous && warning) ...[
+              const SizedBox(height: 8),
+              Container(
+                key: const Key('eraser-danger-warning'),
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: c.surface,
+                  borderRadius: BorderRadius.circular(appRadius),
+                  border: Border.all(color: c.danger, width: 2),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    AppIcon(AppIcons.alertTriangle, size: 18, color: c.danger),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        context.tr(
+                          instant
+                              ? 'eraserDangerWarningInstant'
+                              : 'eraserDangerWarning',
+                        ),
+                        style: text.bodySmall,
+                      ),
+                    ),
+                    AppIconButton(
+                      key: const Key('eraser-danger-warning-close'),
+                      icon: AppIcons.close,
+                      label: context.tr('close'),
+                      onPressed: onCloseWarning,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// One choice of a small set, with the green selection fill when chosen.
+class _Choice extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  const _Choice({
+    super.key,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Semantics(
+      button: true,
+      selected: selected,
+      child: TextButton(
+        onPressed: onTap,
+        style: ButtonStyle(
+          minimumSize: const WidgetStatePropertyAll(Size(0, 36)),
+          splashFactory: NoSplash.splashFactory,
+          foregroundColor: WidgetStatePropertyAll(
+            selected ? c.onSelection : c.text,
+          ),
+          overlayColor: const WidgetStatePropertyAll(Colors.transparent),
+          backgroundColor: WidgetStateProperty.resolveWith(
+            (s) => selected
+                ? c.selection
+                : s.contains(WidgetState.hovered)
+                ? c.subtle
+                : Colors.transparent,
+          ),
+          shape: WidgetStatePropertyAll(
+            RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(appRadius),
+              side: BorderSide(color: selected ? c.selectionOutline : c.border),
+            ),
+          ),
+        ),
+        child: Text(label, textAlign: TextAlign.center),
+      ),
+    );
+  }
 }

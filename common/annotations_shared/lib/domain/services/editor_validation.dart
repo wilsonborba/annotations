@@ -65,15 +65,14 @@ Never _fail(String code, String path) =>
 
 /// Checks a document body like the backend schema validator. Throws
 /// [DocumentFormatException] with the backend code and path.
-void _checkDocument(DocumentSchema schema, Object? body, NoteLimits limits) {
+_Ctx _checkDocument(DocumentSchema schema, Object? body, NoteLimits limits) {
   final family = schema.family;
   if (family == null || schema.version != 1) {
     _fail('unsupported_schema_version', '');
   }
-  if (utf8.encode(jsonEncode(body)).length > limits.maxDocumentBytes) {
-    _fail('document_too_large', '');
-  }
-  final ctx = _Ctx(family, limits);
+  final bytes = _byteLength(body);
+  if (bytes > limits.maxDocumentBytes) _fail('document_too_large', '');
+  final ctx = _Ctx(family, limits)..bytes = bytes;
   final root = _Obj(body, '');
   if (family == DocumentFamily.typed) {
     root.allow(['blocks']);
@@ -82,7 +81,7 @@ void _checkDocument(DocumentSchema schema, Object? body, NoteLimits limits) {
     for (var i = 0; i < blocks.length; i++) {
       ctx.typedBlock(blocks[i], 'blocks[$i]');
     }
-    return;
+    return ctx;
   }
   root.allow(['page', 'items']);
   final width = _checkPage(_Obj(root.req('page'), 'page'));
@@ -93,6 +92,7 @@ void _checkDocument(DocumentSchema schema, Object? body, NoteLimits limits) {
     ctx.paperItem(items[i], 'items[$i]', area);
   }
   ctx.checkGroups();
+  return ctx;
 }
 
 num _checkPage(_Obj page) {
@@ -129,6 +129,9 @@ final class _Ctx {
   final DocumentFamily family;
   final NoteLimits limits;
   final ids = <String, String>{};
+
+  /// UTF-8 bytes of the checked document.
+  var bytes = 0;
 
   /// Group id, group path, and members with their paths.
   final groups = <(String, String, List<(String, String)>)>[];
@@ -300,37 +303,39 @@ final class _Ctx {
     if (item.number('width') <= 0) _fail('invalid_size', item.at('width'));
     _color(item, 'color');
     _opacity(item);
+    // Compact columns (annotations#19), checked like the backend.
     final samples = _Obj(item.req('samples'), item.at('samples'));
-    samples.allow(['x', 'y', 't', 'pressure', 'tilt']);
-    final xs = samples.ints('x');
-    if (xs.isEmpty) _fail('empty_array', samples.at('x'));
-    if (xs.length > limits.maxSamplesPerStroke) {
+    samples.allow(['count', 'data']);
+    final count = samples.integer('count');
+    if (count < 1) _fail('empty_array', samples.at('count'));
+    if (count > limits.maxSamplesPerStroke) {
       _fail('too_many_samples', item.at('samples'));
     }
-    List<int>? column(String key, bool required) {
-      if (!required && samples.opt(key) == null) return null;
-      final values = samples.ints(key);
-      if (values.length != xs.length) _fail('invalid_count', samples.at(key));
-      return values;
+    final data = samples.at('data');
+    final SampleColumns c;
+    try {
+      c = SampleCodec.decode(count, samples.str('data'));
+    } on MalformedSamples {
+      _fail('invalid_samples', data);
     }
-
-    final ys = column('y', true)!;
-    final ts = column('t', true)!;
-    for (var i = 0; i < xs.length; i++) {
-      area.hundredths(xs[i], ys[i], '${samples.at('x')}[$i]');
+    for (var i = 0; i < c.length; i++) {
+      area.hundredths(c.x[i], c.y[i], data);
     }
+    final ts = c.t;
     for (var i = 0; i < ts.length; i++) {
       if ((i == 0 && ts[i] != 0) || (i > 0 && ts[i] < ts[i - 1])) {
-        _fail('invalid_sample_order', '${samples.at('t')}[$i]');
+        _fail('invalid_sample_order', data);
       }
     }
-    for (final (key, max) in [('pressure', _pressureMax), ('tilt', _tiltMax)]) {
-      final values = column(key, false);
-      if (values == null) continue;
-      final i = values.indexWhere((v) => v < 0 || v > max);
-      if (i >= 0) _fail('out_of_range', '${samples.at(key)}[$i]');
+    for (final (values, max) in [
+      (c.pressure, _pressureMax),
+      (c.tilt, _tiltMax),
+    ]) {
+      if (values != null && values.any((v) => v < 0 || v > max)) {
+        _fail('out_of_range', data);
+      }
     }
-    nodes(item, 'nodes', area, xs.length);
+    nodes(item, 'nodes', area, c.length);
   }
 
   /// Editable nodes and handles use integer 1/100 page units.

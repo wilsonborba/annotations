@@ -12,6 +12,7 @@
 /// (#33).
 library;
 
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
@@ -29,6 +30,19 @@ import '../../../domain/services/note_autosave.dart';
 import '../../../domain/services/note_history.dart';
 import '../../../domain/services/object_selection.dart';
 import '../../../domain/services/paper_page.dart';
+import 'attachment_cache.dart';
+
+/// What the notice after Undo or Redo says: the steps back and forward.
+@immutable
+final class HistoryNotice {
+  const HistoryNotice({
+    required this.undo,
+    required this.back,
+    required this.forward,
+  });
+  final bool undo;
+  final int back, forward;
+}
 
 /// What the viewport shows: [scroll] is the page point at the top left of
 /// the viewport, [zoom] the screen pixels per page unit.
@@ -75,11 +89,12 @@ class PaperHandler extends ChangeNotifier {
     required this.noteId,
     required NoteDocument document,
     required this.autosave,
-    this.title,
+    String? title,
     this.settings = const PaperSettings(),
     this.selector = const ObjectSelector(),
     this.textStyle = annotationsTextStyle,
-  }) : session = EditorSession.open(document),
+  }) : _title = title,
+       session = EditorSession.open(document),
        page = PaperPage(settings: settings);
 
   /// Opens a saved local note.
@@ -96,7 +111,19 @@ class PaperHandler extends ChangeNotifier {
   );
 
   final String noteId;
-  final String? title;
+
+  /// The note title (annotations#35: the phone editor renames it).
+  String? get title => _title;
+  String? _title;
+
+  /// Sets the title and saves it with the note; no history step.
+  void rename(String value) {
+    final next = value.trim().isEmpty ? null : value.trim();
+    if (next == _title) return;
+    _title = next;
+    _changed();
+  }
+
   final NoteAutosave autosave;
   final PaperSettings settings;
   final ObjectSelector selector;
@@ -106,6 +133,9 @@ class PaperHandler extends ChangeNotifier {
   /// The paragraph style of text items: the style that the text engine
   /// measures with, so drawn text has the stored block size.
   final TextStyle textStyle;
+
+  /// The stored files that cards show (annotations#34).
+  late final files = AttachmentCache(autosave.store);
 
   /// The view, null until the canvas has its size.
   final view = ValueNotifier<PaperView?>(null);
@@ -128,11 +158,52 @@ class PaperHandler extends ChangeNotifier {
   /// A background shown while its control is dragged, not saved yet.
   final preview = ValueNotifier<PaperGuides?>(null);
 
-  /// True while the view lock blocks navigation (annotations#33).
-  bool locked = false;
+  /// The view lock (B8, annotations#33): page position and zoom stay as
+  /// they are for every input kind; writing and editing go on. It starts
+  /// unlocked and ends with the editor.
+  bool get locked => _locked;
+  bool _locked = false;
+  set locked(bool value) {
+    if (value == _locked) return;
+    _locked = value;
+    notifyListeners();
+  }
+
+  /// Fingers move and zoom the page (B8). Off: one finger does not pan and
+  /// two fingers do not pinch; the pen, the mouse and the toolbar stay.
+  bool get fingerNavigation => _fingerNavigation;
+  bool _fingerNavigation = true;
+  set fingerNavigation(bool value) {
+    if (value == _fingerNavigation) return;
+    _fingerNavigation = value;
+    notifyListeners();
+  }
+
+  /// True while a selection gesture holds the page: a touch and hold, a
+  /// move or a resize (annotations#32).
+  bool holding = false;
 
   /// Navigation never starts during an active ink stroke (B8).
-  bool get navigationBlocked => locked || activeInk.value != null;
+  bool get navigationBlocked => locked || holding || activeInk.value != null;
+
+  /// The notice after Undo or Redo (B2 G2), cleared after
+  /// [PaperSettings.historyNotice].
+  final historyNotice = ValueNotifier<HistoryNotice?>(null);
+  Timer? _noticeTimer;
+
+  void _notice(bool undo) {
+    if (session case final NotesEditor notes) {
+      _noticeTimer?.cancel();
+      historyNotice.value = HistoryNotice(
+        undo: undo,
+        back: notes.stepsBack,
+        forward: notes.stepsForward,
+      );
+      _noticeTimer = Timer(settings.historyNotice, () {
+        historyNotice.value = null;
+      });
+    }
+  }
 
   SelectionTool _tool = SelectionTool.type;
 
@@ -187,6 +258,31 @@ class PaperHandler extends ChangeNotifier {
     };
     if (decision.accepted) _changed();
     return decision;
+  }
+
+  /// Notes Undo and Redo (B2 G2); Instant has neither.
+  bool get hasHistory => session is NotesEditor;
+  bool get canUndo => switch (session) {
+    final NotesEditor notes => notes.canUndo,
+    _ => false,
+  };
+  bool get canRedo => switch (session) {
+    final NotesEditor notes => notes.canRedo,
+    _ => false,
+  };
+
+  void undo() {
+    if (session case final NotesEditor notes when notes.undo().moved) {
+      _changed();
+    }
+    _notice(true);
+  }
+
+  void redo() {
+    if (session case final NotesEditor notes when notes.redo().moved) {
+      _changed();
+    }
+    _notice(false);
   }
 
   /// Keeps an edit that a tool committed to [session] itself: the live text
@@ -252,7 +348,8 @@ class PaperHandler extends ChangeNotifier {
       ),
     );
     final v = view.value;
-    if (v != null) view.value = _clamped(v.scroll, v.zoom, v.size);
+    // A locked view never follows an edit (B8).
+    if (v != null && !_locked) view.value = _clamped(v.scroll, v.zoom, v.size);
     notifyListeners();
   }
 
@@ -266,19 +363,38 @@ class PaperHandler extends ChangeNotifier {
 
   /// The zoom that shows the whole page width, at most 1.
   double fitZoom(Size size) =>
-      ((size.width - 2 * settings.deskMargin) / math.max(pageWidth, 1)).clamp(
-        settings.minZoom,
-        1.0,
-      );
+      ((size.width - 2 * settings.deskMargin - _insets.horizontal) /
+              math.max(pageWidth, 1))
+          .clamp(settings.minZoom, 1.0);
 
   /// The view for a viewport of [size]. The first size shows the top of the
   /// page at the fit zoom. A later size (window resize, rotation) keeps the
   /// zoom and the page point at the center (B8). Content never moves.
+  /// Screen space that a docked toolbar takes at the edges (annotations#31).
+  /// The page keeps clear of it, so every part of the page stays reachable.
+  EdgeInsets get toolbarInsets => _insets;
+  EdgeInsets _insets = EdgeInsets.zero;
+  set toolbarInsets(EdgeInsets value) {
+    if (value == _insets) return;
+    final before = _insets;
+    _insets = value;
+    final v = view.value;
+    // A locked paper stays where it is (B8): only the toolbar moves.
+    if (v == null || _locked) return;
+    // The page moves by the room the toolbar takes or gives back.
+    final shift = Offset(value.left - before.left, value.top - before.top);
+    view.value = _clamped(v.scroll - shift / v.zoom, v.zoom, v.size);
+  }
+
   PaperView viewFor(Size size) {
     final v = view.value;
     if (v == null) {
       final zoom = fitZoom(size);
-      return _clamped(Offset(0, -settings.deskMargin / zoom), zoom, size);
+      return _clamped(
+        Offset(0, -(settings.deskMargin + _insets.top) / zoom),
+        zoom,
+        size,
+      );
     }
     if (v.size == size) return v;
     final center = v.scroll + Offset(v.size.width, v.size.height) / 2 / v.zoom;
@@ -325,13 +441,15 @@ class PaperHandler extends ChangeNotifier {
   }
 
   PaperView _clamped(Offset scroll, double zoom, Size size) {
-    final m = settings.deskMargin / zoom;
+    final d = settings.deskMargin;
+    final left = (d + _insets.left) / zoom, right = (d + _insets.right) / zoom;
+    final top = (d + _insets.top) / zoom, bottom = (d + _insets.bottom) / zoom;
     final vw = size.width / zoom, vh = size.height / zoom;
     final w = pageWidth, h = pageHeight;
-    final double x = w + 2 * m <= vw
-        ? -(vw - w) / 2
-        : scroll.dx.clamp(-m, w + m - vw);
-    final double y = scroll.dy.clamp(-m, math.max(-m, h + m - vh));
+    final double x = w + left + right <= vw
+        ? -(left + (vw - left - right - w) / 2)
+        : scroll.dx.clamp(-left, w + right - vw);
+    final double y = scroll.dy.clamp(-top, math.max(-top, h + bottom - vh));
     return PaperView(zoom: zoom, scroll: Offset(x, y), size: size);
   }
 
@@ -366,6 +484,9 @@ class PaperHandler extends ChangeNotifier {
     pointer.dispose();
     activeInk.dispose();
     preview.dispose();
+    _noticeTimer?.cancel();
+    historyNotice.dispose();
+    files.dispose();
     super.dispose();
   }
 }

@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
+import 'package:annotations_shared/core/local_store_settings.dart';
 import 'package:annotations_shared/dal/local/sqlite_note_store.dart';
 import 'package:annotations_shared/domain/models/local_note.dart';
 import 'package:annotations_shared/domain/models/note_document.dart';
@@ -12,6 +13,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sqlite3/sqlite3.dart';
 
 import 'local_store_writer.dart' as writer;
+import 'note_capacity_test.dart' show handwriting;
 
 final schema = DocumentSchema('note-original', 1);
 
@@ -301,6 +303,52 @@ void main() {
     });
   });
 
+  test('a 30-page note saves; a later change writes only that item', () async {
+    final items = [for (var i = 0; i < 30 * 800; i++) handwriting(i)];
+    NoteDocument doc(List<Object?> list) => NoteDocument.fromJson({
+      'page': {
+        'width': 1000,
+        'background': {'kind': 'blank'},
+      },
+      'items': list,
+    }, schema: schema);
+    LocalNoteDraft of(List<Object?> list) =>
+        LocalNoteDraft(id: 'big', schema: schema, document: doc(list));
+    final watch = Stopwatch()..start();
+    await store.save(of(items));
+    final first = watch.elapsedMilliseconds;
+    expect(store.lastSavedItems, items.length);
+    final reopened = await reopen();
+    final loaded = (await reopened.load('big'))!;
+    expect(
+      jsonEncode(loaded.document.toJson()),
+      jsonEncode(doc(items).toJson()),
+    );
+    // One new stroke: one row.
+    watch.reset();
+    await store.save(of([...items, handwriting(999999)]));
+    final one = watch.elapsedMilliseconds;
+    expect(store.lastSavedItems, 1);
+    // One stroke removed: one row.
+    await store.save(of(items));
+    expect(store.lastSavedItems, 1);
+    // One stroke changed in the middle: one row.
+    final changed = [...items];
+    changed[12000] = {...(items[12000] as Map), 'color': '#3D5AFEFF'};
+    await store.save(of(changed));
+    expect(store.lastSavedItems, 1);
+    expect(
+      jsonEncode((await store.load('big'))!.document.toJson()),
+      jsonEncode(doc(changed).toJson()),
+    );
+    final db = File('${root.path}/${const LocalStoreSettings().databaseFile}');
+    final size = db.existsSync() ? db.lengthSync() : -1;
+    // ignore: avoid_print
+    print(
+      '30 pages: first save $first ms, one-stroke save $one ms, store $size bytes',
+    );
+  });
+
   test('a local note keeps its sync state and bound account', () async {
     await store.save(draft('a'));
     await expectLater(
@@ -327,7 +375,7 @@ void main() {
   test('schema steps run once and a newer store is not opened', () async {
     await store.close();
     final db = sqlite3.open('${root.path}/notes.sqlite3');
-    expect(db.userVersion, 1);
+    expect(db.userVersion, 2);
     expect(db.select('PRAGMA journal_mode').first.values.first, 'wal');
     db.userVersion = 99;
     db.close();
@@ -336,7 +384,7 @@ void main() {
       storeError('newer_store'),
     );
     final again = sqlite3.open('${root.path}/notes.sqlite3')
-      ..userVersion = 1
+      ..userVersion = 2
       ..close();
     expect(again, isNotNull);
     store = await SqliteNoteStore.open(root.path);

@@ -78,12 +78,10 @@ final class _Layout {
       }
       members[g] = list;
     }
+    // Rectangles are computed when first asked for (annotations#62): an edit
+    // of one block does not decode every stroke of a long note.
     rects = List.filled(items.length, null);
     structured = List.filled(items.length, null);
-    for (var i = 0; i < items.length; i++) {
-      _rect(i, 0);
-      _hasBlock(i, 0);
-    }
   }
 
   final List<JsonObject> items;
@@ -93,7 +91,13 @@ final class _Layout {
   late final List<EditorRect?> rects;
   late final List<bool?> structured;
 
-  EditorRect? rectOf(String id) => index[id] == null ? null : rects[index[id]!];
+  EditorRect? rectOf(String id) => index[id] == null ? null : rect(index[id]!);
+
+  /// The rectangle of item [i].
+  EditorRect? rect(int i) => _rect(i, 0);
+
+  /// Whether item [i] is or contains a structured block.
+  bool hasBlock(int i) => _hasBlock(i, 0);
 
   /// The item and every member of its groups, at any depth, in document order.
   List<int> withDescendants(int i) {
@@ -109,8 +113,7 @@ final class _Layout {
     return out.toList()..sort();
   }
 
-  bool _collides(int i) =>
-      _role(items[i]) != _Role.ink && structured[i] == true;
+  bool _collides(int i) => _role(items[i]) != _Role.ink && hasBlock(i);
 
   /// The grid of every structured block in document order, then the first
   /// overlapping pair: the top level first, then each group.
@@ -148,10 +151,10 @@ final class _Layout {
   void _level(List<int> units) {
     for (var n = 0; n < units.length; n++) {
       final a = units[n];
-      final ra = rects[a]?.cells;
+      final ra = rect(a)?.cells;
       if (ra == null) continue;
       for (final b in units.skip(n + 1)) {
-        final rb = rects[b]?.cells;
+        final rb = rect(b)?.cells;
         if (rb == null || !ra.overlaps(rb)) continue;
         final group =
             _role(items[a]) == _Role.group || _role(items[b]) == _Role.group;
@@ -224,10 +227,10 @@ EditorRect? _circleRect(JsonObject it) {
 }
 
 Iterable<(num, num)> _samplePoints(Object? samples) sync* {
-  final s = samples as Map;
-  final xs = s['x'] as List, ys = s['y'] as List;
-  for (var i = 0; i < math.min(xs.length, ys.length); i++) {
-    yield ((xs[i] as int) / 100, (ys[i] as int) / 100);
+  // A schema-valid stroke always decodes.
+  final c = SampleCodec.decodeJson(samples as Map);
+  for (var i = 0; i < c.length; i++) {
+    yield (c.x[i] / 100, c.y[i] / 100);
   }
 }
 
@@ -282,16 +285,23 @@ JsonObject _mapGeometry(JsonObject it, _Map f, num scale) {
 
   switch (it['kind']) {
     case 'stroke':
-      final s = it['samples'] as Map;
-      final xs = s['x'] as List, ys = s['y'] as List;
+      final c = SampleCodec.decodeJson(it['samples'] as Map);
       final nx = <int>[], ny = <int>[];
-      for (var i = 0; i < xs.length; i++) {
-        final (x, y) = f((xs[i] as int) / 100, (ys[i] as int) / 100);
+      for (var i = 0; i < c.length; i++) {
+        final (x, y) = f(c.x[i] / 100, c.y[i] / 100);
         nx.add((x * 100).round());
         ny.add((y * 100).round());
       }
       return {
-        'samples': {...s.cast<String, Object?>(), 'x': nx, 'y': ny},
+        'samples': SampleCodec.encode(
+          SampleColumns(
+            x: nx,
+            y: ny,
+            t: c.t,
+            pressure: c.pressure,
+            tilt: c.tilt,
+          ),
+        ),
         'nodes': _mapNodes(it['nodes'], f),
         if (scale != 1) 'width': (it['width'] as num) * scale,
       };
@@ -404,7 +414,7 @@ final class DocumentLayout {
   /// are all drawing. Free ink never takes part in collisions.
   bool isDrawing(String id) {
     final i = _layout.index[id];
-    return i != null && _layout.structured[i] == false;
+    return i != null && !_layout.hasBlock(i);
   }
 
   /// The rectangle of [id]: the outside rectangle for a group, the point
@@ -440,7 +450,7 @@ final class DocumentLayout {
     final it = _layout.items[i];
     // A quick rejection far from the item. The rectangle holds every sample,
     // node and curve handle, so the curve itself lies inside it.
-    final r = _layout.rects[i];
+    final r = _layout.rect(i);
     if (_role(it) == _Role.ink && r != null) {
       final reach =
           radius +

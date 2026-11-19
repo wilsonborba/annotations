@@ -17,15 +17,18 @@ import 'package:annotations_shared/domain/services/ink_outline.dart';
 import 'package:annotations_shared/domain/services/note_history.dart';
 import 'package:annotations_shared/domain/services/object_selection.dart';
 import 'package:annotations_shared/domain/services/preferences.dart';
+import 'package:annotations_shared/presentation/frontend/components/draw_controls.dart';
 import 'package:annotations_shared/presentation/frontend/components/scope.dart';
 import 'package:annotations_shared/presentation/frontend/components/theme.dart';
 import 'package:annotations_shared/presentation/frontend/handlers/draw_handler.dart';
 import 'package:annotations_shared/presentation/frontend/handlers/paper_handler.dart';
+import 'package:annotations_shared/presentation/frontend/handlers/point_edit_handler.dart';
 import 'package:annotations_shared/presentation/frontend/handlers/text_handler.dart';
 import 'package:annotations_shared/presentation/frontend/widgets/paper/paper_screen.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_quill/flutter_quill.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -178,6 +181,7 @@ void main() {
     late PaperHandler paper;
     late TextHandler texts;
     late DrawHandler draw;
+    late PointEditHandler points;
     late Preferences preferences;
     var ids = 0;
 
@@ -203,8 +207,10 @@ void main() {
         onDrawMode: texts.end,
         newId: () => 'new${ids++}',
       );
+      points = PointEditHandler(draw: draw);
       addTearDown(texts.dispose);
       addTearDown(draw.dispose);
+      addTearDown(points.dispose);
       await tester.pumpWidget(
         AppScope(
           preferences: preferences,
@@ -217,7 +223,12 @@ void main() {
             home: MediaQuery(
               data: MediaQueryData(size: size),
               child: Material(
-                child: PaperScreen(handler: paper, text: texts, draw: draw),
+                child: PaperScreen(
+                  handler: paper,
+                  text: texts,
+                  draw: draw,
+                  points: points,
+                ),
               ),
             ),
           ),
@@ -338,9 +349,9 @@ void main() {
       final s = item('new0')!;
       expect(s['tool'], 'brush');
       expect(s['width'], const DrawSettings().brushWidth);
-      final samples = s['samples'] as Map;
-      expect(samples.containsKey('pressure'), isFalse);
-      expect((samples['x'] as List).length, 11);
+      final samples = cols(s['samples']);
+      expect(samples.pressure, isNull);
+      expect((samples.x as List).length, 11);
       // The outline has the selected width everywhere.
       final outline = strokeOutline(
         DocumentItem.fromJson(s, family: DocumentFamily.original) as StrokeItem,
@@ -406,7 +417,7 @@ void main() {
         ),
       );
       await tester.pump();
-      final pressure = (item('new0')!['samples'] as Map)['pressure'] as List;
+      final pressure = cols(item('new0')!['samples']).pressure as List;
       expect(pressure.first, 200);
       expect(pressure[5], greaterThan(pressure.first as int));
       await drag(tester, line(60, 700), kind: PointerDeviceKind.invertedStylus);
@@ -471,6 +482,340 @@ void main() {
       expect(item('ink2')!['color'], '#FF1744FF');
       expect(item('ink2')!['width'], 10);
       await finish(tester);
+    });
+
+    testWidgets('Apply pen style reshapes only the selected strokes', (
+      tester,
+    ) async {
+      await pump(tester);
+      await toDraw(tester);
+      final ink1 = jsonEncode(item('ink1'));
+      final box = jsonEncode(item('box'));
+      draw.selectTool(DrawTool.flat);
+      final flat = draw.tools.pen(InkTool.flat);
+      // Without selected strokes there is no action.
+      expect(draw.applyPenStyle(DrawTool.flat), isNull);
+      paper.select(ObjectSelection(['ink2', 'box']));
+      expect(draw.selectedStrokeIds, ['ink2']);
+      final nodes = item('ink2')!['nodes'];
+      final steps = notes().stepsBack;
+      // The panel of a pen offers the action; the shapes panel does not.
+      await tester.pump();
+      await tester.tap(byKey('draw-tool-flat'));
+      await tester.pumpAndSettle();
+      expect(byKey('apply-pen-style'), findsOneWidget);
+      await tester.tap(byKey('apply-pen-style'));
+      await tester.pumpAndSettle();
+      final ink2 = item('ink2')!;
+      expect(ink2['tool'], 'flat');
+      expect(ink2['width'], flat.width);
+      expect(ink2['color'], flat.color);
+      expect(ink2['nodes'], nodes, reason: 'the points stay, the look changes');
+      expect(notes().stepsBack, steps + 1, reason: 'one Undo step');
+      // Shapes, unselected ink and the tool settings stay.
+      expect(jsonEncode(item('box')), box);
+      expect(jsonEncode(item('ink1')), ink1);
+      expect(draw.tools.pen(InkTool.flat).width, flat.width);
+      notes().undo();
+      expect(item('ink2')!['tool'], 'round');
+      await tester.tapAt(const Offset(5, 635));
+      await tester.pumpAndSettle();
+      await tester.tap(byKey('draw-tool-shapes'));
+      await tester.pump();
+      await tester.tap(byKey('draw-tool-shapes'));
+      await tester.pumpAndSettle();
+      expect(byKey('apply-pen-style'), findsNothing);
+      await finish(tester);
+    });
+
+    testWidgets('Edit points: a converted rectangle moves one corner only', (
+      tester,
+    ) async {
+      await pump(tester);
+      await toDraw(tester);
+      paper.select(ObjectSelection(['box']));
+      expect(draw.editAsPath()?.accepted, isTrue);
+      await tester.pump();
+      expect(points.active, isTrue);
+      expect(byKey('point-edit-panel'), findsOneWidget);
+      final before = [
+        for (final n in item('box')!['nodes'] as List) Map.of(n as Map),
+      ];
+      final steps = notes().stepsBack;
+      // Drag the top right corner; the outline previews, the release commits.
+      await drag(tester, [
+        const Offset(800, 240),
+        const Offset(820, 230),
+        const Offset(840, 220),
+      ]);
+      final after = item('box')!['nodes'] as List;
+      expect((after[1] as Map)['x'], 84000);
+      expect((after[1] as Map)['y'], 22000);
+      for (final k in [0, 2, 3]) {
+        expect(after[k], before[k], reason: 'node $k stays');
+      }
+      expect(notes().stepsBack, steps + 1, reason: 'one drag is one step');
+      notes().undo();
+      expect((item('box')!['nodes'] as List)[1], before[1]);
+      await tester.tap(byKey('point-done'));
+      await tester.pump();
+      expect(points.active, isFalse);
+      await finish(tester);
+    });
+
+    testWidgets('a point edit that makes the group overlap a block is red', (
+      tester,
+    ) async {
+      await pump(tester);
+      await toDraw(tester);
+      expect(
+        paper
+            .apply(
+              HistoryCommand(CommandKind.group),
+              (rules, d) => rules.group(d, ['body', 'ink2'], 'g1'),
+            )
+            .accepted,
+        isTrue,
+      );
+      paper.select(ObjectSelection(['g1']));
+      await tester.pump();
+      // The group is selected; a tap on its drawing selects that member.
+      final start = InkVec.hundredths(
+        (((item('ink2')!['nodes'] as List).first as Map)['x'] as int),
+        (((item('ink2')!['nodes'] as List).first as Map)['y'] as int),
+      );
+      await drag(tester, [Offset(start.x + 2, start.y)]);
+      expect(points.target, 'ink2');
+      final last = points.storedNodes.last.point;
+      final stored = jsonEncode(item('ink2'));
+      final steps = notes().stepsBack;
+      // Pulling the end up into the title makes the group overlap that block.
+      await drag(tester, [
+        Offset(last.x, last.y),
+        Offset(last.x, last.y - 120),
+        const Offset(300, 56),
+      ]);
+      expect(jsonEncode(item('ink2')), stored);
+      expect(notes().stepsBack, steps);
+      expect(points.rejected?.code, 'group_overlap');
+      expect(byKey('point-edit-rejected'), findsOneWidget);
+      await finish(tester);
+    });
+
+    testWidgets('every point command works with keys and buttons', (
+      tester,
+    ) async {
+      await pump(tester);
+      await toDraw(tester);
+      paper.select(ObjectSelection(['ink1']));
+      await tester.pump();
+      await tester.tap(byKey('edit-points'));
+      await tester.pump();
+      expect(points.target, 'ink1');
+      final count = points.storedNodes.length;
+      // Tab selects a point; arrows move it; Shift moves 10 units.
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pump();
+      expect(points.node, 0);
+      final x0 = points.storedNodes.first.x;
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      await tester.pump();
+      expect(points.storedNodes.first.x, x0 + 100);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.pump();
+      // Buttons: add a point after the selected one, make it a corner.
+      await tester.tap(byKey('point-add'));
+      await tester.pump();
+      expect(points.storedNodes.length, count + 1);
+      expect(points.node, 1);
+      await tester.tap(byKey('point-corner'));
+      await tester.pump();
+      expect(points.storedNodes[1].corner, isTrue);
+      await tester.tap(byKey('point-smooth'));
+      await tester.pump();
+      expect(points.storedNodes[1].mode, NodeMode.smooth);
+      // Delete removes it again; Escape ends point editing.
+      await tester.sendKeyEvent(LogicalKeyboardKey.delete);
+      await tester.pump();
+      expect(points.storedNodes.length, count);
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+      expect(points.active, isFalse);
+      await finish(tester);
+    });
+
+    Future<void> eraserPanel(WidgetTester tester) async {
+      if (draw.tools.active != DrawTool.eraser) {
+        await tester.tap(byKey('draw-tool-eraser'));
+        await tester.pump();
+      }
+      await tester.tap(byKey('draw-tool-eraser'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('the normal eraser over text changes nothing', (tester) async {
+      await pump(tester);
+      await toDraw(tester);
+      final before = jsonEncode(paper.document.toJson());
+      await tester.tap(byKey('draw-tool-eraser'));
+      await tester.pump();
+      // Across the title and the body text, away from every drawing.
+      await drag(tester, [
+        const Offset(60, 50),
+        const Offset(300, 60),
+        const Offset(300, 120),
+        const Offset(60, 130),
+      ]);
+      expect(jsonEncode(paper.document.toJson()), before);
+      await finish(tester);
+    });
+
+    testWidgets('partial erasing cuts a stroke live; one Undo step', (
+      tester,
+    ) async {
+      await pump(tester);
+      await toDraw(tester);
+      await tester.tap(byKey('draw-tool-eraser'));
+      await tester.pump();
+      expect(draw.tools.eraser.mode, EraserMode.partialStroke);
+      final before = jsonEncode(paper.document.toJson());
+      final steps = notes().stepsBack;
+      final g = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      await g.down(screenOf(190, 240));
+      await tester.pump();
+      await g.moveTo(screenOf(190, 280));
+      await tester.pump();
+      // Live: the stroke is already cut while the button is down.
+      expect(item('ink1'), isNull);
+      expect(byKey('eraser-circle'), findsOneWidget);
+      await g.up();
+      await tester.pump();
+      expect(byKey('eraser-circle'), findsNothing);
+      final pieces = items().where((it) => it['tool'] == 'round').length;
+      expect(pieces, greaterThanOrEqualTo(2));
+      expect(notes().stepsBack, steps + 1);
+      notes().undo();
+      expect(jsonEncode(paper.document.toJson()), before);
+      await finish(tester);
+    });
+
+    testWidgets('a cancelled erase restores the page and leaves no step', (
+      tester,
+    ) async {
+      await pump(tester);
+      await toDraw(tester);
+      await tester.tap(byKey('draw-tool-eraser'));
+      await tester.pump();
+      final before = jsonEncode(paper.document.toJson());
+      final steps = notes().stepsBack;
+      final g = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      await g.down(screenOf(190, 240));
+      await g.moveTo(screenOf(190, 280));
+      await tester.pump();
+      expect(item('ink1'), isNull);
+      await g.cancel();
+      await tester.pump();
+      expect(jsonEncode(paper.document.toJson()), before);
+      expect(notes().stepsBack, steps);
+      await finish(tester);
+    });
+
+    testWidgets('the eraser end of a pen erases with the normal eraser', (
+      tester,
+    ) async {
+      await pump(tester);
+      await toDraw(tester);
+      expect(draw.tools.active, DrawTool.round);
+      await drag(tester, [
+        const Offset(190, 240),
+        const Offset(190, 280),
+      ], kind: PointerDeviceKind.invertedStylus);
+      expect(item('ink1'), isNull);
+      expect(item('title'), isNotNull);
+      await finish(tester);
+    });
+
+    testWidgets('delete anything: warning, red state, whole objects, reset', (
+      tester,
+    ) async {
+      await pump(tester);
+      await toDraw(tester);
+      await eraserPanel(tester);
+      expect(draw.dangerous, isFalse, reason: 'off at first');
+      await tester.tap(byKey('eraser-dangerous-on'));
+      await tester.pumpAndSettle();
+      expect(draw.dangerous, isTrue);
+      expect(byKey('eraser-danger-warning'), findsOneWidget);
+      expect(find.textContaining('Undo brings them back'), findsOneWidget);
+      expect(byKey('eraser-danger-state'), findsOneWidget);
+      await tester.tapAt(const Offset(5, 635));
+      await tester.pumpAndSettle();
+      expect(byKey('eraser-danger-state'), findsOneWidget);
+      // The title is removed whole; the body under nothing stays.
+      final steps = notes().stepsBack;
+      await drag(tester, [const Offset(80, 68), const Offset(90, 68)]);
+      expect(item('title'), isNull);
+      expect(item('body'), isNotNull);
+      expect(notes().stepsBack, steps + 1);
+      notes().undo();
+      expect(item('title'), isNotNull);
+      // Leaving the eraser turns delete anything off.
+      draw.selectTool(DrawTool.round);
+      await tester.pump();
+      expect(draw.dangerous, isFalse);
+      expect(byKey('eraser-danger-state'), findsNothing);
+      draw.selectTool(DrawTool.eraser);
+      expect(draw.dangerous, isFalse);
+      await finish(tester);
+    });
+
+    testWidgets('delete anything hides the line choice and restores it', (
+      tester,
+    ) async {
+      await pump(tester);
+      await toDraw(tester);
+      draw.setEraser(mode: EraserMode.wholeStroke);
+      await eraserPanel(tester);
+      expect(byKey('eraser-mode-wholeStroke'), findsOneWidget);
+      await tester.tap(byKey('eraser-dangerous-on'));
+      await tester.pumpAndSettle();
+      expect(byKey('eraser-mode-wholeStroke'), findsNothing);
+      expect(byKey('eraser-mode-partialStroke'), findsNothing);
+      await tester.tap(byKey('eraser-dangerous-off'));
+      await tester.pumpAndSettle();
+      expect(byKey('eraser-mode-wholeStroke'), findsOneWidget);
+      // The previous choice comes back.
+      expect(draw.tools.eraser.mode, EraserMode.wholeStroke);
+      await finish(tester);
+    });
+
+    testWidgets('Instant: the delete anything warning promises no Undo', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        AppScope(
+          preferences: Preferences(),
+          service: fixtureService(),
+          child: MaterialApp(
+            home: Material(
+              child: EraserSettingsPanel(
+                eraser: const EraserSettings(radius: 8),
+                dangerous: true,
+                warning: true,
+                instant: true,
+                onMode: (_) {},
+                onRadius: (_, _) {},
+                onDangerous: (_) {},
+                onCloseWarning: () {},
+              ),
+            ),
+          ),
+        ),
+      );
+      expect(find.textContaining('Undo'), findsNothing);
+      expect(find.textContaining('for everyone in this room'), findsOneWidget);
     });
 
     testWidgets('each tool remembers its settings on this device', (
@@ -758,6 +1103,30 @@ void main() {
         paper.select(ObjectSelection(['box']));
         await panel(tester, DrawTool.shapes);
         await shot(tester, 'shapes_selected');
+        await close(tester);
+        paper.select(ObjectSelection(['ink2']));
+        await panel(tester, DrawTool.brush);
+        await shot(tester, 'apply_pen_style');
+        await close(tester);
+        await panel(tester, DrawTool.eraser);
+        await shot(tester, 'eraser');
+        await tester.tap(byKey('eraser-dangerous-on'));
+        await tester.pumpAndSettle();
+        await shot(tester, 'eraser_dangerous');
+        await close(tester);
+        await shot(tester, 'eraser_dangerous_toolbar');
+        draw.selectTool(DrawTool.round);
+        await close(tester);
+        paper.select(ObjectSelection(['ink1']));
+        await tester.pump();
+        await shot(tester, 'edit_points_entry');
+        paper.select(ObjectSelection(['box']));
+        draw.editAsPath();
+        await tester.pump();
+        points.selectNode(1);
+        points.makeSmooth();
+        await tester.pump();
+        await shot(tester, 'edit_points');
         await close(tester);
         await finish(tester);
         debugDisableShadows = true;

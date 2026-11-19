@@ -28,6 +28,7 @@ import '../../core/local_store_settings.dart';
 import '../../domain/models/local_note.dart';
 import '../../domain/models/note_document.dart';
 import '../../domain/services/local_note_store.dart';
+import '../../domain/services/note_sync_service.dart';
 
 /// Schema steps, applied in order. Step n moves `user_version` from n - 1 to
 /// n. A later change adds a step; a released step never changes.
@@ -60,13 +61,39 @@ const _schemaSteps = [
   ) STRICT;
   CREATE INDEX note_attachments_by_file ON note_attachments (attachment_id);
   ''',
+  // annotations#19: the items of a page document are rows, so an autosave
+  // writes only what changed. `notes.document` then keeps the rest of the
+  // document. A note saved before this step still holds its items inline and
+  // moves to rows at its next save.
+  '''
+  CREATE TABLE note_items (
+    note_id TEXT NOT NULL REFERENCES notes (id) ON DELETE CASCADE,
+    item_id TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    hash INTEGER NOT NULL,
+    body TEXT NOT NULL,
+    PRIMARY KEY (note_id, item_id)
+  ) STRICT;
+  ''',
 ];
+
+/// A stable 64-bit hash of an item body, to find changed items: FNV-1a and
+/// djb2 over the UTF-16 units, 32 bits each, so a changed item is never
+/// taken for an unchanged one by chance in practice.
+int _hash(String body) {
+  var a = 0x811c9dc5, b = 5381;
+  for (final unit in body.codeUnits) {
+    a = ((a ^ unit) * 0x01000193) & 0xffffffff;
+    b = ((b << 5) + b + unit) & 0xffffffff;
+  }
+  return (a << 32) | b;
+}
 
 /// The folder of unfinished copies inside the attachment folder. It is on
 /// the same file system, so the rename to the final name is atomic.
 const _partialFolder = '.partial';
 
-final class SqliteNoteStore implements LocalNoteStore {
+final class SqliteNoteStore implements DeletableLocalNoteStore {
   SqliteNoteStore._(this._db, this._files);
 
   final Database _db;
@@ -154,18 +181,36 @@ final class SqliteNoteStore implements LocalNoteStore {
 
   File _file(String file) => File('${_files.path}/$file');
 
-  LocalNote _note(Row row) {
+  LocalNote _note(Row row, {NoteDocument? document}) {
     final schema = DocumentSchema(
       row['family'] as String,
       row['schema_version'] as int,
     );
+    final id = row['id'] as String;
+    if (document != null) return _local(row, id, schema, document);
+    final json = jsonDecode(row['document'] as String) as Map<String, Object?>;
+    if (!json.containsKey('items') && schema.family != DocumentFamily.typed) {
+      json['items'] = [
+        for (final item in _db.select(
+          'SELECT body FROM note_items WHERE note_id = ? ORDER BY position',
+          [id],
+        ))
+          jsonDecode(item['body'] as String),
+      ];
+    }
+    return _local(row, id, schema, NoteDocument.fromJson(json, schema: schema));
+  }
+
+  LocalNote _local(
+    Row row,
+    String id,
+    DocumentSchema schema,
+    NoteDocument document,
+  ) {
     return LocalNote(
-      id: row['id'] as String,
+      id: id,
       schema: schema,
-      document: NoteDocument.fromJson(
-        jsonDecode(row['document'] as String),
-        schema: schema,
-      ),
+      document: document,
       title: row['title'] as String?,
       revision: row['revision'] as int,
       createdAt: DateTime.fromMillisecondsSinceEpoch(row['created_at'] as int),
@@ -189,9 +234,35 @@ final class SqliteNoteStore implements LocalNoteStore {
       _note(row),
   ];
 
+  /// Item rows written by the last [save]: how far an autosave reached
+  /// (annotations#19 measures that it follows the change, not the note).
+  int lastSavedItems = 0;
+
+  /// The stored body and hash of an item object: an unchanged item that the
+  /// editor keeps (annotations#62) is not serialized again.
+  final _bodies = Expando<(String, int)>('item bodies');
+
   @override
   Future<LocalNote> save(LocalNoteDraft draft) async {
-    final body = jsonEncode(draft.document.toJson());
+    final document = draft.document;
+    final List<(String, String, int)>? items;
+    final String body;
+    if (document is PaperDocument) {
+      body = jsonEncode(document.toJsonWithoutItems());
+      items = [
+        for (final item in document.items)
+          () {
+            final cached = _bodies[item] ??= () {
+              final text = jsonEncode(item.toJson());
+              return (text, _hash(text));
+            }();
+            return (item.id!, cached.$1, cached.$2);
+          }(),
+      ];
+    } else {
+      body = jsonEncode(document.toJson());
+      items = null;
+    }
     final files = referencedFiles(draft.document);
     final now = DateTime.now().millisecondsSinceEpoch;
     _transaction(_db, () {
@@ -231,6 +302,7 @@ final class SqliteNoteStore implements LocalNoteStore {
           LocalSyncState.changed.code,
         ],
       );
+      if (items != null) _saveItems(draft.id, items);
       _db.execute('DELETE FROM note_attachments WHERE note_id = ?', [draft.id]);
       for (final id in files) {
         _db.execute(
@@ -239,7 +311,56 @@ final class SqliteNoteStore implements LocalNoteStore {
         );
       }
     });
-    return (await load(draft.id))!;
+    // The saved document is the draft's: only the metadata is read back, so
+    // an autosave of a large note does not decode it again (annotations#19).
+    final row = _db.select('SELECT * FROM notes WHERE id = ?', [draft.id]);
+    return _note(row.first, document: draft.document);
+  }
+
+  /// Writes the item rows that differ from the stored ones: new or changed
+  /// bodies, moved positions and removed items. Unchanged items are not
+  /// written.
+  void _saveItems(String noteId, List<(String, String, int)> items) {
+    final stored = <String, (int, int)>{
+      for (final row in _db.select(
+        'SELECT item_id, position, hash FROM note_items WHERE note_id = ?',
+        [noteId],
+      ))
+        row['item_id'] as String: (row['position'] as int, row['hash'] as int),
+    };
+    var written = 0;
+    final upsert = _db.prepare(
+      'INSERT INTO note_items (note_id, item_id, position, hash, body) '
+      'VALUES (?, ?, ?, ?, ?) ON CONFLICT (note_id, item_id) DO UPDATE SET '
+      'position = excluded.position, hash = excluded.hash, body = excluded.body',
+    );
+    final move = _db.prepare(
+      'UPDATE note_items SET position = ? WHERE note_id = ? AND item_id = ?',
+    );
+    try {
+      for (var i = 0; i < items.length; i++) {
+        final (id, body, hash) = items[i];
+        final before = stored.remove(id);
+        if (before == null || before.$2 != hash) {
+          upsert.execute([noteId, id, i, hash, body]);
+          written++;
+        } else if (before.$1 != i) {
+          move.execute([i, noteId, id]);
+          written++;
+        }
+      }
+    } finally {
+      upsert.close();
+      move.close();
+    }
+    for (final id in stored.keys) {
+      _db.execute('DELETE FROM note_items WHERE note_id = ? AND item_id = ?', [
+        noteId,
+        id,
+      ]);
+      written++;
+    }
+    lastSavedItems = written;
   }
 
   @override
@@ -359,6 +480,16 @@ final class SqliteNoteStore implements LocalNoteStore {
     _db.execute('DELETE FROM attachments WHERE id = ?', [id]);
     final file = _file(rows.first['file'] as String);
     if (await file.exists()) await file.delete();
+  }
+
+  /// Deletes only the local note row and its item/attachment links from SQLite.
+  @override
+  Future<void> deleteNote(String id) async {
+    _transaction(_db, () {
+      _db.execute('DELETE FROM note_items WHERE note_id = ?', [id]);
+      _db.execute('DELETE FROM note_attachments WHERE note_id = ?', [id]);
+      _db.execute('DELETE FROM notes WHERE id = ?', [id]);
+    });
   }
 
   @override

@@ -34,12 +34,21 @@ class PaperCanvas extends StatefulWidget {
   final Widget Function(BuildContext context, PaperView view)? foreground;
   final void Function(Offset local, Offset global)? onTap;
   final PaperInput? input;
+
+  /// Keys of the page before its own zoom keys (the selection shortcuts).
+  final KeyEventResult Function(KeyEvent event)? onKey;
+
+  /// A wheel at a screen point before the page scrolls: true when a block
+  /// took it (a CSV table scrolls inside, annotations#34).
+  final bool Function(Offset local, Offset delta)? onWheel;
   const PaperCanvas({
     super.key,
     required this.handler,
     this.foreground,
     this.onTap,
     this.input,
+    this.onKey,
+    this.onWheel,
   });
 
   @override
@@ -49,7 +58,10 @@ class PaperCanvas extends StatefulWidget {
 class _PaperCanvasState extends State<PaperCanvas>
     with SingleTickerProviderStateMixin {
   PaperHandler get handler => widget.handler;
-  late final cache = ContentCache(textStyle: handler.textStyle);
+  late final cache = ContentCache(
+    textStyle: handler.textStyle,
+    files: handler.files,
+  );
   late final Ticker _fling;
   FrictionSimulation? _flingX, _flingY;
   Offset _flingLast = Offset.zero;
@@ -59,11 +71,15 @@ class _PaperCanvasState extends State<PaperCanvas>
   /// True when a stroke blocked this gesture: it ends without momentum.
   bool _blocked = false;
 
+  /// True for a finger gesture while finger navigation is off.
+  bool _fingerOff = false;
+
   @override
   void initState() {
     super.initState();
     _fling = createTicker(_flingTick);
     handler.addListener(_documentChanged);
+    handler.files.addListener(_documentChanged);
   }
 
   @override
@@ -78,6 +94,7 @@ class _PaperCanvasState extends State<PaperCanvas>
   @override
   void dispose() {
     handler.removeListener(_documentChanged);
+    handler.files.removeListener(_documentChanged);
     _fling.dispose();
     cache.dispose();
     super.dispose();
@@ -92,6 +109,12 @@ class _PaperCanvasState extends State<PaperCanvas>
     GestureBinding.instance.pointerSignalResolver.register(event, (e) {
       final scroll = e as PointerScrollEvent;
       final keys = HardwareKeyboard.instance;
+      if (!keys.isControlPressed &&
+          !keys.isMetaPressed &&
+          (widget.onWheel?.call(scroll.localPosition, scroll.scrollDelta) ??
+              false)) {
+        return;
+      }
       if (keys.isControlPressed || keys.isMetaPressed) {
         handler.zoomBy(
           math.exp(-scroll.scrollDelta.dy * handler.settings.wheelZoomRate),
@@ -107,12 +130,14 @@ class _PaperCanvasState extends State<PaperCanvas>
 
   void _scaleStart(ScaleStartDetails d) {
     _fling.stop();
+    _fingerOff = d.kind == PointerDeviceKind.touch && !handler.fingerNavigation;
     _lastFocal = d.localFocalPoint;
     _lastScale = 1;
     _blocked = handler.navigationBlocked;
   }
 
   void _scaleUpdate(ScaleUpdateDetails d) {
+    if (_fingerOff) return;
     if (handler.navigationBlocked) _blocked = true;
     final last = _lastFocal ?? d.localFocalPoint;
     if (d.scale != _lastScale && d.scale > 0) {
@@ -126,7 +151,8 @@ class _PaperCanvasState extends State<PaperCanvas>
   void _scaleEnd(ScaleEndDetails d) {
     _lastFocal = null;
     final v = d.velocity.pixelsPerSecond;
-    if (d.pointerCount > 1 ||
+    if (_fingerOff ||
+        d.pointerCount > 1 ||
         v.distance < 50 ||
         handler.navigationBlocked ||
         _blocked) {
@@ -149,6 +175,9 @@ class _PaperCanvasState extends State<PaperCanvas>
   }
 
   KeyEventResult _key(FocusNode node, KeyEvent event) {
+    if (widget.onKey?.call(event) == KeyEventResult.handled) {
+      return KeyEventResult.handled;
+    }
     if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
       return KeyEventResult.ignored;
     }

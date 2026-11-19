@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../../core/settings.dart';
+import 'gzip_body.dart';
 
 class ApiError implements Exception {
   final int status;
@@ -24,9 +25,18 @@ class ApiAdapter {
     String method = 'GET',
     Map<String, dynamic>? body,
     Map<String, String>? query,
+    Map<String, String>? headers,
+    bool compress = false,
   }) async {
     try {
-      return await _request(path, method: method, body: body, query: query);
+      return await _request(
+        path,
+        method: method,
+        body: body,
+        query: query,
+        headers: headers,
+        compress: compress,
+      );
     } catch (error, stack) {
       onError?.call(error, stack, '$method $path');
       rethrow;
@@ -38,13 +48,29 @@ class ApiAdapter {
     String method = 'GET',
     Map<String, dynamic>? body,
     Map<String, String>? query,
+    Map<String, String>? headers,
+    bool compress = false,
   }) async {
     final uri = Uri.parse(
       '$base$path',
     ).replace(queryParameters: query?.isEmpty == true ? null : query);
     final request = http.Request(method, uri)
       ..headers['content-type'] = 'application/json';
-    if (body != null) request.body = jsonEncode(body);
+    if (headers != null) request.headers.addAll(headers);
+    if (body != null) {
+      final rawJson = jsonEncode(body);
+      if (compress) {
+        final packed = gzipBody(utf8.encode(rawJson));
+        if (packed != null) {
+          request.headers['content-encoding'] = 'gzip';
+          request.bodyBytes = packed;
+        } else {
+          request.body = rawJson;
+        }
+      } else {
+        request.body = rawJson;
+      }
+    }
     final response = await http.Response.fromStream(await client.send(request));
     Map<String, dynamic> value;
     try {

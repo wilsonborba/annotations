@@ -9,7 +9,7 @@
 #                        from its origin if it is not present.
 set -euo pipefail
 
-PIN=d69ed4fc998080e60878856cab253de4200c5f88
+PIN=f176b76aee059f9157263499b3e0e08f3244588e
 SOURCE=tests/fixtures/editor_rules
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

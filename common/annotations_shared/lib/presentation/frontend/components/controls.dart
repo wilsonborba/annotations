@@ -141,6 +141,24 @@ class AppButton extends StatelessWidget {
   }
 }
 
+/// The name of an icon control: on hover for a mouse or pen; on touch, which
+/// has no hover, a long press shows it next to the finger without running
+/// the control, and lifting the finger hides it (B7, annotations#31).
+class AppTooltip extends StatelessWidget {
+  final String message;
+  final Widget child;
+  const AppTooltip({super.key, required this.message, required this.child});
+
+  @override
+  Widget build(BuildContext context) => Tooltip(
+    message: message,
+    excludeFromSemantics: true,
+    triggerMode: TooltipTriggerMode.longPress,
+    showDuration: Duration.zero,
+    child: child,
+  );
+}
+
 /// A subtle icon button for a secondary action. The label is the tooltip
 /// and the screen reader name. A disabled button has no tooltip.
 ///
@@ -156,6 +174,10 @@ class AppIconButton extends StatelessWidget {
   final bool round;
   final double iconSize;
   final bool? selected;
+
+  /// A red fill with a dark icon for an active dangerous mode (Delete
+  /// anything on the eraser).
+  final bool danger;
   const AppIconButton({
     super.key,
     required this.icon,
@@ -163,6 +185,7 @@ class AppIconButton extends StatelessWidget {
     required this.onPressed,
     this.iconSize = 20,
     this.selected,
+    this.danger = false,
   }) : round = false;
 
   const AppIconButton.navigation({
@@ -172,7 +195,8 @@ class AppIconButton extends StatelessWidget {
     required this.onPressed,
   }) : round = true,
        iconSize = 20,
-       selected = null;
+       selected = null,
+       danger = false;
 
   @override
   Widget build(BuildContext context) {
@@ -196,6 +220,8 @@ class AppIconButton extends StatelessWidget {
           backgroundColor: WidgetStateProperty.resolveWith(
             (s) => s.contains(WidgetState.disabled)
                 ? Colors.transparent
+                : danger
+                ? c.danger
                 : on
                 ? c.selection
                 : s.contains(WidgetState.pressed)
@@ -226,6 +252,8 @@ class AppIconButton extends StatelessWidget {
             size: iconSize,
             color: onPressed == null
                 ? c.iconSecondary
+                : danger
+                ? c.onDanger
                 : on
                 ? c.onSelection
                 : c.icon,
@@ -237,7 +265,7 @@ class AppIconButton extends StatelessWidget {
       radius: round ? side / 2 : appRadius,
       child: onPressed == null
           ? button
-          : Tooltip(message: label, excludeFromSemantics: true, child: button),
+          : AppTooltip(message: label, child: button),
     );
   }
 }

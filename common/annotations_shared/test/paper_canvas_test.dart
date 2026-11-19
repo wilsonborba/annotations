@@ -24,6 +24,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
+import 'package:annotations_shared/domain/models/stroke_samples_codec.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -59,13 +60,15 @@ Map<String, Object?> stroke(
     'width': width,
     'color': color,
     'opacity': 1,
-    'samples': {
-      'x': xs,
-      'y': ys,
-      't': [for (var i = 0; i < samples; i++) i * 8],
-      'pressure': [for (var i = 0; i < samples; i++) 500],
-      'tilt': [for (var i = 0; i < samples; i++) 600],
-    },
+    'samples': SampleCodec.encode(
+      SampleColumns(
+        x: xs,
+        y: ys,
+        t: [for (var i = 0; i < samples; i++) i * 8],
+        pressure: [for (var i = 0; i < samples; i++) 500],
+        tilt: [for (var i = 0; i < samples; i++) 600],
+      ),
+    ),
     'nodes': [
       {
         'x': xs.first,
@@ -433,7 +436,7 @@ void main() {
       expect(po.dx, po.dx.roundToDouble());
       expect(dor.dx, dor.dx.roundToDouble());
       var inked = 0;
-      for (var y = 0; y < 780; y++) {
+      for (var y = 0; y < 700; y++) {
         for (var x = 0; x < 360; x++) {
           final a = p.rgba(x + po.dx.round(), y + po.dy.round(), pw);
           final b = d.rgba(x + dor.dx.round(), y + dor.dy.round(), dw);
@@ -504,13 +507,14 @@ void main() {
       await golden(tester, 'paper_frames_none_light');
 
       final v = handler.view.value!;
-      final onBox = v.toScreen(const Offset(600, 180));
+      // Type mode hovers blocks; ink and shapes are transparent there (B2.4).
+      final onBox = v.toScreen(const Offset(700, 380));
       final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
       await mouse.addPointer(location: Offset.zero);
       addTearDown(mouse.removePointer);
       await mouse.moveTo(onBox);
       await tester.pump();
-      expect(handler.hover.value, 'box');
+      expect(handler.hover.value, 'img');
       handler.select(ObjectSelection(['img']));
       await tester.pump();
       await golden(tester, 'paper_frames_mouse_light');
@@ -520,7 +524,7 @@ void main() {
       await tester.pump();
       expect(handler.hover.value, isNull);
       final touch = await tester.createGesture(kind: PointerDeviceKind.touch);
-      await touch.down(v.toScreen(const Offset(600, 180)));
+      await touch.down(v.toScreen(const Offset(700, 380)));
       await tester.pump();
       expect(handler.pointer.value, PointerDeviceKind.touch);
       expect(handler.hover.value, isNull);
