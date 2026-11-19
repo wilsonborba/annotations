@@ -41,6 +41,9 @@ import '../../../domain/services/object_clipboard.dart';
 import '../../../domain/services/object_selection.dart';
 import '../components/card_layout.dart';
 import '../components/tokens.dart';
+import '../../../dal/local/dropped_files.dart';
+import '../../../domain/services/card_content.dart';
+import 'attachment_handler.dart';
 import 'draw_handler.dart';
 import 'paper_handler.dart';
 import 'text_handler.dart';
@@ -73,6 +76,8 @@ class SelectionHandler extends ChangeNotifier implements PaperInput {
     required this.text,
     required this.draw,
     required this.next,
+    this.attachments,
+    this.confirmRemove,
     ObjectClipboard? clipboard,
     String Function()? newId,
   }) : newId = newId ?? draw.newId {
@@ -86,6 +91,13 @@ class SelectionHandler extends ChangeNotifier implements PaperInput {
 
   /// The tools below: points, then the pens and erasers.
   final PaperInput next;
+
+  /// Files and links (annotations#34): paste of copied files and of a web
+  /// link makes cards.
+  final AttachmentHandler? attachments;
+
+  /// Asks before pictures, files and links leave the note (B9.5).
+  final Future<bool> Function()? confirmRemove;
   final String Function() newId;
 
   ObjectClipboard? _clipboard;
@@ -694,6 +706,20 @@ class SelectionHandler extends ChangeNotifier implements PaperInput {
             ? Offset.zero
             : view.visiblePage.topLeft + const Offset(24, 24));
     text.end();
+    if (attachments case final files?) {
+      // Files copied in a file manager, then one web link as a link card.
+      final paths = await clipboardFilePaths();
+      if (paths.isNotEmpty) {
+        await files.drop(paths, const [], at);
+        return;
+      }
+      final link = webLink(await clipboard.system.readText() ?? '');
+      if (link != null &&
+          clipboard.content == null &&
+          await files.addLink(link, at: at)) {
+        return;
+      }
+    }
     _done(
       await clipboard.paste(paper.session, InkVec(at.dx, at.dy), selection),
     );
@@ -704,9 +730,17 @@ class SelectionHandler extends ChangeNotifier implements PaperInput {
     _done(actions.duplicate(paper.session, selection));
   }
 
-  void delete() {
+  Future<void> delete() async {
     if (selection.isEmpty) return;
-    _done(actions.delete(paper.session, selection));
+    final ids = selection;
+    final layout = paper.layout;
+    final cards = ids.ids.any(
+      (id) => (layout?.withDescendants(id) ?? const <String>[]).any(
+        (m) => isCardKind(layout?.kindOf(m)),
+      ),
+    );
+    if (cards && confirmRemove != null && !await confirmRemove!()) return;
+    _done(actions.delete(paper.session, ids));
   }
 
   bool get canGroup => selection.ids.length >= 2;

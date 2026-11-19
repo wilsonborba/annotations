@@ -382,6 +382,44 @@ class AttachmentHandler extends ChangeNotifier {
     return item;
   }
 
+  /// Adds dropped (or pasted) files and links at [at] (page units).
+  Future<void> drop(List<String> paths, List<String> texts, Offset at) async {
+    var place = at;
+    for (final path in paths) {
+      final name = path.split(RegExp(r'[/\\]')).lastWhere((s) => s.isNotEmpty);
+      add(AttachmentSource.path(path, name: name), place);
+      place += const Offset(0, 16);
+    }
+    for (final text in texts) {
+      if (await addLink(text, at: place)) place += const Offset(0, 16);
+    }
+  }
+
+  /// A wheel over a CSV table scrolls the table (internal scrolling).
+  /// True when the table took it.
+  bool wheel(Offset screen, Offset delta) {
+    final v = paper.view.value, d = paper.document;
+    if (v == null || d is! PaperDocument) return false;
+    final p = v.toPage(screen);
+    for (final it in d.itemsJson.reversed) {
+      if (it['kind'] != 'csv_table') continue;
+      final r = Rect.fromLTWH(
+        (it['x'] as num).toDouble(),
+        (it['y'] as num).toDouble(),
+        (it['width'] as num).toDouble(),
+        (it['height'] as num).toDouble(),
+      );
+      if (!r.contains(p)) continue;
+      return paper.files.scrollTable(
+        it['id'] as String,
+        it['file_id'] as String,
+        r.size,
+        delta / v.zoom,
+      );
+    }
+    return false;
+  }
+
   // Actions --------------------------------------------------------------
 
   /// The kind of the one selected card, or null.

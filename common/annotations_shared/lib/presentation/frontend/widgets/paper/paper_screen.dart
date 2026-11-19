@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:super_drag_and_drop/super_drag_and_drop.dart';
 
 import '../../components/controls.dart';
 import '../../components/icons.dart';
@@ -8,11 +9,14 @@ import '../../components/scope.dart';
 import '../../components/theme.dart';
 import '../../components/tokens.dart';
 import '../../../../domain/models/toolbar_placement.dart';
+import '../../../../dal/local/dropped_files.dart';
+import '../../handlers/attachment_handler.dart';
 import '../../handlers/draw_handler.dart';
 import '../../handlers/paper_handler.dart';
 import '../../handlers/point_edit_handler.dart';
 import '../../handlers/selection_handler.dart';
 import '../../handlers/text_handler.dart';
+import 'attachment_layer.dart';
 import 'eraser_layer.dart';
 import 'paper_canvas.dart';
 import 'paper_toolbar.dart';
@@ -55,6 +59,12 @@ class PaperScreen extends StatefulWidget {
   /// Focus started or ended (B8): the host hides its own navigation while
   /// Focus is on.
   final ValueChanged<bool>? onFocusChanged;
+
+  /// Files and links (annotations#34); made when null.
+  final AttachmentHandler? attachments;
+
+  /// Link previews from the server for cloud notes; local notes have none.
+  final LinkPreviewSource? linkPreview;
   const PaperScreen({
     super.key,
     required this.handler,
@@ -64,6 +74,8 @@ class PaperScreen extends StatefulWidget {
     this.points,
     this.selection,
     this.onFocusChanged,
+    this.attachments,
+    this.linkPreview,
   });
 
   @override
@@ -75,6 +87,7 @@ class _PaperScreenState extends State<PaperScreen> {
   DrawHandler? _ownDraw;
   PointEditHandler? _ownPoints;
   SelectionHandler? _ownSelection;
+  AttachmentHandler? _ownAttachments;
 
   ToolbarPlacement? _placement;
 
@@ -167,6 +180,7 @@ class _PaperScreenState extends State<PaperScreen> {
       text: text,
       points: points,
       selection: selection,
+      attachments: attachments,
       placement: p,
       onPlacement: _place,
       onDrag: (g) => setState(() => _dragAt = _local(g)),
@@ -210,6 +224,7 @@ class _PaperScreenState extends State<PaperScreen> {
   DrawHandler get draw => widget.draw ?? _ownDraw!;
   PointEditHandler get points => widget.points ?? _ownPoints!;
   SelectionHandler get selection => widget.selection ?? _ownSelection!;
+  AttachmentHandler get attachments => widget.attachments ?? _ownAttachments!;
 
   @override
   void didChangeDependencies() {
@@ -229,12 +244,20 @@ class _PaperScreenState extends State<PaperScreen> {
     if (widget.points == null && _ownPoints == null) {
       _ownPoints = PointEditHandler(draw: draw);
     }
+    if (widget.attachments == null && _ownAttachments == null) {
+      _ownAttachments = AttachmentHandler(
+        paper: widget.handler,
+        preview: widget.linkPreview,
+      );
+    }
     if (widget.selection == null && _ownSelection == null) {
       _ownSelection = SelectionHandler(
         paper: widget.handler,
         text: text,
         draw: draw,
         next: points,
+        attachments: attachments,
+        confirmRemove: () => confirmRemove(context),
       );
     }
   }
@@ -242,6 +265,7 @@ class _PaperScreenState extends State<PaperScreen> {
   @override
   void dispose() {
     _ownSelection?.dispose();
+    _ownAttachments?.dispose();
     _ownPoints?.dispose();
     _own?.dispose();
     _ownDraw?.dispose();
@@ -252,20 +276,39 @@ class _PaperScreenState extends State<PaperScreen> {
   Widget build(BuildContext context) => Stack(
     fit: StackFit.expand,
     children: [
-      PaperCanvas(
-        handler: widget.handler,
-        onTap: selection.tap,
-        input: selection,
-        onKey: selection.key,
-        foreground: (context, view) => Stack(
-          fit: StackFit.expand,
-          children: [
-            TextBlockLayer(text: text, view: view),
-            EraserLayer(draw: draw, view: view),
-            PointEditLayer(points: points, view: view),
-            SelectionLayer(selection: selection, view: view),
-            if (widget.foreground != null) widget.foreground!(context, view),
-          ],
+      _droppable(
+        formats: dropFormats,
+        hitTestBehavior: HitTestBehavior.opaque,
+        onDropOver: (_) => DropOperation.copy,
+        onPerformDrop: (event) async {
+          final view = widget.handler.view.value;
+          if (view == null) return;
+          final dropped = await readDropped([
+            for (final item in event.session.items) ?item.dataReader,
+          ]);
+          await attachments.drop(
+            dropped.paths,
+            dropped.texts,
+            view.toPage(event.position.local),
+          );
+        },
+        child: PaperCanvas(
+          handler: widget.handler,
+          onTap: selection.tap,
+          input: selection,
+          onKey: selection.key,
+          onWheel: attachments.wheel,
+          foreground: (context, view) => Stack(
+            fit: StackFit.expand,
+            children: [
+              TextBlockLayer(text: text, view: view),
+              EraserLayer(draw: draw, view: view),
+              PointEditLayer(points: points, view: view),
+              SelectionLayer(selection: selection, view: view),
+              AttachmentJobsLayer(attachments: attachments, view: view),
+              if (widget.foreground != null) widget.foreground!(context, view),
+            ],
+          ),
         ),
       ),
       Positioned.fill(
@@ -452,4 +495,24 @@ class FingerSettingsButton extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Drag and drop of files and links needs the native drop plugin. Widget
+/// tests have no native plugins, so the region is left out there.
+Widget _droppable({
+  required List<DataFormat> formats,
+  required HitTestBehavior hitTestBehavior,
+  required DropOperation Function(DropOverEvent) onDropOver,
+  required Future<void> Function(PerformDropEvent) onPerformDrop,
+  required Widget child,
+}) {
+  final binding = WidgetsBinding.instance.runtimeType.toString();
+  if (binding.contains('TestWidgetsFlutterBinding')) return child;
+  return DropRegion(
+    formats: formats,
+    hitTestBehavior: hitTestBehavior,
+    onDropOver: onDropOver,
+    onPerformDrop: onPerformDrop,
+    child: child,
+  );
 }

@@ -37,6 +37,10 @@ class PaperCanvas extends StatefulWidget {
 
   /// Keys of the page before its own zoom keys (the selection shortcuts).
   final KeyEventResult Function(KeyEvent event)? onKey;
+
+  /// A wheel at a screen point before the page scrolls: true when a block
+  /// took it (a CSV table scrolls inside, annotations#34).
+  final bool Function(Offset local, Offset delta)? onWheel;
   const PaperCanvas({
     super.key,
     required this.handler,
@@ -44,6 +48,7 @@ class PaperCanvas extends StatefulWidget {
     this.onTap,
     this.input,
     this.onKey,
+    this.onWheel,
   });
 
   @override
@@ -104,6 +109,12 @@ class _PaperCanvasState extends State<PaperCanvas>
     GestureBinding.instance.pointerSignalResolver.register(event, (e) {
       final scroll = e as PointerScrollEvent;
       final keys = HardwareKeyboard.instance;
+      if (!keys.isControlPressed &&
+          !keys.isMetaPressed &&
+          (widget.onWheel?.call(scroll.localPosition, scroll.scrollDelta) ??
+              false)) {
+        return;
+      }
       if (keys.isControlPressed || keys.isMetaPressed) {
         handler.zoomBy(
           math.exp(-scroll.scrollDelta.dy * handler.settings.wheelZoomRate),
