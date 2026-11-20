@@ -1,3 +1,5 @@
+import 'landing_strings.dart';
+
 const strings = <String, List<String>>{
   'noteSources': [
     'Notes / Sources / Reports',
@@ -432,5 +434,5 @@ String translate(String key, String locale) {
       : locale == 'th'
       ? 2
       : 0;
-  return strings[key]?[index] ?? key;
+  return (strings[key] ?? landingStrings[key])?[index] ?? key;
 }

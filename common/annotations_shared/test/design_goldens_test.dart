@@ -84,10 +84,10 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.text('Annotations'), findsOneWidget);
-    expect(find.byKey(const Key('waitlist-submit')), findsNothing);
+    expect(find.byKey(const Key('overview-download')), findsNothing);
     await tester.tap(find.byKey(const Key('brand-home')));
     await tester.pumpAndSettle();
-    expect(find.byKey(const Key('waitlist-submit')), findsOneWidget);
+    expect(find.byKey(const Key('overview-download')), findsOneWidget);
   });
 
   testWidgets('icon buttons: the label is the tooltip, none when disabled', (

@@ -26,30 +26,29 @@
       "route": "/v1/instant/:code",
       "label": "Instant Share room",
       "sensitive_path": true
+    },
+    {
+      "name": "features",
+      "route": "/v1/home/features",
+      "label": "Annotations features"
+    },
+    {
+      "name": "how_it_works",
+      "route": "/v1/home/how-it-works",
+      "label": "Annotations how it works"
+    },
+    {
+      "name": "engineering",
+      "route": "/v1/home/engineering",
+      "label": "Annotations engineering"
+    },
+    {
+      "name": "download",
+      "route": "/v1/home/download",
+      "label": "Annotations download"
     }
   ],
   "elements": [
-    {
-      "id": "landing.waitlist.submit",
-      "label": "Landing waitlist submit",
-      "path": "landing > waitlist > submit",
-      "description": "Interaction for landing waitlist submit in widgets/landing/landing_page.dart",
-      "source": "lib/presentation/frontend/widgets/landing/landing_page.dart"
-    },
-    {
-      "id": "landing.waitlist.message",
-      "label": "Landing waitlist message",
-      "path": "landing > waitlist > message",
-      "description": "Interaction for landing waitlist message in widgets/landing/landing_page.dart",
-      "source": "lib/presentation/frontend/widgets/landing/landing_page.dart"
-    },
-    {
-      "id": "landing.waitlist.email",
-      "label": "Landing waitlist email",
-      "path": "landing > waitlist > email",
-      "description": "Interaction for landing waitlist email in widgets/landing/landing_page.dart",
-      "source": "lib/presentation/frontend/widgets/landing/landing_page.dart"
-    },
     {
       "id": "landing.catalog.all",
       "label": "Landing catalog all",
@@ -310,18 +309,6 @@
       "source": "lib/presentation/frontend/components/shell.dart"
     },
     {
-      "id": "shell.footer.about",
-      "label": "Shell footer about",
-      "path": "shell > footer > about",
-      "description": "Named shell action"
-    },
-    {
-      "id": "shell.footer.api",
-      "label": "Shell footer api",
-      "path": "shell > footer > api",
-      "description": "Named shell action"
-    },
-    {
       "id": "shell.language.english",
       "label": "Shell language english",
       "path": "shell > language > english",
@@ -361,6 +348,142 @@
       "id": "instant.surface",
       "label": "Instant surface",
       "path": "instant > surface",
+      "description": "Screen surface and nearest ancestor fallback"
+    },
+    {
+      "id": "shell.navigation.overview",
+      "label": "Shell navigation overview",
+      "path": "shell > navigation > overview",
+      "description": "Interaction for shell navigation overview in components/shell.dart",
+      "source": "lib/presentation/frontend/components/shell.dart"
+    },
+    {
+      "id": "shell.navigation.features",
+      "label": "Shell navigation features",
+      "path": "shell > navigation > features",
+      "description": "Interaction for shell navigation features in components/shell.dart",
+      "source": "lib/presentation/frontend/components/shell.dart"
+    },
+    {
+      "id": "shell.navigation.how_it_works",
+      "label": "Shell navigation how it works",
+      "path": "shell > navigation > how_it_works",
+      "description": "Interaction for shell navigation how it works in components/shell.dart",
+      "source": "lib/presentation/frontend/components/shell.dart"
+    },
+    {
+      "id": "shell.navigation.engineering",
+      "label": "Shell navigation engineering",
+      "path": "shell > navigation > engineering",
+      "description": "Interaction for shell navigation engineering in components/shell.dart",
+      "source": "lib/presentation/frontend/components/shell.dart"
+    },
+    {
+      "id": "shell.navigation.download",
+      "label": "Shell navigation download",
+      "path": "shell > navigation > download",
+      "description": "Interaction for shell navigation download in components/shell.dart",
+      "source": "lib/presentation/frontend/components/shell.dart"
+    },
+    {
+      "id": "landing.download.open",
+      "label": "Landing download open",
+      "path": "landing > download > open",
+      "description": "Interaction for landing download open in widgets/landing/landing_page.dart",
+      "source": "lib/presentation/frontend/widgets/landing/landing_page.dart"
+    },
+    {
+      "id": "landing.card.browse",
+      "label": "Landing card browse",
+      "path": "landing > card > browse",
+      "description": "Interaction for landing card browse in widgets/landing/landing_page.dart",
+      "source": "lib/presentation/frontend/widgets/landing/landing_page.dart"
+    },
+    {
+      "id": "landing.card.instant",
+      "label": "Landing card instant",
+      "path": "landing > card > instant",
+      "description": "Interaction for landing card instant in widgets/landing/landing_page.dart",
+      "source": "lib/presentation/frontend/widgets/landing/landing_page.dart"
+    },
+    {
+      "id": "landing.card.download",
+      "label": "Landing card download",
+      "path": "landing > card > download",
+      "description": "Interaction for landing card download in widgets/landing/landing_page.dart",
+      "source": "lib/presentation/frontend/widgets/landing/landing_page.dart"
+    },
+    {
+      "id": "landing.notice.terms",
+      "label": "Landing notice terms",
+      "path": "landing > notice > terms",
+      "description": "Interaction for landing notice terms in widgets/landing/landing_blocks.dart",
+      "source": "lib/presentation/frontend/widgets/landing/landing_blocks.dart"
+    },
+    {
+      "id": "landing.notice.privacy",
+      "label": "Landing notice privacy",
+      "path": "landing > notice > privacy",
+      "description": "Interaction for landing notice privacy in widgets/landing/landing_blocks.dart",
+      "source": "lib/presentation/frontend/widgets/landing/landing_blocks.dart"
+    },
+    {
+      "id": "engineering.diagram.open",
+      "label": "Engineering diagram open",
+      "path": "engineering > diagram > open",
+      "description": "Interaction for engineering diagram open in widgets/landing/engineering_page.dart",
+      "source": "lib/presentation/frontend/widgets/landing/engineering_page.dart"
+    },
+    {
+      "id": "engineering.repo.open",
+      "label": "Engineering repo open",
+      "path": "engineering > repo > open",
+      "description": "Interaction for engineering repo open in widgets/landing/engineering_page.dart",
+      "source": "lib/presentation/frontend/widgets/landing/engineering_page.dart"
+    },
+    {
+      "id": "download.command.copy",
+      "label": "Download command copy",
+      "path": "download > command > copy",
+      "description": "Interaction for download command copy in widgets/landing/download_page.dart",
+      "source": "lib/presentation/frontend/widgets/landing/download_page.dart"
+    },
+    {
+      "id": "download.releases.open",
+      "label": "Download releases open",
+      "path": "download > releases > open",
+      "description": "Interaction for download releases open in widgets/landing/download_page.dart",
+      "source": "lib/presentation/frontend/widgets/landing/download_page.dart"
+    },
+    {
+      "id": "download.repo.open",
+      "label": "Download repo open",
+      "path": "download > repo > open",
+      "description": "Interaction for download repo open in widgets/landing/download_page.dart",
+      "source": "lib/presentation/frontend/widgets/landing/download_page.dart"
+    },
+    {
+      "id": "features.surface",
+      "label": "Features surface",
+      "path": "features > surface",
+      "description": "Screen surface and nearest ancestor fallback"
+    },
+    {
+      "id": "how_it_works.surface",
+      "label": "How it works surface",
+      "path": "how_it_works > surface",
+      "description": "Screen surface and nearest ancestor fallback"
+    },
+    {
+      "id": "engineering.surface",
+      "label": "Engineering surface",
+      "path": "engineering > surface",
+      "description": "Screen surface and nearest ancestor fallback"
+    },
+    {
+      "id": "download.surface",
+      "label": "Download surface",
+      "path": "download > surface",
       "description": "Screen surface and nearest ancestor fallback"
     }
   ]
