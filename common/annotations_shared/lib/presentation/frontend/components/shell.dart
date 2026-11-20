@@ -2,41 +2,76 @@ import 'package:annotations_shared/core/tracking_manifest.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../../../core/landing_settings.dart';
 import '../../../core/settings.dart';
 import 'controls.dart';
+import 'landing_image.dart';
 import 'icons.dart';
 import 'scope.dart';
 import 'theme.dart';
 import 'tokens.dart';
 
+/// The landing tabs (H6 section 3 point 2), one page each.
+const landingTabs = <(String, String, String)>[
+  ('/v1/home', 'tabOverview', 'shell.navigation.overview'),
+  ('/v1/home/features', 'tabFeatures', 'shell.navigation.features'),
+  ('/v1/home/how-it-works', 'tabHowItWorks', 'shell.navigation.how_it_works'),
+  ('/v1/home/engineering', 'tabEngineering', 'shell.navigation.engineering'),
+  ('/v1/home/download', 'tabDownload', 'shell.navigation.download'),
+];
+
+/// At this width and below the tabs go into one menu (Cortex pattern).
+const tabsMenuWidth = 1000.0;
+
 class PageShell extends StatelessWidget {
   final Widget child;
-  const PageShell({super.key, required this.child});
+
+  /// The path of the current page, to mark the current tab.
+  final String location;
+  const PageShell({super.key, required this.child, this.location = ''});
   @override
   Widget build(BuildContext context) {
     final width = MediaQuery.sizeOf(context).width;
-    // Navigation links need room beside the language switcher.
-    final wide = width > 940;
+    final wide = width > tabsMenuWidth;
     final prefs = AppScope.of(context).preferences;
     final dark = Theme.of(context).brightness == Brightness.dark;
     return Scaffold(
       appBar: AppBar(
         toolbarHeight: 72,
         titleSpacing: width > 740 ? 34 : 12,
-        title: track(
-          'shell.navigation.home',
-          AppBrand(
-            homeLabel: context.tr('home'),
-            showTitle: width >= 430,
-            onHome: () => context.go('/v1/home'),
-          ),
+        title: Row(
+          children: [
+            track(
+              'shell.navigation.home',
+              AppBrand(
+                homeLabel: context.tr('home'),
+                // Beside the tabs the title needs a wide window.
+                showTitle: wide ? width >= 1180 : width >= 430,
+                onHome: () => context.go('/v1/home'),
+              ),
+            ),
+            if (wide) ...[
+              const SizedBox(width: 4),
+              for (final (route, key, id) in landingTabs)
+                track(
+                  id,
+                  ShellTab(
+                    key: Key('tab-$key'),
+                    label: context.tr(key),
+                    selected: location == route,
+                    onPressed: () => context.go(route),
+                  ),
+                ),
+            ],
+          ],
         ),
         actions: [
           if (wide) ...[
             track(
               'shell.navigation.notes',
               AppButton.subtle(
-                label: context.tr('notes'),
+                key: const Key('bar-notes'),
+                label: context.tr('barNotes'),
                 onPressed: () => context.go('/v1/menu'),
               ),
             ),
@@ -44,7 +79,8 @@ class PageShell extends StatelessWidget {
             track(
               'shell.navigation.instant',
               AppButton.subtle(
-                label: context.tr('instant'),
+                key: const Key('bar-instant'),
+                label: context.tr('barInstant'),
                 onPressed: () => context.go('/v1/instant'),
               ),
             ),
@@ -65,16 +101,20 @@ class PageShell extends StatelessWidget {
             track(
               'shell.navigation.menu',
               AppMenuButton(
+                key: const Key('tabs-menu'),
                 icon: AppIcons.menu,
                 label: context.tr('menu'),
                 round: true,
                 entries: [
-                  for (final (route, key) in const [
-                    ('/v1/menu', 'notes'),
-                    ('/v1/instant', 'instant'),
+                  for (final (route, key) in [
+                    for (final (route, key, _) in landingTabs) (route, key),
+                    ('/v1/menu', 'barNotes'),
+                    ('/v1/instant', 'barInstant'),
                   ])
                     AppMenuEntry(
+                      key: Key('menu-$key'),
                       label: context.tr(key),
+                      checked: location == route,
                       onSelected: () {
                         trackChoice(context, 'shell.navigation.menu', route);
                         context.go(route);
@@ -91,6 +131,57 @@ class PageShell extends StatelessWidget {
       // outgoing page the height of the incoming one during a transition
       // (annotations#58).
       body: child,
+    );
+  }
+}
+
+/// One tab of the top bar. The current tab is a selection: a green fill
+/// with dark text, with the darker outline on light surfaces.
+class ShellTab extends StatelessWidget {
+  const ShellTab({
+    super.key,
+    required this.label,
+    required this.selected,
+    required this.onPressed,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Semantics(
+      selected: selected,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 1),
+        child: TextButton(
+          onPressed: onPressed,
+          style:
+              appButtonStyle(
+                c,
+                Theme.of(context).textTheme,
+                AppButtonKind.subtle,
+              ).copyWith(
+                padding: const WidgetStatePropertyAll(
+                  EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                ),
+                backgroundColor: selected
+                    ? WidgetStatePropertyAll(c.selection)
+                    : null,
+                foregroundColor: selected
+                    ? WidgetStatePropertyAll(c.onSelection)
+                    : null,
+                side: selected && !c.isDark
+                    ? WidgetStatePropertyAll(
+                        BorderSide(color: c.selectionOutline),
+                      )
+                    : null,
+              ),
+          child: Text(label),
+        ),
+      ),
     );
   }
 }
@@ -219,50 +310,67 @@ class ContentWidth extends StatelessWidget {
   );
 }
 
+/// The footer (H6 section 3 point 10): Asodya, the other apps, the API
+/// docs, the public repositories, Terms, Privacy and the build version.
 class Footer extends StatelessWidget {
   const Footer({super.key});
   @override
-  Widget build(BuildContext context) => Container(
-    margin: const EdgeInsets.only(top: 64),
-    decoration: BoxDecoration(
-      border: Border(top: BorderSide(color: Theme.of(context).dividerColor)),
-    ),
-    child: ContentWidth(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'ANNOTATIONS',
-            style: TextStyle(fontWeight: FontWeight.w700, letterSpacing: 1.6),
-          ),
-          const SizedBox(height: 12),
-          Text(context.tr('footer')),
-          const SizedBox(height: 16),
-          Wrap(
-            spacing: 24,
-            runSpacing: 8,
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    return Container(
+      key: const Key('footer'),
+      margin: const EdgeInsets.only(top: 64),
+      decoration: BoxDecoration(
+        border: Border(top: BorderSide(color: Theme.of(context).dividerColor)),
+      ),
+      child: ContentWidth(
+        width: 1264,
+        // Full content width, so the footer lines up with the page.
+        child: SizedBox(
+          width: double.infinity,
+          child: Column(
+            key: const Key('footer-content'),
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              FooterLink(
-                key: const Key('footer-about'),
-                label: context.tr('aboutUs'),
-                url: 'https://asodya.com',
+              Wrap(
+                spacing: 24,
+                runSpacing: 8,
+                children: [
+                  for (final (label, url) in [
+                    ('Asodya', LandingSettings.asodya),
+                    ('Reports', LandingSettings.reports),
+                    ('Certifications', LandingSettings.certifications),
+                    ('Cortex', LandingSettings.cortex),
+                    (context.tr('footerApiDocs'), LandingSettings.apiDocs),
+                    (context.tr('terms'), LandingSettings.terms),
+                    (context.tr('privacy'), LandingSettings.privacy),
+                  ])
+                    FooterLink(label: label, url: url),
+                ],
               ),
-              const FooterLink(
-                key: Key('footer-api'),
-                label: 'API',
-                url: 'https://api.asodya.com/docs',
+              const SizedBox(height: 16),
+              Text(context.tr('footerSource'), style: text.titleSmall),
+              const SizedBox(height: 6),
+              Wrap(
+                spacing: 20,
+                runSpacing: 6,
+                children: [
+                  for (final repo in LandingSettings.repos)
+                    FooterLink(label: repo.name, url: repo.url),
+                ],
+              ),
+              const SizedBox(height: 20),
+              Text(
+                '${context.tr('footerBuild')} ${Settings.current.version} (${Settings.current.buildTime})',
+                key: const Key('footer-build'),
+                style: text.bodySmall,
               ),
             ],
           ),
-          const SizedBox(height: 20),
-          Text(
-            'v${Settings.current.version} · ${Settings.current.buildTime}',
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
-        ],
+        ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 class FooterLink extends StatelessWidget {
@@ -270,16 +378,23 @@ class FooterLink extends StatelessWidget {
   const FooterLink({super.key, required this.label, required this.url});
   @override
   Widget build(BuildContext context) => track(
-    url.contains('/docs') ? 'shell.footer.api' : 'shell.footer.about',
-    InkWell(
-      onTap: () => launchUrl(Uri.parse(url)),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontWeight: FontWeight.w600,
-            color: context.colors.link,
+    'shell.footer.link',
+    Semantics(
+      link: true,
+      child: InkWell(
+        key: Key('footer-$url'),
+        onTap: () {
+          trackChoice(context, 'shell.footer.link', url);
+          launchUrl(Uri.parse(url));
+        },
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              color: context.colors.link,
+            ),
           ),
         ),
       ),
@@ -295,8 +410,7 @@ class NotFoundState extends StatelessWidget {
     padding: const EdgeInsets.symmetric(vertical: 48),
     child: Column(
       children: [
-        AppIcon(AppIcons.search, size: 32, color: context.colors.iconSecondary),
-        const SizedBox(height: 12),
+        const StatePicture('S01'),
         Text(context.tr('notFound'), key: const Key('not-found')),
         const SizedBox(height: 12),
         track(

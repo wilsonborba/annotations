@@ -7,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../../dal/remote/browser/transfers.dart' as browser;
 import '../../../../domain/models/content.dart';
 import '../../components/controls.dart';
+import '../../components/landing_image.dart';
 import '../../components/scope.dart';
 import '../../components/tokens.dart';
 import '../../components/shell.dart';
@@ -203,13 +204,8 @@ class _InstantPageState extends State<InstantPage> {
     if (h.expired) {
       return Column(
         children: [
-          AppIcon(
-            AppIcons.clock,
-            size: 35,
-            color: context.colors.iconSecondary,
-          ),
-          const SizedBox(height: 16),
-          Text(context.tr('expired')),
+          const StatePicture('S02'),
+          Text(context.tr('expired'), key: const Key('room-expired')),
           const SizedBox(height: 18),
           track(
             'instant.room.reopen',

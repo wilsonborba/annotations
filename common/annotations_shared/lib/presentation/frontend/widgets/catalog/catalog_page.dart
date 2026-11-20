@@ -6,6 +6,7 @@ import '../../components/icons.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../domain/models/content.dart';
 import '../../components/controls.dart';
+import '../../components/landing_image.dart';
 import '../../components/scope.dart';
 import '../../components/tokens.dart';
 import '../../components/shell.dart';
@@ -229,7 +230,12 @@ class _CatalogPageState extends State<CatalogPage> {
                 if (articles.isEmpty)
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: 50),
-                    child: Text(context.tr('empty')),
+                    child: Column(
+                      children: [
+                        const StatePicture('S03'),
+                        Text(context.tr('empty'), key: const Key('no-results')),
+                      ],
+                    ),
                   )
                 else
                   PostGrid(items: articles),

@@ -12,6 +12,10 @@ import 'presentation/frontend/components/scope.dart';
 import 'presentation/frontend/components/shell.dart';
 import 'presentation/frontend/components/theme.dart';
 import 'presentation/frontend/widgets/gallery/gallery_page.dart';
+import 'presentation/frontend/widgets/landing/download_page.dart';
+import 'presentation/frontend/widgets/landing/engineering_page.dart';
+import 'presentation/frontend/widgets/landing/features_page.dart';
+import 'presentation/frontend/widgets/landing/how_it_works_page.dart';
 import 'presentation/frontend/widgets/landing/landing_page.dart';
 import 'presentation/frontend/widgets/catalog/catalog_page.dart';
 import 'presentation/frontend/widgets/article/article_page.dart';
@@ -67,11 +71,28 @@ class _AnnotationsAppState extends State<AnnotationsApp> {
       routes: [
         GoRoute(path: '/', redirect: (_, _) => '/v1/home'),
         ShellRoute(
-          builder: (_, _, child) => PageShell(child: child),
+          builder: (_, state, child) =>
+              PageShell(location: state.uri.path, child: child),
           routes: [
             GoRoute(
               path: '/v1/home',
               builder: (_, _) => const ShellPage(child: LandingPage()),
+            ),
+            GoRoute(
+              path: '/v1/home/features',
+              builder: (_, _) => const ShellPage(child: FeaturesPage()),
+            ),
+            GoRoute(
+              path: '/v1/home/how-it-works',
+              builder: (_, _) => const ShellPage(child: HowItWorksPage()),
+            ),
+            GoRoute(
+              path: '/v1/home/engineering',
+              builder: (_, _) => const ShellPage(child: EngineeringPage()),
+            ),
+            GoRoute(
+              path: '/v1/home/download',
+              builder: (_, _) => const ShellPage(child: DownloadPage()),
             ),
             GoRoute(
               path: '/v1/menu',

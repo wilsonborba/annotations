@@ -67,8 +67,11 @@ void main() {
     expect(find.text('Wilson Borba'), findsWidgets);
     expect(find.text('wilsonborba.com'), findsOneWidget);
     expect(find.textContaining('ASODYA'), findsNothing);
-    expect(find.byKey(const Key('footer-about')), findsOneWidget);
-    expect(find.byKey(const Key('footer-api')), findsOneWidget);
+    expect(find.byKey(const Key('footer-https://asodya.com')), findsOneWidget);
+    expect(
+      find.byKey(const Key('footer-https://api.asodya.com/docs')),
+      findsOneWidget,
+    );
   });
   testWidgets('missing or private notes show a not-found state', (
     tester,

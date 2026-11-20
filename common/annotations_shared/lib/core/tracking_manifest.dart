@@ -4,6 +4,26 @@ export 'package:screen_trail/screen_trail.dart';
 
 // Keep these identities synchronized with tracking_manifest.json.
 const annotationScreens = <TrailScreen>[
+  TrailScreen(
+    name: 'features',
+    route: '/v1/home/features',
+    label: 'Annotations features',
+  ),
+  TrailScreen(
+    name: 'how_it_works',
+    route: '/v1/home/how-it-works',
+    label: 'Annotations how it works',
+  ),
+  TrailScreen(
+    name: 'engineering',
+    route: '/v1/home/engineering',
+    label: 'Annotations engineering',
+  ),
+  TrailScreen(
+    name: 'download',
+    route: '/v1/home/download',
+    label: 'Annotations download',
+  ),
   TrailScreen(name: 'landing', route: '/v1/home', label: 'Annotations home'),
   TrailScreen(name: 'catalog', route: '/v1/menu', label: 'Articles catalog'),
   TrailScreen(
@@ -20,20 +40,105 @@ const annotationScreens = <TrailScreen>[
   ),
 ];
 const annotationElements = <String, TrailElement>{
-  'landing.waitlist.submit': TrailElement(
-    id: 'landing.waitlist.submit',
-    label: 'Landing waitlist submit',
-    path: 'landing > waitlist > submit',
+  'shell.navigation.overview': TrailElement(
+    id: 'shell.navigation.overview',
+    label: 'Shell navigation overview',
+    path: 'shell > navigation > overview',
   ),
-  'landing.waitlist.message': TrailElement(
-    id: 'landing.waitlist.message',
-    label: 'Landing waitlist message',
-    path: 'landing > waitlist > message',
+  'shell.navigation.features': TrailElement(
+    id: 'shell.navigation.features',
+    label: 'Shell navigation features',
+    path: 'shell > navigation > features',
   ),
-  'landing.waitlist.email': TrailElement(
-    id: 'landing.waitlist.email',
-    label: 'Landing waitlist email',
-    path: 'landing > waitlist > email',
+  'shell.navigation.how_it_works': TrailElement(
+    id: 'shell.navigation.how_it_works',
+    label: 'Shell navigation how it works',
+    path: 'shell > navigation > how_it_works',
+  ),
+  'shell.navigation.engineering': TrailElement(
+    id: 'shell.navigation.engineering',
+    label: 'Shell navigation engineering',
+    path: 'shell > navigation > engineering',
+  ),
+  'shell.navigation.download': TrailElement(
+    id: 'shell.navigation.download',
+    label: 'Shell navigation download',
+    path: 'shell > navigation > download',
+  ),
+  'landing.download.open': TrailElement(
+    id: 'landing.download.open',
+    label: 'Landing download open',
+    path: 'landing > download > open',
+  ),
+  'landing.card.browse': TrailElement(
+    id: 'landing.card.browse',
+    label: 'Landing card browse',
+    path: 'landing > card > browse',
+  ),
+  'landing.card.instant': TrailElement(
+    id: 'landing.card.instant',
+    label: 'Landing card instant',
+    path: 'landing > card > instant',
+  ),
+  'landing.card.download': TrailElement(
+    id: 'landing.card.download',
+    label: 'Landing card download',
+    path: 'landing > card > download',
+  ),
+  'landing.notice.terms': TrailElement(
+    id: 'landing.notice.terms',
+    label: 'Landing notice terms',
+    path: 'landing > notice > terms',
+  ),
+  'landing.notice.privacy': TrailElement(
+    id: 'landing.notice.privacy',
+    label: 'Landing notice privacy',
+    path: 'landing > notice > privacy',
+  ),
+  'engineering.diagram.open': TrailElement(
+    id: 'engineering.diagram.open',
+    label: 'Engineering diagram open',
+    path: 'engineering > diagram > open',
+  ),
+  'engineering.repo.open': TrailElement(
+    id: 'engineering.repo.open',
+    label: 'Engineering repo open',
+    path: 'engineering > repo > open',
+  ),
+  'download.command.copy': TrailElement(
+    id: 'download.command.copy',
+    label: 'Download command copy',
+    path: 'download > command > copy',
+  ),
+  'download.releases.open': TrailElement(
+    id: 'download.releases.open',
+    label: 'Download releases open',
+    path: 'download > releases > open',
+  ),
+  'download.repo.open': TrailElement(
+    id: 'download.repo.open',
+    label: 'Download repo open',
+    path: 'download > repo > open',
+  ),
+  'features.surface': TrailElement(
+    id: 'features.surface',
+    label: 'Features surface',
+    path: 'features > surface',
+  ),
+  'how_it_works.surface': TrailElement(
+    id: 'how_it_works.surface',
+    label: 'How it works surface',
+    path: 'how_it_works > surface',
+  ),
+  'engineering.surface': TrailElement(
+    id: 'engineering.surface',
+    label: 'Engineering surface',
+    path: 'engineering > surface',
+  ),
+  'download.surface': TrailElement(
+    id: 'download.surface',
+    label: 'Download surface',
+    path: 'download > surface',
   ),
   'landing.catalog.all': TrailElement(
     id: 'landing.catalog.all',
@@ -219,16 +324,6 @@ const annotationElements = <String, TrailElement>{
     id: 'shell.navigation.home',
     label: 'Shell navigation home',
     path: 'shell > navigation > home',
-  ),
-  'shell.footer.about': TrailElement(
-    id: 'shell.footer.about',
-    label: 'Shell footer about',
-    path: 'shell > footer > about',
-  ),
-  'shell.footer.api': TrailElement(
-    id: 'shell.footer.api',
-    label: 'Shell footer api',
-    path: 'shell > footer > api',
   ),
   'shell.language.english': TrailElement(
     id: 'shell.language.english',
