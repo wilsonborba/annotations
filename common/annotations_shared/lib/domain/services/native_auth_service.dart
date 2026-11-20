@@ -5,6 +5,8 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 
+import '../../core/log_redactor.dart' as redactor;
+
 class SecureStorageUnavailableException implements Exception {
   final String message;
   const SecureStorageUnavailableException([
@@ -26,9 +28,9 @@ final class NativeSession {
   });
 
   Map<String, String> authHeaders({bool isMutation = false}) => {
-        'cookie': 'sid=$sessionId; csrf=$csrfToken',
-        if (isMutation) 'x-csrf-token': csrfToken,
-      };
+    'cookie': 'sid=$sessionId; csrf=$csrfToken',
+    if (isMutation) 'x-csrf-token': csrfToken,
+  };
 }
 
 /// OS secure storage abstraction (Keychain, Android Keystore, libsecret).
@@ -40,7 +42,9 @@ abstract interface class SecureSessionStorage {
 }
 
 final class OsSecureSessionStorage implements SecureSessionStorage {
-  static const _channel = MethodChannel('com.asodya.annotations/secure_storage');
+  static const _channel = MethodChannel(
+    'com.asodya.annotations/secure_storage',
+  );
 
   @override
   Future<void> writeSession(NativeSession session) async {
@@ -63,7 +67,9 @@ final class OsSecureSessionStorage implements SecureSessionStorage {
       if (raw == null) return null;
       final sid = raw['session_id'] as String?;
       final csrf = raw['csrf_token'] as String?;
-      if (sid == null || sid.isEmpty || csrf == null || csrf.isEmpty) return null;
+      if (sid == null || sid.isEmpty || csrf == null || csrf.isEmpty) {
+        return null;
+      }
       return NativeSession(sessionId: sid, csrfToken: csrf);
     } on MissingPluginException {
       throw const SecureStorageUnavailableException();
@@ -124,7 +130,10 @@ enum FinishLoginStatus {
   notFinished,
   expired,
   used,
+  cancelled,
   refused,
+  invalid,
+  disabled,
 }
 
 final class FinishLoginResult {
@@ -187,9 +196,11 @@ class NativeAuthService {
     DateTime? now,
   }) {
     final rng = Random.secure();
-    final idBytes = handoffIdOverride ??
+    final idBytes =
+        handoffIdOverride ??
         Uint8List.fromList(List<int>.generate(32, (_) => rng.nextInt(256)));
-    final secBytes = secretOverride ??
+    final secBytes =
+        secretOverride ??
         Uint8List.fromList(List<int>.generate(32, (_) => rng.nextInt(256)));
 
     final challengeBytes = sha256.convert(secBytes).bytes;
@@ -252,47 +263,87 @@ class NativeAuthService {
     } catch (_) {
       return const FinishLoginResult(
         status: FinishLoginStatus.notFinished,
-        message: 'The login is not finished. Finish it in the browser, then click Finish.',
+        message:
+            'The login is not finished. Finish it in the browser, then click Finish.',
       );
     }
 
-    final statusCode = '${json['status'] ?? json['error'] ?? ''}'.toLowerCase();
-    if (resp.statusCode >= 400 || statusCode == 'not_finished' || statusCode == 'expired' || statusCode == 'used' || statusCode == 'refused') {
-      if (statusCode == 'not_finished') {
-        return const FinishLoginResult(
-          status: FinishLoginStatus.notFinished,
-          message: 'The login is not finished. Finish it in the browser, then click Finish.',
-        );
+    final dataMap = json['data'] is Map
+        ? Map<String, dynamic>.from(json['data'] as Map)
+        : const <String, dynamic>{};
+    final gatewayCode = '${dataMap['code'] ?? ''}'.toUpperCase();
+
+    if (resp.statusCode >= 400 ||
+        gatewayCode.isNotEmpty && !dataMap.containsKey('session_id')) {
+      switch (gatewayCode) {
+        case 'HANDOFF_NOT_FINISHED':
+          // Keep pendingHandoff so the user can finish in the browser and click Finish again.
+          return const FinishLoginResult(
+            status: FinishLoginStatus.notFinished,
+            message:
+                'The login is not finished. Finish it in the browser, then click Finish.',
+          );
+        case 'HANDOFF_EXPIRED':
+          pendingHandoff = null;
+          return const FinishLoginResult(
+            status: FinishLoginStatus.expired,
+            message: 'This login expired. Start again.',
+          );
+        case 'HANDOFF_USED':
+          pendingHandoff = null;
+          return const FinishLoginResult(
+            status: FinishLoginStatus.used,
+            message: 'Start again.',
+          );
+        case 'HANDOFF_CANCELLED':
+          pendingHandoff = null;
+          return const FinishLoginResult(
+            status: FinishLoginStatus.cancelled,
+            message: 'Login cancelled. Start again.',
+          );
+        case 'LOGIN_REFUSED_NETWORK':
+          pendingHandoff = null;
+          return const FinishLoginResult(
+            status: FinishLoginStatus.refused,
+            message: 'Login refused. The login came from a different location.',
+          );
+        case 'INVALID_HANDOFF':
+          pendingHandoff = null;
+          return const FinishLoginResult(
+            status: FinishLoginStatus.invalid,
+            message: 'Invalid installed-app login fields.',
+          );
+        case 'NATIVE_HANDOFF_DISABLED':
+          pendingHandoff = null;
+          return const FinishLoginResult(
+            status: FinishLoginStatus.disabled,
+            message: 'Installed-app login is disabled.',
+          );
+        default:
+          if (resp.statusCode >= 500) {
+            return const FinishLoginResult(
+              status: FinishLoginStatus.notFinished,
+              message: 'Unable to finish login.',
+            );
+          }
+          pendingHandoff = null;
+          return const FinishLoginResult(
+            status: FinishLoginStatus.used,
+            message: 'Start again.',
+          );
       }
-      if (statusCode == 'expired') {
-        pendingHandoff = null;
-        return const FinishLoginResult(
-          status: FinishLoginStatus.expired,
-          message: 'This login expired. Start again.',
-        );
-      }
-      if (statusCode == 'refused' || statusCode == 'wrong_network') {
-        pendingHandoff = null;
-        return const FinishLoginResult(
-          status: FinishLoginStatus.refused,
-          message: 'Login refused. The login came from a different location.',
-        );
-      }
-      pendingHandoff = null;
-      return const FinishLoginResult(
-        status: FinishLoginStatus.used,
-        message: 'Start again.',
-      );
     }
 
-    final data = Map<String, dynamic>.from((json['data'] as Map?) ?? json);
+    final location = dataMap['location'] is Map
+        ? Map<String, dynamic>.from(dataMap['location'] as Map)
+        : dataMap;
     final locMsg = formatLoggedInMessage(
-      city: data['city'] as String?,
-      country: data['country'] as String?,
+      city: location['city'] as String?,
+      country: location['country'] as String?,
     );
     final session = NativeSession(
-      sessionId: '${data['session_id']}',
-      csrfToken: '${data['csrf_token']}',
+      sessionId: '${dataMap['session_id'] ?? json['session_id'] ?? ''}',
+      csrfToken: '${dataMap['csrf_token'] ?? json['csrf_token'] ?? ''}',
       locationMessage: locMsg,
     );
     await storage.writeSession(session);
@@ -328,9 +379,6 @@ class NativeAuthService {
     sessionPaused = true;
   }
 
-  /// Strips secrets, session IDs, CSRF tokens, and full handoff IDs from logs.
-  static String sanitizeForLog(String raw) => raw.replaceAllMapped(
-        RegExp(r'(sid|csrf|secret|session_id|csrf_token|handoff_id)=[^&\s;]+'),
-        (m) => '${m.group(1)}=[REDACTED]',
-      );
+  /// Strips secrets, session IDs, CSRF tokens, cookies, and full handoff IDs from logs.
+  static String sanitizeForLog(String raw) => redactor.sanitizeForLog(raw);
 }

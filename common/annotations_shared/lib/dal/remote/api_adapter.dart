@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import '../../core/log_redactor.dart';
 import '../../core/settings.dart';
 import 'gzip_body.dart';
 
@@ -39,7 +40,8 @@ class ApiAdapter {
         compress: compress,
       );
     } catch (error, stack) {
-      onError?.call(error, stack, '$method $path');
+      final cleanOp = sanitizeForLog('$method $path');
+      onError?.call(error, stack, cleanOp);
       rethrow;
     }
   }

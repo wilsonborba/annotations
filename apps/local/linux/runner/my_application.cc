@@ -1,11 +1,102 @@
 #include "my_application.h"
 
 #include <flutter_linux/flutter_linux.h>
+#include <libsecret/secret.h>
 #ifdef GDK_WINDOWING_X11
 #include <gdk/gdkx.h>
 #endif
 
+#include <string>
+
 #include "flutter/generated_plugin_registrant.h"
+
+static const SecretSchema kAnnotationsSessionSchema = {
+    "com.asodya.annotations.session",
+    SECRET_SCHEMA_NONE,
+    {
+        {"account", SECRET_SCHEMA_ATTRIBUTE_STRING},
+        {nullptr, SECRET_SCHEMA_ATTRIBUTE_INTEGER},
+    },
+};
+
+static void secure_storage_method_call_cb(FlMethodChannel* channel,
+                                          FlMethodCall* method_call,
+                                          gpointer user_data) {
+  g_autoptr(FlMethodResponse) response = nullptr;
+  const gchar* method = fl_method_call_get_name(method_call);
+  FlValue* args = fl_method_call_get_args(method_call);
+
+  if (g_strcmp0(method, "write") == 0) {
+    if (fl_value_get_type(args) != FL_VALUE_TYPE_MAP) {
+      response = FL_METHOD_RESPONSE(fl_method_error_response_new(
+          "INVALID_ARGS", "Expected map arguments", nullptr));
+    } else {
+      FlValue* sid_val = fl_value_lookup_string(args, "session_id");
+      FlValue* csrf_val = fl_value_lookup_string(args, "csrf_token");
+      if (sid_val == nullptr || csrf_val == nullptr ||
+          fl_value_get_type(sid_val) != FL_VALUE_TYPE_STRING ||
+          fl_value_get_type(csrf_val) != FL_VALUE_TYPE_STRING) {
+        response = FL_METHOD_RESPONSE(fl_method_error_response_new(
+            "INVALID_ARGS", "Missing session_id or csrf_token", nullptr));
+      } else {
+        std::string payload = std::string(fl_value_get_string(sid_val)) + "\n" +
+                              std::string(fl_value_get_string(csrf_val));
+        g_autoptr(GError) error = nullptr;
+        gboolean ok = secret_password_store_sync(
+            &kAnnotationsSessionSchema, SECRET_COLLECTION_DEFAULT,
+            "Annotations Session", payload.c_str(), nullptr, &error, "account",
+            "default", nullptr);
+        if (!ok) {
+          response = FL_METHOD_RESPONSE(fl_method_error_response_new(
+              "KEYRING_ERROR",
+              error != nullptr ? error->message : "libsecret store failed",
+              nullptr));
+        } else {
+          response = FL_METHOD_RESPONSE(fl_method_success_response_new(nullptr));
+        }
+      }
+    }
+  } else if (g_strcmp0(method, "read") == 0) {
+    g_autoptr(GError) error = nullptr;
+    gchar* secret = secret_password_lookup_sync(
+        &kAnnotationsSessionSchema, nullptr, &error, "account", "default",
+        nullptr);
+    if (error != nullptr) {
+      response = FL_METHOD_RESPONSE(fl_method_error_response_new(
+          "KEYRING_ERROR", error->message, nullptr));
+    } else if (secret == nullptr) {
+      response = FL_METHOD_RESPONSE(fl_method_success_response_new(nullptr));
+    } else {
+      std::string raw(secret);
+      secret_password_free(secret);
+      auto sep = raw.find('\n');
+      if (sep == std::string::npos) {
+        response = FL_METHOD_RESPONSE(fl_method_success_response_new(nullptr));
+      } else {
+        g_autoptr(FlValue) map = fl_value_new_map();
+        fl_value_set_string_take(
+            map, "session_id", fl_value_new_string(raw.substr(0, sep).c_str()));
+        fl_value_set_string_take(
+            map, "csrf_token", fl_value_new_string(raw.substr(sep + 1).c_str()));
+        response = FL_METHOD_RESPONSE(fl_method_success_response_new(map));
+      }
+    }
+  } else if (g_strcmp0(method, "delete") == 0) {
+    g_autoptr(GError) error = nullptr;
+    secret_password_clear_sync(&kAnnotationsSessionSchema, nullptr, &error,
+                               "account", "default", nullptr);
+    if (error != nullptr) {
+      response = FL_METHOD_RESPONSE(fl_method_error_response_new(
+          "KEYRING_ERROR", error->message, nullptr));
+    } else {
+      response = FL_METHOD_RESPONSE(fl_method_success_response_new(nullptr));
+    }
+  } else {
+    response = FL_METHOD_RESPONSE(fl_method_not_implemented_response_new());
+  }
+
+  fl_method_call_respond(method_call, response, nullptr);
+}
 
 struct _MyApplication {
   GtkApplication parent_instance;
@@ -74,6 +165,16 @@ static void my_application_activate(GApplication* application) {
   gtk_widget_realize(GTK_WIDGET(view));
 
   fl_register_plugins(FL_PLUGIN_REGISTRY(view));
+
+  g_autoptr(FlPluginRegistrar) secure_registrar =
+      fl_plugin_registry_get_registrar_for_plugin(FL_PLUGIN_REGISTRY(view),
+                                                  "SecureStorage");
+  g_autoptr(FlStandardMethodCodec) codec = fl_standard_method_codec_new();
+  g_autoptr(FlMethodChannel) secure_channel = fl_method_channel_new(
+      fl_plugin_registrar_get_messenger(secure_registrar),
+      "com.asodya.annotations/secure_storage", FL_METHOD_CODEC(codec));
+  fl_method_channel_set_method_call_handler(
+      secure_channel, secure_storage_method_call_cb, nullptr, nullptr);
 
   gtk_widget_grab_focus(GTK_WIDGET(view));
 }
