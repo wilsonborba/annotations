@@ -1,6 +1,6 @@
 /// The stored files that cards show (annotations#34): file details, decoded
-/// pictures, CSV rows and the page shape of a PDF, read from the local
-/// store when a card first asks. A finished read notifies, and the content
+/// pictures, CSV rows, and the page shape and first page of a PDF, read from
+/// the local store when a card first asks. A finished read notifies, and the content
 /// layer draws again. Nothing here leaves the device.
 library;
 
@@ -13,11 +13,21 @@ import 'package:flutter/foundation.dart';
 import '../../../domain/models/local_note.dart';
 import '../../../domain/services/card_content.dart';
 import '../../../domain/services/local_note_store.dart';
+import 'pdf_page_renderer.dart';
 
 class AttachmentCache extends ChangeNotifier {
-  AttachmentCache(this.store);
+  AttachmentCache(this.store, {PdfPageRenderer? renderPdfPage})
+    : renderPdfPage = renderPdfPage ?? defaultPdfPageRenderer;
+
+  /// The renderer a new cache uses when none is given. Widget tests that
+  /// only place PDF cards set a renderer without PDFium here.
+  @visibleForTesting
+  static PdfPageRenderer defaultPdfPageRenderer = renderFirstPdfPage;
 
   final LocalNoteStore? store;
+
+  /// Draws the first page of a PDF into a picture (pdfrx by default).
+  final PdfPageRenderer renderPdfPage;
 
   final _info = <String, LocalAttachment?>{};
   final _images = <String, ui.Image?>{};
@@ -66,6 +76,7 @@ class AttachmentCache extends ChangeNotifier {
   }
 
   /// The decoded picture of [fileId], or null until read (or not a picture).
+  /// For a PDF this is its first page.
   ui.Image? image(String fileId) {
     if (!_images.containsKey(fileId)) _load(fileId);
     return _images[fileId];
@@ -102,6 +113,12 @@ class AttachmentCache extends ChangeNotifier {
             _csv[fileId] = parseCsvBytes(bytes);
           } else if (kind == 'pdf_preview') {
             _pdf[fileId] = pdfInfo(bytes);
+            final page = await renderPdfPage(bytes, pdfPagePixels);
+            if (_disposed) {
+              page?.dispose();
+              return;
+            }
+            if (page != null) _images[fileId] = page;
           } else if (info.type.startsWith('image/')) {
             final codec = await ui.instantiateImageCodec(bytes);
             final frame = await codec.getNextFrame();
