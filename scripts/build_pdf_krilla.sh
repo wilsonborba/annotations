@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CRATE_DIR="$ROOT/native/pdf_krilla"
+TARGET_DIR="${CARGO_TARGET_DIR:-$CRATE_DIR/target}"
 WASM_OUT="$ROOT/common/annotations_shared/lib/presentation/frontend/assets/wasm/pdf_krilla.wasm"
 JNI_OUT="$ROOT/apps/local/android/app/src/main/jniLibs"
 APPLE_OUT="$CRATE_DIR/target/apple"
@@ -20,7 +21,7 @@ build_linux() {
 build_wasm() {
   cargo build --manifest-path "$CRATE_DIR/Cargo.toml" --locked --release --lib --target wasm32-unknown-unknown
   mkdir -p "$(dirname "$WASM_OUT")"
-  cp "$CRATE_DIR/target/wasm32-unknown-unknown/release/pdf_krilla.wasm" "$WASM_OUT"
+  cp "$TARGET_DIR/wasm32-unknown-unknown/release/pdf_krilla.wasm" "$WASM_OUT"
 }
 
 build_android() {
@@ -42,7 +43,7 @@ build_android() {
     export "$env_key=$llvm_bin/$clang"
     cargo build --manifest-path "$CRATE_DIR/Cargo.toml" --locked --release --lib --target "$target"
     mkdir -p "$JNI_OUT/$abi"
-    cp "$CRATE_DIR/target/$target/release/libpdf_krilla.so" "$JNI_OUT/$abi/libpdf_krilla.so"
+    cp "$TARGET_DIR/$target/release/libpdf_krilla.so" "$JNI_OUT/$abi/libpdf_krilla.so"
   done
 }
 
@@ -55,8 +56,8 @@ build_macos() {
   cargo build --manifest-path "$CRATE_DIR/Cargo.toml" --locked --release --lib --target aarch64-apple-darwin
   cargo build --manifest-path "$CRATE_DIR/Cargo.toml" --locked --release --lib --target x86_64-apple-darwin
   lipo -create \
-    "$CRATE_DIR/target/aarch64-apple-darwin/release/libpdf_krilla.a" \
-    "$CRATE_DIR/target/x86_64-apple-darwin/release/libpdf_krilla.a" \
+    "$TARGET_DIR/aarch64-apple-darwin/release/libpdf_krilla.a" \
+    "$TARGET_DIR/x86_64-apple-darwin/release/libpdf_krilla.a" \
     -output "$APPLE_OUT/libpdf_krilla_macos.a"
 }
 
@@ -68,10 +69,10 @@ build_ios() {
   mkdir -p "$APPLE_OUT"
   if [ "${PLATFORM_NAME:-iphoneos}" = "iphonesimulator" ]; then
     cargo build --manifest-path "$CRATE_DIR/Cargo.toml" --locked --release --lib --target aarch64-apple-ios-sim
-    cp "$CRATE_DIR/target/aarch64-apple-ios-sim/release/libpdf_krilla.a" "$APPLE_OUT/libpdf_krilla_ios.a"
+    cp "$TARGET_DIR/aarch64-apple-ios-sim/release/libpdf_krilla.a" "$APPLE_OUT/libpdf_krilla_ios.a"
   else
     cargo build --manifest-path "$CRATE_DIR/Cargo.toml" --locked --release --lib --target aarch64-apple-ios
-    cp "$CRATE_DIR/target/aarch64-apple-ios/release/libpdf_krilla.a" "$APPLE_OUT/libpdf_krilla_ios.a"
+    cp "$TARGET_DIR/aarch64-apple-ios/release/libpdf_krilla.a" "$APPLE_OUT/libpdf_krilla_ios.a"
   fi
 }
 
