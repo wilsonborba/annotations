@@ -1,8 +1,7 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import '../../core/logs.dart';
+import '../../core/log_redactor.dart';
 import '../../core/settings.dart';
-import '../../domain/services/native_auth_service.dart';
 import 'gzip_body.dart';
 
 class ApiError implements Exception {
@@ -41,12 +40,8 @@ class ApiAdapter {
         compress: compress,
       );
     } catch (error, stack) {
-      final cleanOp = NativeAuthService.sanitizeForLog('$method $path');
-      if (onError != null) {
-        onError!.call(error, stack, cleanOp);
-      } else {
-        logError('api', '$cleanOp failed: $error');
-      }
+      final cleanOp = sanitizeForLog('$method $path');
+      onError?.call(error, stack, cleanOp);
       rethrow;
     }
   }
