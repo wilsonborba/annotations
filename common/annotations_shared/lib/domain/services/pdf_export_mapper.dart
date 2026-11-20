@@ -33,7 +33,9 @@ final class PdfExportOptions {
   });
 
   PdfPageFormat get pageFormat {
-    final base = paperSize == PdfPaperSize.a4 ? PdfPageFormat.a4 : PdfPageFormat.letter;
+    final base = paperSize == PdfPaperSize.a4
+        ? PdfPageFormat.a4
+        : PdfPageFormat.letter;
     return orientation == PdfOrientation.landscape ? base.landscape : base;
   }
 }
@@ -107,9 +109,14 @@ final class ThaiShapingEvidence {
 class PdfExportMapper {
   static const double marginPt = 36.0;
   static final _thaiRegex = RegExp(r'[\u0E00-\u0E7F]');
-  static final _thaiCombiningRegex = RegExp(r'[\u0E31\u0E34-\u0E3A\u0E47-\u0E4E]');
+  static final _thaiCombiningRegex = RegExp(
+    r'[\u0E31\u0E34-\u0E3A\u0E47-\u0E4E]',
+  );
 
-  static ThaiShapingEvidence inspectThaiText(String text, {required bool fontEmbedded}) {
+  static ThaiShapingEvidence inspectThaiText(
+    String text, {
+    required bool fontEmbedded,
+  }) {
     final hasThai = _thaiRegex.hasMatch(text);
     final hasCombining = _thaiCombiningRegex.hasMatch(text);
     return ThaiShapingEvidence(
@@ -148,7 +155,9 @@ class PdfExportMapper {
       if (node is Map) {
         final kind = '${node['kind'] ?? node['type'] ?? ''}';
         final fileId = node['file_id'] as String?;
-        if (fileId != null && fileId.isNotEmpty && !availableFileIds.contains(fileId)) {
+        if (fileId != null &&
+            fileId.isNotEmpty &&
+            !availableFileIds.contains(fileId)) {
           issues.add(
             PdfPreflightIssue(
               kind: 'missing_file',
@@ -203,7 +212,11 @@ class PdfExportMapper {
   }) {
     if (items.isEmpty) return const [0.0];
     final sorted = [...items]
-      ..sort((a, b) => ((a['y'] as num?)?.toDouble() ?? 0).compareTo((b['y'] as num?)?.toDouble() ?? 0));
+      ..sort(
+        (a, b) => ((a['y'] as num?)?.toDouble() ?? 0).compareTo(
+          (b['y'] as num?)?.toDouble() ?? 0,
+        ),
+      );
 
     final breaks = <double>[0.0];
     var pageTop = 0.0;
@@ -253,7 +266,8 @@ class PdfExportMapper {
     final pdfs = <PdfNamedFile>[];
     final companions = <PdfCompanionFile>[];
 
-    if ((options.mode == PdfExportMode.original || options.mode == PdfExportMode.both) &&
+    if ((options.mode == PdfExportMode.original ||
+            options.mode == PdfExportMode.both) &&
         original != null) {
       final bytes = await _buildOriginalPdf(
         title: title,
@@ -268,7 +282,8 @@ class PdfExportMapper {
       pdfs.add(PdfNamedFile(filename: '$slug-original.pdf', bytes: bytes));
     }
 
-    if ((options.mode == PdfExportMode.typed || options.mode == PdfExportMode.both) &&
+    if ((options.mode == PdfExportMode.typed ||
+            options.mode == PdfExportMode.both) &&
         typed != null) {
       final bytes = await _buildTypedPdf(
         title: title,
@@ -284,7 +299,11 @@ class PdfExportMapper {
     return PdfExportOutput(preflight: pre, pdfs: pdfs, companions: companions);
   }
 
-  pw.ThemeData? _theme(pw.Font? baseFont, pw.Font? boldFont, pw.Font? thaiFont) {
+  pw.ThemeData? _theme(
+    pw.Font? baseFont,
+    pw.Font? boldFont,
+    pw.Font? thaiFont,
+  ) {
     if (baseFont == null && thaiFont == null) return null;
     final fallbacks = <pw.Font>[?thaiFont];
     return pw.ThemeData.withFont(
@@ -304,14 +323,20 @@ class PdfExportMapper {
     pw.Font? boldFont,
     pw.Font? thaiFont,
   }) async {
-    final doc = pw.Document(title: title, theme: _theme(baseFont, boldFont, thaiFont));
+    final doc = pw.Document(
+      title: title,
+      theme: _theme(baseFont, boldFont, thaiFont),
+    );
     final format = options.pageFormat;
     final printableW = format.width - marginPt * 2;
     final printableH = format.height - marginPt * 2;
 
     final json = document.toJson();
     final pageMap = (json['page'] as Map?) ?? const {};
-    final canvasW = ((pageMap['width'] as num?)?.toDouble() ?? 1000.0).clamp(200.0, 4000.0);
+    final canvasW = ((pageMap['width'] as num?)?.toDouble() ?? 1000.0).clamp(
+      200.0,
+      4000.0,
+    );
     final scale = printableW / canvasW;
 
     final rawItems = ((json['items'] as List?) ?? const [])
@@ -319,7 +344,10 @@ class PdfExportMapper {
         .toList();
 
     final scaledPrintableH = printableH / scale;
-    final breaks = computeOriginalPageBreaks(items: rawItems, printableHeight: scaledPrintableH);
+    final breaks = computeOriginalPageBreaks(
+      items: rawItems,
+      printableHeight: scaledPrintableH,
+    );
 
     for (var p = 0; p < breaks.length; p++) {
       final yStart = breaks[p];
@@ -348,7 +376,10 @@ class PdfExportMapper {
                   padding: const pw.EdgeInsets.only(bottom: 8),
                   child: pw.Text(
                     title,
-                    style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold),
+                    style: pw.TextStyle(
+                      fontSize: 16,
+                      fontWeight: pw.FontWeight.bold,
+                    ),
                   ),
                 ),
               if (hasOversized)
@@ -397,9 +428,12 @@ class PdfExportMapper {
     final payloadBytes = fileId != null && attachments.containsKey(fileId)
         ? attachments[fileId]!
         : Uint8List.fromList(utf8.encode(jsonEncode(item)));
-    companions.add(PdfCompanionFile(filename: companionName, bytes: payloadBytes));
+    companions.add(
+      PdfCompanionFile(filename: companionName, bytes: payloadBytes),
+    );
 
-    final publicLink = options.publicBaseUrl != null && options.audience == PdfAudience.public
+    final publicLink =
+        options.publicBaseUrl != null && options.audience == PdfAudience.public
         ? '${options.publicBaseUrl}/items/$id'
         : null;
 
@@ -437,8 +471,14 @@ class PdfExportMapper {
   }) {
     final x = ((item['x'] as num?)?.toDouble() ?? 0.0) * scale;
     final y = (((item['y'] as num?)?.toDouble() ?? 0.0) - yOrigin) * scale;
-    final w = math.max(24.0, ((item['width'] as num?)?.toDouble() ?? 160.0) * scale);
-    final h = math.max(18.0, ((item['height'] as num?)?.toDouble() ?? 40.0) * scale);
+    final w = math.max(
+      24.0,
+      ((item['width'] as num?)?.toDouble() ?? 160.0) * scale,
+    );
+    final h = math.max(
+      18.0,
+      ((item['height'] as num?)?.toDouble() ?? 40.0) * scale,
+    );
     final kind = '${item['kind'] ?? 'text'}';
 
     return pw.Positioned(
@@ -451,7 +491,13 @@ class PdfExportMapper {
         decoration: kind == 'text' || kind == 'ink'
             ? null
             : pw.BoxDecoration(border: pw.Border.all(color: PdfColors.grey400)),
-        child: _renderItemBody(item, kind: kind, options: options, width: w, height: h),
+        child: _renderItemBody(
+          item,
+          kind: kind,
+          options: options,
+          width: w,
+          height: h,
+        ),
       ),
     );
   }
@@ -480,23 +526,32 @@ class PdfExportMapper {
     if (kind == 'task') {
       final taskTitle = '${item['title'] ?? 'Task'}';
       final status = '${item['status'] ?? 'open'}';
-      final link = options.audience == PdfAudience.public && item['public_url'] != null
+      final link =
+          options.audience == PdfAudience.public && item['public_url'] != null
           ? ' | ${item['public_url']}'
           : '';
-      return pw.Text('Task: $taskTitle [$status]$link', style: const pw.TextStyle(fontSize: 9));
+      return pw.Text(
+        'Task: $taskTitle [$status]$link',
+        style: const pw.TextStyle(fontSize: 9),
+      );
     }
 
     if (kind == 'quiz') {
       final quizTitle = '${item['title'] ?? 'Quiz'}';
       final count = item['question_count'] ?? 0;
-      final link = options.audience == PdfAudience.public && item['public_url'] != null
+      final link =
+          options.audience == PdfAudience.public && item['public_url'] != null
           ? ' | ${item['public_url']}'
           : '';
-      return pw.Text('Quiz: $quizTitle ($count questions)$link', style: const pw.TextStyle(fontSize: 9));
+      return pw.Text(
+        'Quiz: $quizTitle ($count questions)$link',
+        style: const pw.TextStyle(fontSize: 9),
+      );
     }
 
     if (kind == 'ink' || kind == 'stroke') {
-      final pts = (item['points'] as List?) ??
+      final pts =
+          (item['points'] as List?) ??
           ((item['strokes'] as List?)?.firstOrNull is Map
               ? ((item['strokes'] as List).first as Map)['points'] as List?
               : null) ??
@@ -509,13 +564,21 @@ class PdfExportMapper {
             ..setLineWidth(1.2);
           if (pts.length >= 2) {
             final first = pts.first;
-            final x0 = first is Map ? (first['x'] as num).toDouble() : (first[0] as num).toDouble();
-            final y0 = first is Map ? (first['y'] as num).toDouble() : (first[1] as num).toDouble();
+            final x0 = first is Map
+                ? (first['x'] as num).toDouble()
+                : (first[0] as num).toDouble();
+            final y0 = first is Map
+                ? (first['y'] as num).toDouble()
+                : (first[1] as num).toDouble();
             canvas.moveTo(x0, size.y - y0);
             for (var i = 1; i < pts.length; i++) {
               final pt = pts[i];
-              final xi = pt is Map ? (pt['x'] as num).toDouble() : (pt[0] as num).toDouble();
-              final yi = pt is Map ? (pt['y'] as num).toDouble() : (pt[1] as num).toDouble();
+              final xi = pt is Map
+                  ? (pt['x'] as num).toDouble()
+                  : (pt[0] as num).toDouble();
+              final yi = pt is Map
+                  ? (pt['y'] as num).toDouble()
+                  : (pt[1] as num).toDouble();
               canvas.lineTo(xi, size.y - yi);
             }
             canvas.strokePath();
@@ -526,11 +589,16 @@ class PdfExportMapper {
 
     if (kind == 'text') {
       final spans = (item['spans'] as List?) ?? const [];
-      final text = spans.map((s) => s is Map ? '${s['text'] ?? ''}' : '$s').join();
+      final text = spans
+          .map((s) => s is Map ? '${s['text'] ?? ''}' : '$s')
+          .join();
       return pw.Text(text, style: const pw.TextStyle(fontSize: 10));
     }
 
-    return pw.Text('${item['name'] ?? item['title'] ?? kind}', style: const pw.TextStyle(fontSize: 9));
+    return pw.Text(
+      '${item['name'] ?? item['title'] ?? kind}',
+      style: const pw.TextStyle(fontSize: 9),
+    );
   }
 
   Future<Uint8List> _buildTypedPdf({
@@ -541,7 +609,10 @@ class PdfExportMapper {
     pw.Font? boldFont,
     pw.Font? thaiFont,
   }) async {
-    final doc = pw.Document(title: title, theme: _theme(baseFont, boldFont, thaiFont));
+    final doc = pw.Document(
+      title: title,
+      theme: _theme(baseFont, boldFont, thaiFont),
+    );
     final blocks = ((document.toJson()['blocks'] as List?) ?? const [])
         .map((e) => Map<String, dynamic>.from(e as Map))
         .toList();
@@ -553,7 +624,10 @@ class PdfExportMapper {
         build: (_) => [
           pw.Header(
             level: 0,
-            child: pw.Text(title, style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold)),
+            child: pw.Text(
+              title,
+              style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold),
+            ),
           ),
           for (var i = 0; i < blocks.length; i++)
             ..._buildTypedBlock(blocks, i, options: options),
@@ -578,7 +652,10 @@ class PdfExportMapper {
       return [
         pw.Header(
           level: 1,
-          child: pw.Text(text, style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
+          child: pw.Text(
+            text,
+            style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold),
+          ),
         ),
       ];
     }
@@ -586,12 +663,16 @@ class PdfExportMapper {
       return [
         pw.Padding(
           padding: const pw.EdgeInsets.symmetric(vertical: 4),
-          child: _renderItemBody(b, kind: kind, options: options, width: 400, height: 40),
+          child: _renderItemBody(
+            b,
+            kind: kind,
+            options: options,
+            width: 400,
+            height: 40,
+          ),
         ),
       ];
     }
-    return [
-      pw.Paragraph(text: text, style: const pw.TextStyle(fontSize: 11)),
-    ];
+    return [pw.Paragraph(text: text, style: const pw.TextStyle(fontSize: 11))];
   }
 }

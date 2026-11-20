@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
+import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 
 import '../../dal/remote/api_adapter.dart';
@@ -243,6 +244,7 @@ class ContentJobService {
     final uploadedIds = <String>[...ref.uploadedFileIds];
     if (uploadedIds.isEmpty) {
       for (final file in selectedFiles) {
+        final checksum = sha256.convert(file.bytes).toString();
         final reserved = await api.request(
           '/me/files',
           method: 'POST',
@@ -250,7 +252,8 @@ class ContentJobService {
             'purpose': 'content_job',
             'filename': file.filename,
             'content_type': file.contentType,
-            'size_bytes': file.bytes.length,
+            'size': file.bytes.length,
+            'checksum': checksum,
           },
         );
         final fileId = '${reserved['file_id'] ?? reserved['id']}';

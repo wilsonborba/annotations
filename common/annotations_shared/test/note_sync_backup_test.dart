@@ -13,6 +13,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
+import 'support/annotations_api_contract.dart';
+
 final _paperSchema = DocumentSchema(DocumentFamily.original.schemaName, 1);
 
 PaperDocument _paperWithTextAndFile(
@@ -66,14 +68,6 @@ PaperDocument _paperWithTextAndFile(
         }, schema: _paperSchema)
         as PaperDocument;
 
-Map<String, dynamic> _decodeJsonBody(http.Request req) {
-  final rawBytes = req.headers['content-encoding'] == 'gzip'
-      ? gzip.decode(req.bodyBytes)
-      : req.bodyBytes;
-  if (rawBytes.isEmpty) return const {};
-  return Map<String, dynamic>.from(jsonDecode(utf8.decode(rawBytes)) as Map);
-}
-
 void main() {
   late Directory tempDir;
   late SqliteNoteStore store;
@@ -121,38 +115,45 @@ void main() {
       var failConflict = false;
       final serverDocJson = _paperWithTextAndFile('server v9', att.id).toJson();
 
-      final mock = MockClient((req) async {
-        final body = _decodeJsonBody(req);
-        recorded.add((
-          method: req.method,
-          path: req.url.path,
-          encoding: req.headers['content-encoding'],
-          ifMatch: req.headers['if-match'],
-          body: body,
-        ));
+      final mock = AnnotationsApiContract(
+        onValid: (req, body) async {
+          recorded.add((
+            method: req.method,
+            path: req.url.path,
+            encoding: req.headers['content-encoding'],
+            ifMatch: req.headers['if-match'],
+            body: body ?? const {},
+          ));
 
-        if (req.method == 'GET' &&
-            req.url.path == '/apps/annotations/v1/me/notes/n1') {
+          if (req.method == 'GET' &&
+              req.url.path == '/apps/annotations/v1/me/notes/n1') {
+            return http.Response(
+              jsonEncode({
+                'note_id': 'n1',
+                'title': 'Note 1',
+                'revision': 9,
+                'schema': {
+                  'name': _paperSchema.name,
+                  'version': _paperSchema.version,
+                },
+                'document': serverDocJson,
+              }),
+              200,
+            );
+          }
+
+          if (failConflict) {
+            return http.Response(
+              jsonEncode({'error': 'revision_mismatch'}),
+              409,
+            );
+          }
           return http.Response(
-            jsonEncode({
-              'note_id': 'n1',
-              'title': 'Note 1',
-              'revision': 9,
-              'schema': {
-                'name': _paperSchema.name,
-                'version': _paperSchema.version,
-              },
-              'document': serverDocJson,
-            }),
+            jsonEncode({'revision': 2, 'note_id': 'n1'}),
             200,
           );
-        }
-
-        if (failConflict) {
-          return http.Response(jsonEncode({'error': 'revision_mismatch'}), 409);
-        }
-        return http.Response(jsonEncode({'revision': 2, 'note_id': 'n1'}), 200);
-      });
+        },
+      ).toMockClient();
 
       final service = NoteSyncService(
         store: store,
@@ -269,16 +270,18 @@ void main() {
               Map<String, dynamic> body,
             })
           >[];
-      final mock = MockClient((req) async {
-        calls.add((
-          method: req.method,
-          path: req.url.path,
-          query: req.url.query,
-          ifMatch: req.headers['if-match'],
-          body: _decodeJsonBody(req),
-        ));
-        return http.Response(jsonEncode({'ok': true}), 200);
-      });
+      final mock = AnnotationsApiContract(
+        onValid: (req, body) async {
+          calls.add((
+            method: req.method,
+            path: req.url.path,
+            query: req.url.query,
+            ifMatch: req.headers['if-match'],
+            body: body ?? const {},
+          ));
+          return http.Response(jsonEncode({'ok': true}), 200);
+        },
+      ).toMockClient();
 
       final service = NoteSyncService(
         store: store,
@@ -311,7 +314,11 @@ void main() {
         '/apps/annotations/v1/me/notes/n_pub/publication',
       );
       expect(calls.last.ifMatch, '"4"');
-      expect(calls.last.body['representation'], 'both');
+      expect(calls.last.body['language'], 'en');
+      expect(calls.last.body['representations'], {
+        'original': '1',
+        'typed': '1',
+      });
 
       await service.unpublishNote(
         'n_pub',
@@ -368,22 +375,24 @@ void main() {
               Map<String, dynamic> body,
             })
           >[];
-      final mock = MockClient((req) async {
-        calls.add((
-          method: req.method,
-          path: req.url.path,
-          ifMatch: req.headers['if-match'],
-          body: _decodeJsonBody(req),
-        ));
-        if (req.method == 'POST' &&
-            req.url.path == '/apps/annotations/v1/me/notes') {
-          return http.Response(
-            jsonEncode({'note_id': 'n_typed', 'revision': 1}),
-            201,
-          );
-        }
-        return http.Response(jsonEncode({'ok': true}), 200);
-      });
+      final mock = AnnotationsApiContract(
+        onValid: (req, body) async {
+          calls.add((
+            method: req.method,
+            path: req.url.path,
+            ifMatch: req.headers['if-match'],
+            body: body ?? const {},
+          ));
+          if (req.method == 'POST' &&
+              req.url.path == '/apps/annotations/v1/me/notes') {
+            return http.Response(
+              jsonEncode({'note_id': 'n_typed', 'revision': 1}),
+              201,
+            );
+          }
+          return http.Response(jsonEncode({'ok': true}), 200);
+        },
+      ).toMockClient();
 
       final api = ApiAdapter(
         client: mock,
@@ -422,7 +431,9 @@ void main() {
       expect(calls[4].method, 'PATCH');
       expect(calls[4].path, '/apps/annotations/v1/me/notes/n_typed');
       expect(calls[4].ifMatch, '"1"');
-      expect(calls[4].body['tags'], ['exam']);
+      expect(calls[4].body['metadata'], {
+        'tags': ['exam'],
+      });
     },
   );
 
@@ -477,6 +488,63 @@ void main() {
         await store.readAttachment(restoredFiles.first),
         Uint8List.fromList([9, 8, 7]),
       );
+    },
+  );
+
+  test(
+    'AnnotationsApiContract rejects legacy/unknown fields and missing If-Match',
+    () async {
+      final contract = AnnotationsApiContract(
+        onValid: (_, _) async => http.Response('{}', 200),
+      ).toMockClient();
+
+      final badNote = await contract.post(
+        Uri.parse('https://api.asodya.com/apps/annotations/v1/me/notes'),
+        headers: {'content-type': 'application/json'},
+        body: jsonEncode({'note_id': 'n1', 'title': 'Old'}),
+      );
+      expect(badNote.statusCode, 422);
+      expect(badNote.body, contains('unknown_field'));
+
+      final badFile = await contract.post(
+        Uri.parse('https://api.asodya.com/apps/annotations/v1/me/files'),
+        headers: {'content-type': 'application/json'},
+        body: jsonEncode({
+          'purpose': 'content_job',
+          'filename': 'a.pdf',
+          'content_type': 'application/pdf',
+          'size_bytes': 12,
+        }),
+      );
+      expect(badFile.statusCode, 422);
+      expect(badFile.body, contains('unknown_field'));
+
+      final badInstantFile = await contract.post(
+        Uri.parse(
+          'https://api.asodya.com/apps/annotations/v1/instant/ROOM1/files',
+        ),
+        headers: {'content-type': 'application/json'},
+        body: jsonEncode({
+          'filename': 'a.pdf',
+          'content_type': 'application/pdf',
+          'size_bytes': 12,
+        }),
+      );
+      expect(badInstantFile.statusCode, 422);
+      expect(badInstantFile.body, contains('unknown_field'));
+
+      final missingIfMatch = await contract.put(
+        Uri.parse(
+          'https://api.asodya.com/apps/annotations/v1/me/notes/n1/publication',
+        ),
+        headers: {'content-type': 'application/json'},
+        body: jsonEncode({
+          'language': 'en',
+          'representations': {'original': '1'},
+        }),
+      );
+      expect(missingIfMatch.statusCode, 428);
+      expect(missingIfMatch.body, contains('if_match_required'));
     },
   );
 }

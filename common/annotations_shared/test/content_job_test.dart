@@ -5,7 +5,8 @@ import 'package:annotations_shared/dal/remote/api_adapter.dart';
 import 'package:annotations_shared/domain/services/content_job_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
-import 'package:http/testing.dart';
+
+import 'support/annotations_api_contract.dart';
 
 void main() {
   test(
@@ -28,21 +29,24 @@ void main() {
             >[];
         var ssePollCount = 0;
 
-        final mock = MockClient((req) async {
-          requests.add((
-            method: req.method,
-            path: req.url.path,
-            query: Map<String, String>.from(req.url.queryParameters),
-            headers: Map<String, String>.from(req.headers),
-            body: req.body,
-          ));
-          if (req.method == 'POST' && req.url.path.endsWith('/me/files')) {
-            final body = jsonDecode(req.body) as Map<String, dynamic>;
-            expect(body['purpose'], 'content_job');
-            expect(body['filename'], 'a.pdf');
-            expect(body['content_type'], 'application/pdf');
-            return http.Response(jsonEncode({'file_id': 'f_sel_1'}), 201);
-          }
+        final mock = AnnotationsApiContract(
+          onValid: (req, body) async {
+            requests.add((
+              method: req.method,
+              path: req.url.path,
+              query: Map<String, String>.from(req.url.queryParameters),
+              headers: Map<String, String>.from(req.headers),
+              body: req.body,
+            ));
+            if (req.method == 'POST' && req.url.path.endsWith('/me/files')) {
+              expect(body?['purpose'], 'content_job');
+              expect(body?['filename'], 'a.pdf');
+              expect(body?['content_type'], 'application/pdf');
+              expect(body?['size'], isA<int>());
+              expect(body?['checksum'], matches(RegExp(r'^[0-9a-f]{64}$')));
+              expect(body?.containsKey('size_bytes'), isFalse);
+              return http.Response(jsonEncode({'file_id': 'f_sel_1'}), 201);
+            }
           if (req.method == 'PUT' &&
               req.url.path.endsWith('/me/files/f_sel_1/content')) {
             expect(req.bodyBytes, [1, 2, 3, 4]);
@@ -98,7 +102,8 @@ void main() {
             );
           }
           return http.Response('{}', 404);
-        });
+        },
+        ).toMockClient();
 
         final api = ApiAdapter(
           client: mock,

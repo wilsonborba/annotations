@@ -1,3 +1,5 @@
+import 'package:crypto/crypto.dart';
+
 import '../../dal/remote/api_adapter.dart';
 
 enum InstantSharingState {
@@ -310,6 +312,8 @@ class InstantRoomService {
     String contentType = 'application/octet-stream',
     required int sizeBytes,
     required Future<void> Function(String uploadId) uploadBytes,
+    String? checksum,
+    List<int>? bytes,
   }) async {
     if (!canEdit || roomCode == null) {
       throw StateError('Cannot upload while room is $state');
@@ -321,13 +325,16 @@ class InstantRoomService {
       );
     }
 
+    final resolvedChecksum =
+        checksum ?? sha256.convert(bytes ?? const <int>[]).toString();
     final staged = await api.request(
       '/instant/$roomCode/files',
       method: 'POST',
       body: {
         'filename': name,
         'content_type': contentType,
-        'size_bytes': sizeBytes,
+        'size': sizeBytes,
+        'checksum': resolvedChecksum,
       },
     );
     final fileId = '${staged['id'] ?? staged['file_id']}';
