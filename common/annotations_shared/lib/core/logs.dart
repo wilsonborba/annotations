@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import '../domain/services/native_auth_service.dart';
 import 'settings.dart';
 
 /// Console logs of the application: debug, info, warning and error.
@@ -10,9 +11,10 @@ enum LogLevel { debug, info, warning, error }
 
 void _write(LogLevel level, String module, String message) {
   if (level == LogLevel.debug && !Settings.current.development) return;
+  final clean = NativeAuthService.sanitizeForLog(message);
   debugPrint(
     '${DateTime.now().toUtc().toIso8601String()} '
-    '${level.name.toUpperCase()} ${Settings.appId} $module: $message',
+    '${level.name.toUpperCase()} ${Settings.appId} $module: $clean',
   );
 }
 

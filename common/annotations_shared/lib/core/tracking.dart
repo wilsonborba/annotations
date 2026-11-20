@@ -1,6 +1,7 @@
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import '../domain/services/native_auth_service.dart';
 import 'logs.dart';
 import 'settings.dart';
 import 'tracking_manifest.dart';
@@ -116,10 +117,14 @@ class ClientErrors {
       final detail =
           'error=${error.runtimeType}'
           '${httpStatus != null && httpStatus >= 100 && httpStatus <= 599 ? ' status=$httpStatus' : ''}';
-      final message =
-          'ref=$reference platform=$platform '
-          'screen=${tracker.currentScreen.name} '
-          'operation=${stripPrivatePaths(operation)}: $detail';
+      final cleanOp = NativeAuthService.sanitizeForLog(
+        stripPrivatePaths(operation),
+      );
+      final message = NativeAuthService.sanitizeForLog(
+        'ref=$reference platform=$platform '
+        'screen=${tracker.currentScreen.name} '
+        'operation=$cleanOp: $detail',
+      );
       tracker.error(message, null, type: type);
       if (referenceOf(error) == null &&
           error is! String &&
