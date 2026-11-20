@@ -10,6 +10,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
+import 'support/annotations_api_contract.dart';
+
 void main() {
   test(
     'uses status open/completed (never completed bool), persists task_card reference only in SqliteNoteStore, and marks remaining cards unavailable on delete',
@@ -41,39 +43,41 @@ void main() {
         final tasks = <String, Map<String, Object?>>{};
         var seq = 0;
 
-        final mock = MockClient((req) async {
-          if (req.method == 'POST' && req.url.path.endsWith('/me/tasks')) {
-            final id = 't_${++seq}';
-            final body = jsonDecode(req.body) as Map<String, dynamic>;
-            expect(body.containsKey('completed'), isFalse);
-            expect(body['status'], anyOf('open', 'completed'));
-            final t = {'task_id': id, ...body};
-            tasks[id] = t;
-            return http.Response(jsonEncode(t), 201);
-          }
-          if (req.method == 'PATCH' && req.url.path.contains('/me/tasks/')) {
-            final id = req.url.pathSegments.last;
-            final body = jsonDecode(req.body) as Map<String, dynamic>;
-            expect(body.containsKey('completed'), isFalse);
-            expect(body['status'], anyOf('open', 'completed'));
-            tasks[id] = {...?tasks[id], ...body};
-            return http.Response(jsonEncode(tasks[id]), 200);
-          }
-          if (req.method == 'GET' && req.url.path.contains('/me/tasks/')) {
-            final id = req.url.pathSegments.last;
-            final t = tasks[id];
-            if (t == null) {
-              return http.Response(jsonEncode({'error': 'not_found'}), 404);
+        final mock = AnnotationsApiContract(
+          onValid: (req, body) async {
+            if (req.method == 'POST' && req.url.path.endsWith('/me/tasks')) {
+              final id = 't_${++seq}';
+              final b = body ?? const <String, dynamic>{};
+              expect(b.containsKey('completed'), isFalse);
+              expect(b['status'], anyOf('open', 'completed'));
+              final t = {'task_id': id, ...b};
+              tasks[id] = t;
+              return http.Response(jsonEncode(t), 201);
             }
-            return http.Response(jsonEncode(t), 200);
-          }
-          if (req.method == 'DELETE' && req.url.path.contains('/me/tasks/')) {
-            final id = req.url.pathSegments.last;
-            tasks.remove(id);
-            return http.Response('{}', 200);
-          }
-          return http.Response('{}', 404);
-        });
+            if (req.method == 'PATCH' && req.url.path.contains('/me/tasks/')) {
+              final id = req.url.pathSegments.last;
+              final b = body ?? const <String, dynamic>{};
+              expect(b.containsKey('completed'), isFalse);
+              expect(b['status'], anyOf('open', 'completed'));
+              tasks[id] = {...?tasks[id], ...b};
+              return http.Response(jsonEncode(tasks[id]), 200);
+            }
+            if (req.method == 'GET' && req.url.path.contains('/me/tasks/')) {
+              final id = req.url.pathSegments.last;
+              final t = tasks[id];
+              if (t == null) {
+                return http.Response(jsonEncode({'error': 'not_found'}), 404);
+              }
+              return http.Response(jsonEncode(t), 200);
+            }
+            if (req.method == 'DELETE' && req.url.path.contains('/me/tasks/')) {
+              final id = req.url.pathSegments.last;
+              tasks.remove(id);
+              return http.Response('{}', 200);
+            }
+            return http.Response('{}', 404);
+          },
+        ).toMockClient();
 
         final api = ApiAdapter(
           client: mock,

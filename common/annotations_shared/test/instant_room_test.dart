@@ -6,6 +6,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
+import 'support/annotations_api_contract.dart';
+
 void main() {
   test(
     'PUT /instant/{code}, POST /items (rev 0), PUT /items/{id} (rev>0), 409 current_item refresh, 422 rule error, and 410 expiry',
@@ -199,37 +201,41 @@ void main() {
     'file upload reserves via POST /files, uploads bytes, checks allowance, and marks failed upload not ready',
     () async {
       final calls = <String>[];
-      final mock = MockClient((req) async {
-        calls.add('${req.method} ${req.url.path}');
-        if (req.method == 'PUT' && req.url.path.endsWith('/instant/ROOM99')) {
-          return http.Response(
-            jsonEncode({
-              'code': 'ROOM99',
-              'expires_at': 1700086400,
-              'revision': 1,
-              'schema_version': 1,
-              'document': {'items': []},
-              'item_revisions': {},
-              'max_file_bytes': 1000,
-              'max_ip_bytes': 1500,
-              'files': [],
-            }),
-            200,
-          );
-        }
-        if (req.method == 'POST' &&
-            req.url.path.endsWith('/instant/ROOM99/files')) {
-          final body = jsonDecode(req.body) as Map<String, dynamic>;
-          expect(body['filename'], isNotNull);
-          expect(body['content_type'], 'application/pdf');
-          return http.Response(jsonEncode({'id': 'file_1'}), 200);
-        }
-        if (req.method == 'PUT' &&
-            req.url.path.endsWith('/instant/ROOM99/files/file_1/content')) {
-          return http.Response(jsonEncode({'id': 'file_1'}), 200);
-        }
-        return http.Response('{}', 404);
-      });
+      final mock = AnnotationsApiContract(
+        onValid: (req, body) async {
+          calls.add('${req.method} ${req.url.path}');
+          if (req.method == 'PUT' && req.url.path.endsWith('/instant/ROOM99')) {
+            return http.Response(
+              jsonEncode({
+                'code': 'ROOM99',
+                'expires_at': 1700086400,
+                'revision': 1,
+                'schema_version': 1,
+                'document': {'items': []},
+                'item_revisions': {},
+                'max_file_bytes': 1000,
+                'max_ip_bytes': 1500,
+                'files': [],
+              }),
+              200,
+            );
+          }
+          if (req.method == 'POST' &&
+              req.url.path.endsWith('/instant/ROOM99/files')) {
+            expect(body?['filename'], isNotNull);
+            expect(body?['content_type'], 'application/pdf');
+            expect(body?['size'], isA<int>());
+            expect(body?['checksum'], matches(RegExp(r'^[0-9a-f]{64}$')));
+            expect(body?.containsKey('size_bytes'), isFalse);
+            return http.Response(jsonEncode({'id': 'file_1'}), 200);
+          }
+          if (req.method == 'PUT' &&
+              req.url.path.endsWith('/instant/ROOM99/files/file_1/content')) {
+            return http.Response(jsonEncode({'id': 'file_1'}), 200);
+          }
+          return http.Response('{}', 404);
+        },
+      ).toMockClient();
 
       final api = ApiAdapter(
         client: mock,

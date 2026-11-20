@@ -73,7 +73,10 @@ class NoteBackupService {
 
     var docJsonStr = jsonEncode(noteMap['document']);
     for (final entry in idMap.entries) {
-      docJsonStr = docJsonStr.replaceAll(jsonEncode(entry.key), jsonEncode(entry.value));
+      docJsonStr = docJsonStr.replaceAll(
+        jsonEncode(entry.key),
+        jsonEncode(entry.value),
+      );
     }
     final schema = DocumentSchema(
       '${noteMap['schema_name'] ?? DocumentFamily.original.schemaName}',
@@ -85,7 +88,8 @@ class NoteBackupService {
     );
 
     final restoredId =
-        newNoteId ?? '${noteMap['id']}_restored_${DateTime.now().millisecondsSinceEpoch}';
+        newNoteId ??
+        '${noteMap['id']}_restored_${DateTime.now().millisecondsSinceEpoch}';
     return store.save(
       LocalNoteDraft(
         id: restoredId,

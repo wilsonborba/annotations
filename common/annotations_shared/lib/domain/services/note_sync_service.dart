@@ -144,29 +144,42 @@ class NoteSyncService {
     final Map<String, String>? headers;
     final Map<String, dynamic> payload;
 
+    final repKey = note.schema.family == DocumentFamily.typed
+        ? 'typed'
+        : 'original';
+    final usePatch =
+        op != null && note.schema.family == DocumentFamily.original;
+
     if (isFirstUpload) {
       path = '/me/notes';
       method = 'POST';
       headers = null;
       payload = {
-        'note_id': note.id,
-        'title': note.title,
-        'schema': {'name': note.schema.name, 'version': note.schema.version},
-        'document': note.document.toJson(),
+        'client_note_id': note.id,
+        'main_representation': repKey,
+        if (note.title != null && note.title!.trim().isNotEmpty)
+          'metadata': {'title': note.title},
+        'representations': {
+          repKey: {
+            'schema_version': note.schema.version,
+            'document': note.document.toJson(),
+          },
+        },
       };
     } else {
       final rev = baseRevision ?? note.revision;
       path = '/me/notes/${note.id}';
-      method = op != null ? 'PATCH' : 'PUT';
+      method = usePatch ? 'PATCH' : 'PUT';
       headers = {'if-match': '"$rev"'};
-      payload = op != null
-          ? {'title': note.title, 'operation': op}
+      payload = usePatch
+          ? {
+              'original': op,
+              if (note.title != null && note.title!.trim().isNotEmpty)
+                'metadata': {'title': note.title},
+            }
           : {
-              'title': note.title,
-              'schema': {
-                'name': note.schema.name,
-                'version': note.schema.version,
-              },
+              'representation': repKey,
+              'schema_version': note.schema.version,
               'document': note.document.toJson(),
             };
     }
@@ -233,6 +246,9 @@ class NoteSyncService {
     required PublicationRepresentation representation,
     int publicationRevision = 0,
     bool allowRestrictedEmbeds = false,
+    String language = 'en',
+    String? originalRevisionId,
+    String? typedRevisionId,
   }) async {
     _requireOwner(note, accountId);
     final restricted = countRestrictedEmbeds(note.document);
@@ -243,11 +259,21 @@ class NoteSyncService {
       );
     }
 
+    final reps = <String, String>{};
+    if (representation == PublicationRepresentation.original ||
+        representation == PublicationRepresentation.both) {
+      reps['original'] = originalRevisionId ?? '${note.revision}';
+    }
+    if (representation == PublicationRepresentation.typed ||
+        representation == PublicationRepresentation.both) {
+      reps['typed'] = typedRevisionId ?? '${note.revision}';
+    }
+
     final resp = await api.request(
       '/me/notes/${note.id}/publication',
       method: 'PUT',
       headers: {'if-match': '"$publicationRevision"'},
-      body: {'representation': representation.code},
+      body: {'language': language, 'representations': reps},
       compress: true,
     );
     await store.setSync(
@@ -313,23 +339,38 @@ class NoteSyncService {
     required String title,
     required List<Map<String, Object?>> blocks,
     PublicationRepresentation representation = PublicationRepresentation.typed,
+    String language = 'en',
+    String? clientNoteId,
   }) async {
+    final cid =
+        clientNoteId ?? 'typed_${DateTime.now().microsecondsSinceEpoch}';
     final created = await api.request(
       '/me/notes',
       method: 'POST',
       body: {
-        'title': title,
-        'schema': {'name': DocumentFamily.typed.schemaName, 'version': 1},
-        'document': {'blocks': blocks},
+        'client_note_id': cid,
+        'main_representation': 'typed',
+        'metadata': {'title': title},
+        'representations': {
+          'typed': {
+            'schema_version': 1,
+            'document': {'blocks': blocks},
+          },
+        },
       },
       compress: true,
     );
     final noteId = '${created['note_id'] ?? created['id']}';
+    final repId =
+        '${created['typed_revision_id'] ?? created['revision_id'] ?? created['revision'] ?? 1}';
     return api.request(
       '/me/notes/$noteId/publication',
       method: 'PUT',
       headers: const {'if-match': '"0"'},
-      body: {'representation': representation.code},
+      body: {
+        'language': language,
+        'representations': {'typed': repId},
+      },
       compress: true,
     );
   }
@@ -441,7 +482,9 @@ class ProjectTagCatalog {
       '/me/notes/$noteId',
       method: 'PATCH',
       headers: {'if-match': '"$noteRevision"'},
-      body: {'tags': tagsForNote(noteId).toList()..sort()},
+      body: {
+        'metadata': {'tags': tagsForNote(noteId).toList()..sort()},
+      },
       compress: true,
     );
   }
