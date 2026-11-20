@@ -120,7 +120,6 @@ class LandingImage {
   final double ratio;
 
   String get asset => 'lib/presentation/frontend/assets/images/$file';
-  bool get svg => file.endsWith('.svg');
 }
 
 const _w169 = 16 / 9, _w43 = 4 / 3, _w32 = 3 / 2;
@@ -235,19 +234,12 @@ const landingImages = <String, LandingImage>{
     ImageKind.row,
     _w43,
   ),
-  'F09': LandingImage(
-    'F09',
-    'F09_tasks_todo_prompt.webp',
-    ImageKind.row,
-    _w43,
-    tall: true,
-  ),
+  'F09': LandingImage('F09', 'F09_tasks_todo_prompt.webp', ImageKind.row, _w43),
   'F10': LandingImage(
     'F10',
     'F10_handwriting_to_text.webp',
     ImageKind.row,
     _w43,
-    tall: true,
   ),
   'F11': LandingImage(
     'F11',
@@ -290,7 +282,6 @@ const landingImages = <String, LandingImage>{
     'H01_write_device_transit.webp',
     ImageKind.cardOf3,
     _w32,
-    tall: true,
   ),
   'H02': LandingImage(
     'H02',
@@ -309,7 +300,6 @@ const landingImages = <String, LandingImage>{
     'H04_instant_life_cafe_phones.webp',
     ImageKind.row,
     _w32,
-    tall: true,
   ),
   'H05': LandingImage(
     'H05',
@@ -343,25 +333,25 @@ const landingImages = <String, LandingImage>{
   ),
   'E02': LandingImage(
     'E02',
-    'E02_engineering_open_source_board.svg',
+    'E02_engineering_open_source_board.webp',
     ImageKind.row,
     _w32,
   ),
   'E03': LandingImage(
     'E03',
-    'E03_engineering_own_model_data.svg',
+    'E03_engineering_own_model_data.webp',
     ImageKind.row,
     _w32,
   ),
   'D01': LandingImage(
     'D01',
-    'D01_download_header_multidevice.svg',
+    'D01_download_header_multidevice.webp',
     ImageKind.row,
     _w169,
   ),
   'D02': LandingImage(
     'D02',
-    'D02_download_mac_linux_keyboard.svg',
+    'D02_download_mac_linux_keyboard.webp',
     ImageKind.row,
     _w32,
   ),
