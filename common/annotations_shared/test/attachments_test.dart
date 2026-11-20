@@ -8,8 +8,10 @@ import 'package:annotations_shared/domain/models/note_document.dart';
 import 'package:annotations_shared/domain/services/card_content.dart';
 import 'package:annotations_shared/domain/services/note_history.dart';
 import 'package:annotations_shared/domain/services/object_selection.dart';
+import 'package:annotations_shared/presentation/frontend/handlers/attachment_cache.dart';
 import 'package:annotations_shared/presentation/frontend/handlers/attachment_handler.dart';
 import 'package:annotations_shared/presentation/frontend/handlers/paper_handler.dart';
+import 'package:annotations_shared/presentation/frontend/handlers/pdf_page_renderer.dart';
 import 'package:annotations_shared/presentation/frontend/widgets/paper/paper_screen.dart';
 import 'package:file_selector/file_selector.dart' show XFile;
 import 'package:flutter/gestures.dart';
@@ -36,7 +38,16 @@ List<Map<String, Object?>> cards(PaperHandler h, String kind) => [
 ];
 
 void main() {
-  setUpAll(loadAppFonts);
+  late Directory pdfCache;
+  setUpAll(() async {
+    pdfCache = usePdfiumInTests();
+    await loadAppFonts();
+  });
+  tearDownAll(() => pdfCache.deleteSync(recursive: true));
+  // These tests place PDF cards without waiting for PDFium, whose answer
+  // comes outside the fake clock (pdf_page_test.dart covers drawing).
+  setUp(() => AttachmentCache.defaultPdfPageRenderer = (_, _) async => null);
+  tearDown(() => AttachmentCache.defaultPdfPageRenderer = renderFirstPdfPage);
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
   group('card content', () {
@@ -366,6 +377,7 @@ void main() {
       ('dark', Brightness.dark),
     ]) {
       testWidgets('review images, $mode', skip: review == null, (tester) async {
+        AttachmentCache.defaultPdfPageRenderer = renderFirstPdfPage;
         Future<void> shot(String name) => expectLater(
           find.byType(MaterialApp),
           matchesGoldenFile('$review/attachments_${name}_$mode.png'),
@@ -387,10 +399,19 @@ void main() {
         picks = [
           XFile(file('Lab report.docx', utf8.encode('report'))),
           XFile(file('plants.csv', csvBytes)),
-          XFile(file('chapter-3.pdf', pdfBytes)),
+          XFile(file('chapter-3.pdf', drawablePdfBytes)),
         ];
         await files.pick(at: const Offset(40, 360));
         await settle(tester);
+        // Wait for PDFium to draw the PDF card's first page.
+        final pdf = cards(paper, 'pdf_preview').single['file_id'] as String;
+        for (var i = 0; i < 200 && paper.files.image(pdf) == null; i++) {
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 20)),
+          );
+          await tester.pump();
+        }
+        expect(paper.files.image(pdf), isNotNull);
         await files.addLink(
           'https://www.youtube.com/watch?v=x',
           at: const Offset(40, 560),

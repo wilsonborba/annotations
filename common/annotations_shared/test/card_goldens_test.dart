@@ -41,7 +41,12 @@ const texts = {
 };
 
 void main() {
-  setUpAll(loadAppFonts);
+  late Directory pdfCache;
+  setUpAll(() async {
+    pdfCache = usePdfiumInTests();
+    await loadAppFonts();
+  });
+  tearDownAll(() => pdfCache.deleteSync(recursive: true));
 
   for (final (mode, brightness) in const [
     ('light', Brightness.light),
@@ -59,7 +64,7 @@ void main() {
         );
         store.put(csvBytes, name: 'plants.csv', type: 'text/csv', id: 'csv');
         store.put(
-          pdfBytes,
+          drawablePdfBytes,
           name: 'chapter-3.pdf',
           type: 'application/pdf',
           id: 'pdf',
@@ -72,16 +77,20 @@ void main() {
         );
         final files = AttachmentCache(store);
         addTearDown(files.dispose);
-        for (final id in ['pic', 'csv', 'pdf', 'doc']) {
-          files
-            ..info(id)
-            ..image(id)
-            ..csv(id)
-            ..pdf(id);
-        }
-        await tester.runAsync(
-          () => Future<void>.delayed(const Duration(milliseconds: 200)),
-        );
+        await tester.runAsync(() async {
+          for (final id in ['pic', 'csv', 'pdf', 'doc']) {
+            files
+              ..info(id)
+              ..image(id)
+              ..csv(id)
+              ..pdf(id);
+          }
+          // The PDF card shows its first page, drawn by PDFium.
+          for (var i = 0; i < 100 && files.image('pdf') == null; i++) {
+            await Future<void>.delayed(const Duration(milliseconds: 20));
+          }
+        });
+        expect(files.image('pdf'), isNotNull);
         final website = <String, Object?>{
           'kind': 'website_card',
           'url': 'https://biology.example.org/light',

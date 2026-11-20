@@ -6,6 +6,7 @@ import 'dart:typed_data';
 
 import 'package:annotations_shared/domain/models/local_note.dart';
 import 'package:annotations_shared/domain/services/local_note_store.dart';
+import 'package:pdfrx/pdfrx.dart' show Pdfrx;
 
 /// A 32 x 18 PNG (16:9).
 final previewPng = base64Decode(
@@ -20,6 +21,50 @@ final pdfBytes = Uint8List.fromList(
     '3 0 obj << /Type /Page /MediaBox [0 0 595 842] >> endobj\n%%EOF\n',
   ),
 );
+
+/// A real one-page A4 PDF that PDFium can draw: a blue band across the top
+/// and the words "Chapter 3" below it.
+final drawablePdfBytes = () {
+  const content =
+      '0 0 1 rg 0 742 595 100 re f\n'
+      'BT /F1 48 Tf 0 0 0 rg 72 600 Td (Chapter 3) Tj ET\n';
+  final objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] '
+        '/Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>',
+    '<< /Length ${content.length} >>\nstream\n${content}endstream',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+  ];
+  final out = StringBuffer('%PDF-1.4\n');
+  final offsets = <int>[];
+  for (var i = 0; i < objects.length; i++) {
+    offsets.add(out.length);
+    out.write('${i + 1} 0 obj\n${objects[i]}\nendobj\n');
+  }
+  final xref = out.length;
+  out.write('xref\n0 ${objects.length + 1}\n0000000000 65535 f \n');
+  for (final o in offsets) {
+    out.write('${o.toString().padLeft(10, '0')} 00000 n \n');
+  }
+  out.write(
+    'trailer << /Size ${objects.length + 1} /Root 1 0 R >>\n'
+    'startxref\n$xref\n%%EOF\n',
+  );
+  return Uint8List.fromList(latin1.encode(out.toString()));
+}();
+
+/// Widget tests have no path_provider plugin and no bundled native assets:
+/// gives PDFium a cache folder and the library that the build hook made.
+/// Returns the cache folder; delete it after the tests.
+Directory usePdfiumInTests() {
+  final cache = Directory.systemTemp.createTempSync('pdfrx_test_');
+  Pdfrx.cacheDirectoryPath = cache.path;
+  Pdfrx.pdfiumModulePath = File(
+    'build/native_assets/linux/libpdfium.so',
+  ).absolute.path;
+  return cache;
+}
 
 final csvBytes = Uint8List.fromList(
   utf8.encode(

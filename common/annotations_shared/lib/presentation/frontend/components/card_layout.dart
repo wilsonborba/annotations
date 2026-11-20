@@ -225,17 +225,32 @@ class CardLayout {
         final info = files?.info(fileId);
         // The page shape comes from the file when it is added.
         files?.pdf(fileId);
+        final page = files?.image(fileId);
         return CardLayout._(kind, width, null, (canvas, r) {
-          // The page itself, with its name and page count.
-          canvas.drawRect(r, Paint()..color = const Color(0xFFFFFFFF));
-          canvas.drawRect(
-            r,
-            Paint()
-              ..style = PaintingStyle.stroke
-              ..strokeWidth = 1
-              ..color = c.border,
-          );
-          final page = style.secondary.copyWith(color: const Color(0xFF5B6170));
+          final edge = Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1
+            ..color = c.border;
+          if (page != null) {
+            // The first page itself, drawn by the PDF renderer.
+            canvas.drawImageRect(
+              page,
+              Rect.fromLTWH(
+                0,
+                0,
+                page.width.toDouble(),
+                page.height.toDouble(),
+              ),
+              r,
+              Paint()..filterQuality = FilterQuality.medium,
+            );
+            canvas.drawRect(r, edge);
+            return;
+          }
+          // Until the page is drawn, or when it cannot be: the page shape,
+          // the file icon and the name, in the theme colors.
+          canvas.drawRect(r, Paint()..color = c.surface);
+          canvas.drawRect(r, edge);
           final side = math.min(32.0, r.shortestSide / 3);
           _icon(
             canvas,
@@ -246,10 +261,10 @@ class CardLayout {
               side,
               side,
             ),
-            const Color(0xFF5B6170),
+            c.iconSecondary,
           );
           final label = TextPainter(
-            text: TextSpan(text: info?.name ?? '', style: page),
+            text: TextSpan(text: info?.name ?? '', style: style.secondary),
             textAlign: TextAlign.center,
             textDirection: TextDirection.ltr,
             textScaler: TextScaler.noScaling,
