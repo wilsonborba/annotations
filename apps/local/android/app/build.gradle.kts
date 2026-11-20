@@ -42,3 +42,23 @@ android {
 flutter {
     source = "../.."
 }
+
+val buildKrillaAndroid by tasks.registering {
+    val repoRoot = file("../../../..")
+    val crateDir = file("../../../../native/pdf_krilla")
+    val script = file("../../../../scripts/build_pdf_krilla.sh")
+    val jniDir = file("src/main/jniLibs")
+    inputs.files(file("$crateDir/Cargo.toml"), file("$crateDir/src/lib.rs"), script)
+    outputs.dir(jniDir)
+    doLast {
+        exec {
+            workingDir = repoRoot
+            environment("ANDROID_NDK_ROOT", android.ndkDirectory.absolutePath)
+            commandLine("bash", script.absolutePath, "android")
+        }
+    }
+}
+
+tasks.named("preBuild") {
+    dependsOn(buildKrillaAndroid)
+}

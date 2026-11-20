@@ -101,11 +101,29 @@ install(FILES "${FLUTTER_ICU_DATA_FILE}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}
 install(FILES "${FLUTTER_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
   COMPONENT Runtime)
 
+# Build and bundle the Rust krilla PDF FFI library.
+set(KRILLA_CRATE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../native/pdf_krilla")
+set(KRILLA_BUILD_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/../../../scripts/build_pdf_krilla.sh")
+set(KRILLA_SO_PATH "${KRILLA_CRATE_DIR}/target/release/libpdf_krilla.so")
+add_custom_command(
+  OUTPUT "${KRILLA_SO_PATH}"
+  COMMAND "${KRILLA_BUILD_SCRIPT}" linux
+  WORKING_DIRECTORY "${KRILLA_CRATE_DIR}"
+  DEPENDS "${KRILLA_CRATE_DIR}/Cargo.toml" "${KRILLA_CRATE_DIR}/src/lib.rs" "${KRILLA_BUILD_SCRIPT}"
+  COMMENT "Building libpdf_krilla.so via scripts/build_pdf_krilla.sh"
+)
+add_custom_target(krilla_pdf_native ALL DEPENDS "${KRILLA_SO_PATH}")
+add_dependencies(${BINARY_NAME} krilla_pdf_native)
+
 foreach(bundled_library ${PLUGIN_BUNDLED_LIBRARIES})
   install(FILES "${bundled_library}"
     DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
     COMPONENT Runtime)
 endforeach(bundled_library)
+
+install(FILES "${KRILLA_SO_PATH}"
+  DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
+  COMPONENT Runtime)
 
 # Copy the native assets provided by the build.dart from all packages.
 set(NATIVE_ASSETS_DIR "${PROJECT_BUILD_DIR}native_assets/linux/")

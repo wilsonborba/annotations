@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+"$ROOT_DIR/../../scripts/build_pdf_krilla.sh" wasm
 cd "$ROOT_DIR"
 flutter build web --release --base-href / --no-web-resources-cdn \
   --dart-define=API_BASE_URL="${API_BASE_URL:-https://api.asodya.com/apps/annotations/v1}" \
