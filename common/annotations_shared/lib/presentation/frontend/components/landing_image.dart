@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 
 import '../../../core/landing_settings.dart';
 import 'tokens.dart';
@@ -26,21 +25,13 @@ class LandingPicture extends StatelessWidget {
     // whole inside it, so a page keeps its layout for any file.
     final picture = AspectRatio(
       aspectRatio: image.ratio,
-      child: image.svg
-          ? SvgPicture.asset(
-              image.asset,
-              package: 'annotations_shared',
-              fit: BoxFit.contain,
-              excludeFromSemantics: true,
-              errorBuilder: missing,
-            )
-          : Image.asset(
-              image.asset,
-              package: 'annotations_shared',
-              fit: BoxFit.contain,
-              excludeFromSemantics: true,
-              errorBuilder: missing,
-            ),
+      child: Image.asset(
+        image.asset,
+        package: 'annotations_shared',
+        fit: BoxFit.contain,
+        excludeFromSemantics: true,
+        errorBuilder: missing,
+      ),
     );
     final shown = ClipRRect(
       key: Key('image-$id'),
