@@ -406,7 +406,7 @@ class AppWindowFrame extends StatelessWidget {
         children: [
           title,
           const Spacer(),
-          for (final glyph in ['–'.replaceAll('–', '_'), '□', '×'])
+          for (final glyph in const ['_', '\u25A1', '\u00D7'])
             Padding(
               padding: const EdgeInsets.only(left: 14),
               child: Text(glyph, style: TextStyle(color: c.textSecondary)),

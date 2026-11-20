@@ -919,7 +919,11 @@ void main() {
       expect(value, hasLength(3), reason: key);
       for (final text in value) {
         expect(text.trim(), isNotEmpty, reason: key);
-        expect(text.contains('—') || text.contains('–'), isFalse, reason: key);
+        expect(
+          text.contains('\u2014') || text.contains('\u2013'),
+          isFalse,
+          reason: key,
+        );
       }
     }
   });
