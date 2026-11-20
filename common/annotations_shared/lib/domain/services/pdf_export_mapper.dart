@@ -2,10 +2,12 @@ import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
 import '../models/note_document.dart';
+import 'krilla_pdf_backend.dart';
 
 enum PdfExportMode { original, typed, both }
 
@@ -82,11 +84,13 @@ final class PdfExportOutput {
   final PdfPreflightResult preflight;
   final List<PdfNamedFile> pdfs;
   final List<PdfCompanionFile> companions;
+  final String engine;
 
   const PdfExportOutput({
     required this.preflight,
     required this.pdfs,
     this.companions = const [],
+    this.engine = 'pdf',
   });
 }
 
@@ -238,6 +242,21 @@ class PdfExportMapper {
     return breaks;
   }
 
+  Future<Uint8List?> _tryLoadBundledFont(String fileName) async {
+    for (final path in [
+      'packages/annotations_shared/lib/presentation/frontend/assets/fonts/$fileName',
+      'lib/presentation/frontend/assets/fonts/$fileName',
+    ]) {
+      try {
+        final data = await rootBundle.load(path);
+        return data.buffer.asUint8List();
+      } on Object {
+        // Ignore and try next asset path.
+      }
+    }
+    return null;
+  }
+
   Future<PdfExportOutput> export({
     required String title,
     required String slug,
@@ -250,6 +269,8 @@ class PdfExportMapper {
     pw.Font? baseFont,
     pw.Font? boldFont,
     pw.Font? thaiFont,
+    Uint8List? regularFontBytes,
+    Uint8List? boldFontBytes,
   }) async {
     final pre = preflight(
       original: original,
@@ -263,40 +284,393 @@ class PdfExportMapper {
       return PdfExportOutput(preflight: pre, pdfs: const []);
     }
 
+    final krillaReady = await KrillaPdfBackend.isAvailable();
+    final resolvedRegular = krillaReady
+        ? (regularFontBytes ??
+            await _tryLoadBundledFont('IBMPlexSansThai-Regular.ttf'))
+        : null;
+    final resolvedBold = krillaReady
+        ? (boldFontBytes ??
+            await _tryLoadBundledFont('IBMPlexSansThai-Bold.ttf'))
+        : null;
+    final useKrilla = krillaReady && resolvedRegular != null;
+
     final pdfs = <PdfNamedFile>[];
     final companions = <PdfCompanionFile>[];
 
     if ((options.mode == PdfExportMode.original ||
             options.mode == PdfExportMode.both) &&
         original != null) {
-      final bytes = await _buildOriginalPdf(
-        title: title,
-        document: original,
-        options: options,
-        attachments: attachments,
-        companions: companions,
-        baseFont: baseFont,
-        boldFont: boldFont,
-        thaiFont: thaiFont,
-      );
+      final bytes = useKrilla
+          ? await _buildOriginalPdfKrilla(
+              title: title,
+              document: original,
+              options: options,
+              attachments: attachments,
+              companions: companions,
+              regularFontBytes: resolvedRegular,
+              boldFontBytes: resolvedBold,
+            )
+          : await _buildOriginalPdf(
+              title: title,
+              document: original,
+              options: options,
+              attachments: attachments,
+              companions: companions,
+              baseFont: baseFont,
+              boldFont: boldFont,
+              thaiFont: thaiFont,
+            );
       pdfs.add(PdfNamedFile(filename: '$slug-original.pdf', bytes: bytes));
     }
 
     if ((options.mode == PdfExportMode.typed ||
             options.mode == PdfExportMode.both) &&
         typed != null) {
-      final bytes = await _buildTypedPdf(
-        title: title,
-        document: typed,
-        options: options,
-        baseFont: baseFont,
-        boldFont: boldFont,
-        thaiFont: thaiFont,
-      );
+      final bytes = useKrilla
+          ? await _buildTypedPdfKrilla(
+              title: title,
+              document: typed,
+              options: options,
+              regularFontBytes: resolvedRegular,
+              boldFontBytes: resolvedBold,
+            )
+          : await _buildTypedPdf(
+              title: title,
+              document: typed,
+              options: options,
+              baseFont: baseFont,
+              boldFont: boldFont,
+              thaiFont: thaiFont,
+            );
       pdfs.add(PdfNamedFile(filename: '$slug-typed.pdf', bytes: bytes));
     }
 
-    return PdfExportOutput(preflight: pre, pdfs: pdfs, companions: companions);
+    return PdfExportOutput(
+      preflight: pre,
+      pdfs: pdfs,
+      companions: companions,
+      engine: useKrilla ? 'krilla' : 'pdf',
+    );
+  }
+
+  String _itemTextSummary(
+    Map<String, dynamic> item, {
+    required String kind,
+    required PdfExportOptions options,
+  }) {
+    if (kind == 'report_embed') {
+      final visibility = '${item['visibility'] ?? 'public'}';
+      if (options.audience == PdfAudience.public && visibility != 'public') {
+        return 'Restricted content (lock notice)';
+      }
+      return 'Report snapshot: ${item['title'] ?? item['ref_id'] ?? 'chart'}';
+    }
+    if (kind == 'task') {
+      final taskTitle = '${item['title'] ?? 'Task'}';
+      final status = '${item['status'] ?? 'open'}';
+      final link =
+          options.audience == PdfAudience.public && item['public_url'] != null
+          ? ' | ${item['public_url']}'
+          : '';
+      return 'Task: $taskTitle [$status]$link';
+    }
+    if (kind == 'quiz') {
+      final quizTitle = '${item['title'] ?? 'Quiz'}';
+      final count = item['question_count'] ?? 0;
+      final link =
+          options.audience == PdfAudience.public && item['public_url'] != null
+          ? ' | ${item['public_url']}'
+          : '';
+      return 'Quiz: $quizTitle ($count questions)$link';
+    }
+    if (kind == 'text') {
+      final spans = (item['spans'] as List?) ?? const [];
+      return spans.map((s) => s is Map ? '${s['text'] ?? ''}' : '$s').join();
+    }
+    return '${item['name'] ?? item['title'] ?? kind}';
+  }
+
+  Future<Uint8List> _buildOriginalPdfKrilla({
+    required String title,
+    required NoteDocument document,
+    required PdfExportOptions options,
+    required Map<String, Uint8List> attachments,
+    required List<PdfCompanionFile> companions,
+    required Uint8List regularFontBytes,
+    Uint8List? boldFontBytes,
+  }) async {
+    final format = options.pageFormat;
+    final printableW = format.width - marginPt * 2;
+    final printableH = format.height - marginPt * 2;
+
+    final json = document.toJson();
+    final pageMap = (json['page'] as Map?) ?? const {};
+    final canvasW = ((pageMap['width'] as num?)?.toDouble() ?? 1000.0).clamp(
+      200.0,
+      4000.0,
+    );
+    final scale = printableW / canvasW;
+
+    final rawItems = ((json['items'] as List?) ?? const [])
+        .map((e) => Map<String, dynamic>.from(e as Map))
+        .toList();
+
+    final scaledPrintableH = printableH / scale;
+    final breaks = computeOriginalPageBreaks(
+      items: rawItems,
+      printableHeight: scaledPrintableH,
+    );
+
+    final pagesOut = <Map<String, dynamic>>[];
+    for (var p = 0; p < breaks.length; p++) {
+      final yStart = breaks[p];
+      final yEnd = p + 1 < breaks.length ? breaks[p + 1] : double.infinity;
+      final pageItems = [
+        for (final it in rawItems)
+          if (((it['y'] as num?)?.toDouble() ?? 0.0) >= yStart &&
+              ((it['y'] as num?)?.toDouble() ?? 0.0) < yEnd)
+            it,
+      ];
+      if (pageItems.isEmpty && p > 0) continue;
+
+      final rects = <Map<String, dynamic>>[];
+      final strokes = <Map<String, dynamic>>[];
+      final runs = <Map<String, dynamic>>[];
+
+      var contentTop = marginPt;
+      if (p == 0 && title.isNotEmpty) {
+        runs.add({
+          'text': title,
+          'x': marginPt,
+          'y': marginPt + 16.0,
+          'max_width': printableW,
+          'font_size': 16.0,
+          'line_height': 22.0,
+          'bold': true,
+        });
+        contentTop += 28.0;
+      }
+
+      final hasOversized = pageItems.any(
+        (it) => ((it['height'] as num?)?.toDouble() ?? 40.0) > scaledPrintableH,
+      );
+
+      if (hasOversized) {
+        final item = pageItems.first;
+        final id = '${item['id'] ?? 'item'}';
+        final fileId = item['file_id'] as String?;
+        final companionName = 'companion-$id.json';
+        final payloadBytes = fileId != null && attachments.containsKey(fileId)
+            ? attachments[fileId]!
+            : Uint8List.fromList(utf8.encode(jsonEncode(item)));
+        companions.add(
+          PdfCompanionFile(filename: companionName, bytes: payloadBytes),
+        );
+        final publicLink =
+            options.publicBaseUrl != null &&
+                options.audience == PdfAudience.public
+            ? '${options.publicBaseUrl}/items/$id'
+            : null;
+        rects.add({
+          'x': marginPt,
+          'y': contentTop,
+          'width': printableW,
+          'height': printableH - (contentTop - marginPt),
+          'stroke_width': 1.0,
+          'gray': 120,
+        });
+        runs.add({
+          'text': 'Preview, see full content',
+          'x': marginPt + 12.0,
+          'y': contentTop + 24.0,
+          'max_width': printableW - 24.0,
+          'font_size': 13.0,
+          'line_height': 18.0,
+          'bold': true,
+        });
+        runs.add({
+          'text': 'Item: $id (${item['kind'] ?? 'object'})',
+          'x': marginPt + 12.0,
+          'y': contentTop + 52.0,
+          'max_width': printableW - 24.0,
+          'font_size': 11.0,
+          'line_height': 16.0,
+        });
+        runs.add({
+          'text': publicLink != null
+              ? 'Full content link: $publicLink'
+              : 'Companion file: $companionName',
+          'x': marginPt + 12.0,
+          'y': contentTop + 76.0,
+          'max_width': printableW - 24.0,
+          'font_size': 11.0,
+          'line_height': 16.0,
+        });
+      } else {
+        for (final item in pageItems) {
+          final x =
+              marginPt +
+              math.max(0.0, ((item['x'] as num?)?.toDouble() ?? 0.0) * scale);
+          final y =
+              contentTop +
+              math.max(
+                0.0,
+                (((item['y'] as num?)?.toDouble() ?? 0.0) - yStart) * scale,
+              );
+          final w = math.max(
+            24.0,
+            ((item['width'] as num?)?.toDouble() ?? 160.0) * scale,
+          );
+          final h = math.max(
+            18.0,
+            ((item['height'] as num?)?.toDouble() ?? 40.0) * scale,
+          );
+          final kind = '${item['kind'] ?? 'text'}';
+
+          if (kind != 'text' && kind != 'ink' && kind != 'stroke') {
+            rects.add({
+              'x': x,
+              'y': y,
+              'width': w,
+              'height': h,
+              'stroke_width': 0.8,
+              'gray': 170,
+            });
+          }
+
+          if (kind == 'ink' || kind == 'stroke') {
+            final rawPts =
+                (item['points'] as List?) ??
+                ((item['strokes'] as List?)?.firstOrNull is Map
+                    ? ((item['strokes'] as List).first as Map)['points']
+                          as List?
+                    : null) ??
+                const [];
+            if (rawPts.length >= 2) {
+              final poly = <List<double>>[];
+              for (final pt in rawPts) {
+                final px = pt is Map
+                    ? (pt['x'] as num).toDouble()
+                    : (pt[0] as num).toDouble();
+                final py = pt is Map
+                    ? (pt['y'] as num).toDouble()
+                    : (pt[1] as num).toDouble();
+                poly.add([x + px, y + py]);
+              }
+              strokes.add({'points': poly, 'width': 1.2});
+            }
+          } else {
+            final summary = _itemTextSummary(item, kind: kind, options: options);
+            final isRestricted =
+                kind == 'report_embed' &&
+                options.audience == PdfAudience.public &&
+                '${item['visibility'] ?? 'public'}' != 'public';
+            final fontSize = kind == 'text' ? 10.0 : 9.0;
+            runs.add({
+              'text': summary,
+              'x': x + 4.0,
+              'y': y + 4.0 + fontSize,
+              'max_width': math.max(20.0, w - 8.0),
+              'font_size': fontSize,
+              'line_height': fontSize * 1.4,
+              'muted': isRestricted,
+            });
+          }
+        }
+      }
+      pagesOut.add({'rects': rects, 'strokes': strokes, 'runs': runs});
+    }
+
+    final payload = jsonEncode({
+      'title': title,
+      'paper_width': format.width,
+      'paper_height': format.height,
+      'margin': marginPt,
+      'mode': 'pages',
+      'pages': pagesOut,
+    });
+    final rendered = await KrillaPdfBackend.renderPdf(
+      modelJsonBytes: Uint8List.fromList(utf8.encode(payload)),
+      regularFontBytes: regularFontBytes,
+      boldFontBytes: boldFontBytes,
+    );
+    if (rendered == null) {
+      throw StateError('KrillaPdfBackend returned null for Original PDF');
+    }
+    return rendered;
+  }
+
+  Future<Uint8List> _buildTypedPdfKrilla({
+    required String title,
+    required NoteDocument document,
+    required PdfExportOptions options,
+    required Uint8List regularFontBytes,
+    Uint8List? boldFontBytes,
+  }) async {
+    final format = options.pageFormat;
+    final rawBlocks = ((document.toJson()['blocks'] as List?) ?? const [])
+        .map((e) => Map<String, dynamic>.from(e as Map))
+        .toList();
+
+    final blocksOut = <Map<String, dynamic>>[];
+    for (final b in rawBlocks) {
+      final kind = '${b['kind'] ?? b['type'] ?? 'paragraph'}';
+      final spans = (b['spans'] as List?) ?? const [];
+      final text = spans.isNotEmpty
+          ? spans.map((s) => s is Map ? '${s['text'] ?? ''}' : '$s').join()
+          : '${b['text'] ?? ''}';
+      if (kind == 'heading' || kind == 'h1' || kind == 'h2' || kind == 'h3') {
+        blocksOut.add({
+          'kind': kind,
+          'text': text,
+          'font_size': 14.0,
+          'line_height': 20.0,
+          'bold': true,
+          'keep_with_next': true,
+          'space_after': 6.0,
+        });
+      } else if (kind == 'report_embed' || kind == 'task' || kind == 'quiz') {
+        final isRestricted =
+            kind == 'report_embed' &&
+            options.audience == PdfAudience.public &&
+            '${b['visibility'] ?? 'public'}' != 'public';
+        blocksOut.add({
+          'kind': kind,
+          'text': _itemTextSummary(b, kind: kind, options: options),
+          'font_size': 9.5,
+          'line_height': 14.0,
+          'muted': isRestricted,
+          'space_after': 6.0,
+        });
+      } else {
+        blocksOut.add({
+          'kind': kind,
+          'text': text,
+          'font_size': 11.0,
+          'line_height': 16.5,
+          'space_after': 6.0,
+        });
+      }
+    }
+
+    final payload = jsonEncode({
+      'title': title,
+      'paper_width': format.width,
+      'paper_height': format.height,
+      'margin': marginPt,
+      'mode': 'flow',
+      'blocks': blocksOut,
+    });
+    final rendered = await KrillaPdfBackend.renderPdf(
+      modelJsonBytes: Uint8List.fromList(utf8.encode(payload)),
+      regularFontBytes: regularFontBytes,
+      boldFontBytes: boldFontBytes,
+    );
+    if (rendered == null) {
+      throw StateError('KrillaPdfBackend returned null for Typed PDF');
+    }
+    return rendered;
   }
 
   pw.ThemeData? _theme(

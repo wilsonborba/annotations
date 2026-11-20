@@ -7,6 +7,10 @@ license = "MIT OR Apache-2.0"
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[[bin]]
+name = "pdf_krilla_cli"
+path = "src/main.rs"
+
 [dependencies]
 krilla = "0.7.0"
 icu_segmenter = "2.4.0"

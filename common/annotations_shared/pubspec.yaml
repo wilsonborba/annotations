@@ -34,6 +34,7 @@ dev_dependencies:
 flutter:
   assets:
     - lib/presentation/frontend/assets/images/
+    - lib/presentation/frontend/assets/wasm/
     - lib/presentation/frontend/assets/icons/LICENSE
     - lib/presentation/frontend/assets/icons/NOTICE
     - lib/presentation/frontend/assets/fonts/UbuntuSans-LICENCE.txt
