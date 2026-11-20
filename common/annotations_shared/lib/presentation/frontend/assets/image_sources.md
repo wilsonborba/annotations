@@ -8,7 +8,7 @@ Every image in `images/` with a slot id (O, F, H, E, D, S) is free to use withou
 | D02 | D02_download_mac_linux_keyboard.webp | 1024x682 | https://www.rawpixel.com/image/5963787/free-public-domain-cc0-photo | unknown | CC0 1.0 | rawpixel | 2026-11-20 |
 | D03 | D03_download_iphone_ipad_devices.webp | 960x640 | https://stocksnap.io/photo/macbook-laptop-CTU3FDVBRU | Jeffrey Betts | CC0 1.0 | stocksnap | 2026-11-20 |
 | E01 | E01_engineering_header_blueprint.webp | 960x540 | https://stocksnap.io/photo/construction-blueprint-BZ4FJO6KZE | Burst | CC0 1.0 | stocksnap | 2026-11-20 |
-| E02 | E02_engineering_open_source_board.webp | 960x640 | https://stocksnap.io/photo/whiteboard-webdesign-NUEH6AWK1X | Christina Morillo | CC0 1.0 | stocksnap | 2026-11-20 |
+| E02 | E02_engineering_open_source_board.webp | 1024x682 | https://www.rawpixel.com/image/5907619/photo-image-paper-sticky-notes-public-domain | unknown | CC0 1.0 | rawpixel | 2026-11-20 |
 | E03 | E03_engineering_own_model_data.webp | 1021x681 | https://www.rawpixel.com/image/5920366/photo-image-background-paper-book | unknown | CC0 1.0 | rawpixel | 2026-11-20 |
 | F01 | F01_digital_paper_desk.webp | 853x640 | https://stocksnap.io/photo/clipboard-desk-VXAISJRBH9 | Design by Matt | CC0 1.0 | stocksnap | 2026-11-20 |
 | F02 | F02_type_and_draw_keyboard.webp | 850x638 | https://stocksnap.io/photo/office-desk-HGHZU9412Q | Lukasz Kowalewski | CC0 1.0 | stocksnap | 2026-11-20 |
@@ -18,7 +18,7 @@ Every image in `images/` with a slot id (O, F, H, E, D, S) is free to use withou
 | F06 | F06_backgrounds_notebooks.webp | 853x640 | https://stocksnap.io/photo/notebook-paper-JLXDNN5BNE | Angelina Litvin | CC0 1.0 | stocksnap | 2026-11-20 |
 | F07 | F07_cards_clipped_notes.webp | 978x734 | https://www.rawpixel.com/image/6026675/photo-image-paper-public-domain-black | unknown | CC0 1.0 | rawpixel | 2026-11-20 |
 | F08 | F08_reports_charts_graphs.webp | 904x678 | https://www.rawpixel.com/image/5966857/charts-paper-laptop-desk-wood | unknown | CC0 1.0 | rawpixel | 2026-11-20 |
-| F09 | F09_tasks_todo_prompt.webp | 853x640 | https://stocksnap.io/photo/todo-list-TVEUBLIOSK | Freestocks.org | CC0 1.0 | stocksnap | 2026-11-20 |
+| F09 | F09_tasks_todo_prompt.webp | 910x683 | https://www.rawpixel.com/image/463174/free-photo-image-coffee-office-desk-cc0 | Markus Spiske | CC0 1.0 | rawpixel | 2026-11-20 |
 | F10 | F10_handwriting_to_text.webp | 853x640 | https://stocksnap.io/photo/old-letter-RTWDIS7HNU | Vintage RS | CC0 1.0 | stocksnap | 2026-11-20 |
 | F11 | F11_pdf_and_print_stack.webp | 905x679 | https://www.rawpixel.com/image/5958436/free-public-domain-cc0-photo | unknown | CC0 1.0 | rawpixel | 2026-11-20 |
 | F12 | F12_quizzes_laptop_study.webp | 853x640 | https://stocksnap.io/photo/laptop-apple-BUFBDV2NQW | Stanley Dai | CC0 1.0 | stocksnap | 2026-11-20 |
@@ -46,4 +46,4 @@ Every image in `images/` with a slot id (O, F, H, E, D, S) is free to use withou
 | O10 | O10_training_notice_band_pages.webp | 2048x877 | https://wordpress.org/photos/photo/632620a981/ | David Chandra Purnama | CC0 1.0 | wordpress | 2026-11-20 |
 | S01 | S01_app_note_not_found_empty.webp | 800x800 | https://clevelandart.org/art/2000.72.1 | Duncan Phyfe and Son (American, 1768 to 1854) | CC0 1.0 | clevelandmuseum | 2026-11-20 |
 | S02 | S02_app_instant_room_expired.webp | 800x800 | https://wordpress.org/photos/photo/19168a8378/ | kavita1990 | CC0 1.0 | wordpress | 2026-11-20 |
-| S03 | S03_app_no_search_results_empty.webp | 800x800 | https://wordpress.org/photos/photo/476a1429b6/ | Manjil Aryal | CC0 1.0 | wordpress | 2026-11-20 |
+| S03 | S03_app_no_search_results_empty.webp | 679x679 | https://www.rawpixel.com/image/6030447/photo-image-paper-public-domain-lines | unknown | CC0 1.0 | rawpixel | 2026-11-20 |
