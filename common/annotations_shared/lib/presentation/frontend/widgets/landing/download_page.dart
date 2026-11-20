@@ -8,10 +8,11 @@ import '../../components/icons.dart';
 import '../../components/scope.dart';
 import '../../components/tokens.dart';
 import 'landing_blocks.dart';
+import 'landing_sections.dart';
 
-/// Download, /v1/home/download (H6 section 3 point 9): one card per
-/// platform with its status; a released card also shows the version, the
-/// date and the checksum. Mac and Linux keep the copy commands.
+/// Download, /v1/home/download (H6 section 3 point 9, owner direction
+/// 2026-11-20): the install block of every platform with its status, its
+/// steps and its copy command, the public source and the update steps.
 class DownloadPage extends StatelessWidget {
   const DownloadPage({super.key, this.releases = LandingSettings.releases});
 
@@ -19,90 +20,31 @@ class DownloadPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    PlatformRelease of(DownloadPlatform p) =>
-        releases[p] ?? const PlatformRelease();
     final text = Theme.of(context).textTheme;
     return LandingBody(
       children: [
-        ImageRow(
-          image: 'D01',
-          imageRight: true,
-          child: RowText(
-            page: true,
-            title: context.tr('downloadTitle'),
-            lead: context.tr('downloadLead'),
-            children: [
-              Text(context.tr('downloadSource'), style: text.bodyMedium),
-            ],
-          ),
-        ),
-        ImageRow(
-          image: 'D02',
-          imageRight: false,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              for (final platform in const [
-                DownloadPlatform.mac,
-                DownloadPlatform.linux,
-              ]) ...[
-                PlatformCard(
-                  platform: platform,
-                  release: of(platform),
-                  children: [
-                    if (of(platform).installCommand != null)
-                      CommandBox(
-                        title: context.tr('installCommand'),
-                        command: of(platform).installCommand!,
-                        platform: platform,
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-              ],
-              CommandBox(
-                key: const Key('source-command'),
-                title: context.tr('sourceCommand'),
-                command: LandingSettings.cloneCommand,
-              ),
-            ],
-          ),
-        ),
-        PlatformCard(
-          platform: DownloadPlatform.android,
-          release: of(DownloadPlatform.android),
+        RowText(
+          page: true,
+          title: context.tr('downloadTitle'),
+          lead: context.tr('downloadLead'),
           children: [
-            Text(context.tr('androidStepsTitle'), style: text.titleSmall),
-            for (final (i, step) in const [
-              'androidStep1',
-              'androidStep2',
-              'androidStep3',
-            ].indexed)
-              Padding(
-                padding: const EdgeInsets.only(top: 6),
-                child: Text(
-                  '${i + 1}. ${context.tr(step)}',
-                  style: text.bodyMedium,
-                ),
-              ),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: TextLink(
-                key: const Key('releases-page'),
-                label: context.tr('releasesPage'),
-                url: LandingSettings.releasesPage,
-                trackId: 'download.releases.open',
+            Text(context.tr('downloadSource'), style: text.bodyMedium),
+          ],
+        ),
+        InstallGrid(releases: releases, detailed: true),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SectionTitle(context.tr('sourceCommand')),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 640),
+              child: CommandBox(
+                key: const Key('source-command'),
+                title: context.tr('repoLink'),
+                command: LandingSettings.cloneCommand,
               ),
             ),
           ],
-        ),
-        ImageRow(
-          image: 'D03',
-          imageRight: true,
-          child: PlatformCard(
-            platform: DownloadPlatform.iosIpados,
-            release: of(DownloadPlatform.iosIpados),
-          ),
         ),
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -111,84 +53,27 @@ class DownloadPage extends StatelessWidget {
               context.tr('updateTitle'),
               lead: context.tr('updateText'),
             ),
-            TextLink(
-              key: const Key('download-repo'),
-              label: context.tr('repoLink'),
-              url: LandingSettings.app.url,
-              trackId: 'download.repo.open',
+            Wrap(
+              spacing: 24,
+              runSpacing: 8,
+              children: [
+                TextLink(
+                  key: const Key('releases-page'),
+                  label: context.tr('releasesPage'),
+                  url: LandingSettings.releasesPage,
+                  trackId: 'download.releases.open',
+                ),
+                TextLink(
+                  key: const Key('download-repo'),
+                  label: context.tr('repoLink'),
+                  url: LandingSettings.app.url,
+                  trackId: 'download.repo.open',
+                ),
+              ],
             ),
           ],
         ),
       ],
-    );
-  }
-}
-
-/// One platform: its name, its status and, when released, the version, the
-/// date and the checksum.
-class PlatformCard extends StatelessWidget {
-  const PlatformCard({
-    super.key,
-    required this.platform,
-    required this.release,
-    this.children = const [],
-  });
-
-  final DownloadPlatform platform;
-  final PlatformRelease release;
-  final List<Widget> children;
-
-  static const names = {
-    DownloadPlatform.mac: 'platformMac',
-    DownloadPlatform.linux: 'platformLinux',
-    DownloadPlatform.android: 'platformAndroid',
-    DownloadPlatform.iosIpados: 'platformIos',
-  };
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    final text = Theme.of(context).textTheme;
-    // iPhone and iPad are not available to the public yet (X1).
-    final status = platform == DownloadPlatform.iosIpados
-        ? 'statusIos'
-        : release.released
-        ? 'statusReleased'
-        : 'statusNoRelease';
-    return Container(
-      key: Key('platform-${platform.name}'),
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: c.surface,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: c.border),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(context.tr(names[platform]!), style: text.titleLarge),
-          const SizedBox(height: 6),
-          Text(
-            context.tr(status),
-            key: Key('status-${platform.name}'),
-            style: text.bodyMedium!.copyWith(color: c.textSecondary),
-          ),
-          if (release.released) ...[
-            const SizedBox(height: 10),
-            for (final (label, value) in [
-              ('releaseVersion', release.version),
-              ('releaseDate', release.date),
-              ('releaseChecksum', release.checksum),
-            ])
-              if (value != null)
-                SelectableText(
-                  '${context.tr(label)}: $value',
-                  style: text.bodySmall,
-                ),
-          ],
-          for (final child in children) ...[const SizedBox(height: 14), child],
-        ],
-      ),
     );
   }
 }

@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../../core/landing_settings.dart';
+import '../../components/interactive_card.dart';
 import '../../components/landing_image.dart';
+import '../../components/sketch_art.dart';
 import '../../components/scope.dart';
 import '../../components/shell.dart';
 import '../../components/tokens.dart';
@@ -118,8 +120,44 @@ class RowText extends StatelessWidget {
   }
 }
 
-/// A row: text and one image side by side. On a phone the text comes first
-/// and the image below it, at full width.
+/// A row: text and one visual side by side. On a phone the text comes
+/// first and the visual below it, at full width.
+class VisualRow extends StatelessWidget {
+  const VisualRow({
+    super.key,
+    required this.visual,
+    required this.visualRight,
+    required this.child,
+    this.rowKey,
+  });
+
+  final Widget visual;
+  final bool visualRight;
+  final Widget child;
+  final Key? rowKey;
+
+  @override
+  Widget build(BuildContext context) {
+    if (isPhone(context)) {
+      return Column(
+        key: rowKey,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [child, const SizedBox(height: 24), visual],
+      );
+    }
+    final side = Expanded(child: visual);
+    final text = Expanded(child: child);
+    return Row(
+      key: rowKey,
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: visualRight
+          ? [text, const SizedBox(width: 56), side]
+          : [side, const SizedBox(width: 56), text],
+    );
+  }
+}
+
+/// A row with one of the allowed photos (H6 slot id).
 class ImageRow extends StatelessWidget {
   const ImageRow({
     super.key,
@@ -133,123 +171,16 @@ class ImageRow extends StatelessWidget {
   final Widget child;
 
   @override
-  Widget build(BuildContext context) {
-    final tall = landingImages[image]!.tall;
-    if (isPhone(context)) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          child,
-          const SizedBox(height: 24),
-          LandingPicture(image, maxWidth: tall ? 280 : null),
-        ],
-      );
-    }
-    final picture = tall
-        ? SizedBox(width: 280, child: LandingPicture(image))
-        : Expanded(child: LandingPicture(image));
-    final text = Expanded(child: child);
-    return Row(
-      key: Key('row-$image-${imageRight ? 'right' : 'left'}'),
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: imageRight
-          ? [text, const SizedBox(width: 48), picture]
-          : [picture, const SizedBox(width: 48), text],
-    );
-  }
+  Widget build(BuildContext context) => VisualRow(
+    rowKey: Key('row-$image-${imageRight ? 'right' : 'left'}'),
+    visual: LandingPicture(image),
+    visualRight: imageRight,
+    child: child,
+  );
 }
 
-/// One card: the image above its title and text. A card with [onOpen] is
-/// a link as a whole.
-class LandingCard {
-  const LandingCard({
-    required this.image,
-    required this.title,
-    required this.text,
-    this.trackId,
-    this.onOpen,
-  });
-
-  final String image;
-  final String title;
-  final String text;
-  final String? trackId;
-  final VoidCallback? onOpen;
-}
-
-/// Cards of 2 or 3 in one line; one per line on a phone.
-class CardLine extends StatelessWidget {
-  const CardLine({super.key, required this.cards});
-
-  final List<LandingCard> cards;
-
-  @override
-  Widget build(BuildContext context) {
-    final items = [for (final card in cards) _Card(card)];
-    if (isPhone(context)) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          for (var i = 0; i < items.length; i++) ...[
-            if (i > 0) const SizedBox(height: 28),
-            items[i],
-          ],
-        ],
-      );
-    }
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        for (var i = 0; i < items.length; i++) ...[
-          if (i > 0) const SizedBox(width: 20),
-          Expanded(child: items[i]),
-        ],
-      ],
-    );
-  }
-}
-
-class _Card extends StatelessWidget {
-  const _Card(this.card);
-
-  final LandingCard card;
-
-  @override
-  Widget build(BuildContext context) {
-    final text = Theme.of(context).textTheme;
-    final tall = landingImages[card.image]!.tall;
-    final body = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        LandingPicture(card.image, maxWidth: tall ? 280 : null),
-        const SizedBox(height: 16),
-        Text(
-          card.title,
-          style: text.titleMedium!.copyWith(
-            color: card.onOpen == null ? null : context.colors.link,
-          ),
-        ),
-        const SizedBox(height: 6),
-        Text(card.text, style: text.bodyMedium),
-      ],
-    );
-    if (card.onOpen == null) return body;
-    return track(
-      card.trackId!,
-      Semantics(
-        link: true,
-        child: InkWell(
-          key: Key('card-${card.image}'),
-          borderRadius: BorderRadius.circular(8),
-          onTap: card.onOpen,
-          child: body,
-        ),
-      ),
-    );
-  }
-}
-
-/// A link in running text: purple in light mode, green in dark mode.
+/// A link in running text: purple in light mode, green in dark mode, with
+/// hover, focus and pressed states.
 class TextLink extends StatelessWidget {
   const TextLink({
     super.key,
@@ -265,78 +196,103 @@ class TextLink extends StatelessWidget {
   @override
   Widget build(BuildContext context) => track(
     trackId,
-    Semantics(
-      link: true,
-      child: InkWell(
-        onTap: () => launchUrl(Uri.parse(url)),
-        child: Text(
-          label,
-          style: Theme.of(context).textTheme.bodyMedium!.copyWith(
-            color: context.colors.link,
-            fontWeight: FontWeight.w600,
-            decoration: TextDecoration.underline,
-            decorationColor: context.colors.link,
-          ),
-        ),
-      ),
-    ),
+    AppLink(label: label, onTap: () => launchUrl(Uri.parse(url))),
   );
 }
 
-/// The training notice with the Terms and Privacy links (D8). With
-/// [band], the O10 band image shows above it.
+/// The training notice with the Terms and Privacy links (D8): a text card
+/// with its icon tile, no photo.
 class TrainingNotice extends StatelessWidget {
-  const TrainingNotice({super.key, this.band = false});
-
-  final bool band;
+  const TrainingNotice({super.key});
 
   @override
   Widget build(BuildContext context) {
     final text = Theme.of(context).textTheme;
-    return Column(
+    final c = context.colors;
+    return Container(
       key: const Key('training-notice'),
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (band) ...[const LandingPicture('O10'), const SizedBox(height: 24)],
-        Semantics(
-          header: true,
-          child: Text(context.tr('noticeTitle'), style: text.headlineSmall),
-        ),
-        const SizedBox(height: 12),
-        ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 760),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(context.tr('noticeText'), style: text.bodyLarge),
-              const SizedBox(height: 8),
-              Text(context.tr('noticePrivate'), style: text.bodyLarge),
-              const SizedBox(height: 12),
-              Wrap(
-                crossAxisAlignment: WrapCrossAlignment.center,
-                spacing: 6,
-                runSpacing: 4,
-                children: [
-                  Text(context.tr('noticeRead'), style: text.bodyMedium),
-                  TextLink(
-                    key: const Key('notice-terms'),
-                    label: context.tr('terms'),
-                    url: LandingSettings.terms,
-                    trackId: 'landing.notice.terms',
+      padding: EdgeInsets.all(isPhone(context) ? 20 : 32),
+      decoration: BoxDecoration(
+        color: c.subtle,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: c.border),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          IconTile(SketchGlyph.notice, fill: AppPalette.orange),
+          const SizedBox(width: 20),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Semantics(
+                  header: true,
+                  child: Text(
+                    context.tr('noticeTitle'),
+                    style: text.headlineSmall,
                   ),
-                  Text(context.tr('and'), style: text.bodyMedium),
-                  TextLink(
-                    key: const Key('notice-privacy'),
-                    label: context.tr('privacy'),
-                    url: LandingSettings.privacy,
-                    trackId: 'landing.notice.privacy',
+                ),
+                const SizedBox(height: 12),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 720),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(context.tr('noticeText'), style: text.bodyLarge),
+                      const SizedBox(height: 8),
+                      Text(context.tr('noticePrivate'), style: text.bodyLarge),
+                      const SizedBox(height: 12),
+                      Wrap(
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        spacing: 6,
+                        runSpacing: 4,
+                        children: [
+                          Text(
+                            context.tr('noticeRead'),
+                            style: text.bodyMedium,
+                          ),
+                          TextLink(
+                            key: const Key('notice-terms'),
+                            label: context.tr('terms'),
+                            url: LandingSettings.terms,
+                            trackId: 'landing.notice.terms',
+                          ),
+                          Text(context.tr('and'), style: text.bodyMedium),
+                          TextLink(
+                            key: const Key('notice-privacy'),
+                            label: context.tr('privacy'),
+                            url: LandingSettings.privacy,
+                            trackId: 'landing.notice.privacy',
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
-                ],
-              ),
-            ],
+                ),
+              ],
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
+}
+
+/// The page's one strong action at the end of a page, with a short lead.
+class PageAction extends StatelessWidget {
+  const PageAction({super.key, required this.lead, required this.button});
+
+  final String lead;
+  final Widget button;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(lead, style: Theme.of(context).textTheme.titleLarge),
+      const SizedBox(height: 16),
+      button,
+    ],
+  );
 }

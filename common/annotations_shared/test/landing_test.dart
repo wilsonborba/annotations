@@ -7,14 +7,19 @@ import 'package:annotations_shared/core/strings.dart';
 import 'package:annotations_shared/domain/services/annotations_service.dart';
 import 'package:annotations_shared/domain/services/preferences.dart';
 import 'package:annotations_shared/presentation/frontend/components/controls.dart';
+import 'package:annotations_shared/presentation/frontend/components/interactive_card.dart';
 import 'package:annotations_shared/presentation/frontend/components/scope.dart';
 import 'package:annotations_shared/presentation/frontend/components/shell.dart';
+import 'package:annotations_shared/presentation/frontend/components/sketch_art.dart';
 import 'package:annotations_shared/presentation/frontend/components/sketch_diagram.dart';
 import 'package:annotations_shared/presentation/frontend/components/theme.dart';
+import 'package:annotations_shared/presentation/frontend/components/tokens.dart';
 import 'package:annotations_shared/presentation/frontend/handlers/landing_handler.dart';
 import 'package:annotations_shared/presentation/frontend/widgets/landing/download_page.dart';
 import 'package:annotations_shared/presentation/frontend/widgets/landing/features_page.dart';
 import 'package:annotations_shared/presentation/frontend/widgets/landing/landing_blocks.dart';
+import 'package:annotations_shared/presentation/frontend/widgets/landing/landing_sections.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -25,46 +30,41 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'design_goldens_test.dart' show loadAppFonts;
 import 'fixtures.dart';
 
-/// The landing pages and their images (annotations#53, H6 sections 3, 4).
+/// The landing pages and their photos (annotations#53 redesign: at most
+/// three photos on the whole site, from the allowed set).
 const pages = {
-  '/v1/home': [
-    'O01',
-    'O02',
-    'O03',
-    'O04',
-    'O05',
-    'O06',
-    'O07',
-    'O08',
-    'O09',
-    'O10',
-  ],
-  '/v1/home/features': [
-    'F01', 'F02', 'F03', 'F04', 'F05', 'F06', 'F16', //
-    'F07', 'F08', 'F09', 'F11', 'F12', 'F13', 'F14', 'F15',
-  ],
-  '/v1/home/how-it-works': [
-    'H01',
-    'H02',
-    'H03',
-    'H04',
-    'H05',
-    'H06',
-    'H07',
-    'H08',
-  ],
-  '/v1/home/engineering': ['E01', 'E02', 'E03'],
-  '/v1/home/download': ['D01', 'D02', 'D03'],
+  '/v1/home': <String>[],
+  '/v1/home/features': <String>[],
+  '/v1/home/how-it-works': <String>[],
+  '/v1/home/engineering': ['E02'],
+  '/v1/home/download': <String>[],
 };
+
+/// The allowed photo slots (owner direction 2026-11-20): the stickers, the
+/// library shelves, a computer in use.
+const allowedPhotos = {'E02', 'F15', 'O09'};
+
+/// Turns on reduced motion for one test: the hero marks stay still and the
+/// showcase does not move, so pumpAndSettle can settle.
+void stillMotion(WidgetTester tester) {
+  tester.platformDispatcher.accessibilityFeaturesTestValue =
+      const FakeAccessibilityFeatures(disableAnimations: true);
+  addTearDown(tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
+}
 
 Future<void> open(
   WidgetTester tester,
   String location, {
   double width = 1300,
   String locale = 'en',
+  String theme = 'light',
   AnnotationsService? service,
 }) async {
-  SharedPreferences.setMockInitialValues({'annotations.locale': locale});
+  stillMotion(tester);
+  SharedPreferences.setMockInitialValues({
+    'annotations.locale': locale,
+    'annotations.theme': theme,
+  });
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = Size(width, 1000);
   addTearDown(tester.view.reset);
@@ -80,6 +80,16 @@ Future<void> open(
   await tester.pumpAndSettle();
 }
 
+Widget bare(Widget child, {Brightness brightness = Brightness.light}) =>
+    AppScope(
+      service: fixtureService(),
+      preferences: Preferences(),
+      child: MaterialApp(
+        theme: appTheme(brightness),
+        home: Scaffold(body: SingleChildScrollView(child: child)),
+      ),
+    );
+
 /// Every text on the screen, for wording and privacy checks.
 List<String> texts(WidgetTester tester) => [
   for (final element in find.byType(Text).evaluate())
@@ -90,6 +100,15 @@ List<String> texts(WidgetTester tester) => [
     (element.widget as SelectableText).data ?? '',
 ];
 
+String headline(String locale) =>
+    '${translate('heroBefore', locale)}${translate('heroWord', locale)}'
+    '${translate('heroAfter', locale)}';
+
+int primaryButtons(WidgetTester tester) => tester
+    .widgetList<AppButton>(find.byType(AppButton))
+    .where((b) => b.kind == AppButtonKind.primary)
+    .length;
+
 void main() {
   setUpAll(loadAppFonts);
 
@@ -97,13 +116,12 @@ void main() {
     tester,
   ) async {
     await open(tester, '/');
-    expect(find.text(translate('overviewTitle', 'en')), findsOneWidget);
+    expect(find.byKey(const Key('hero-headline')), findsOneWidget);
     for (final (route, key, _) in landingTabs) {
       await tester.tap(find.byKey(Key('tab-$key')));
       await tester.pumpAndSettle();
       final tab = tester.widget<ShellTab>(find.byKey(Key('tab-$key')));
       expect(tab.selected, isTrue, reason: route);
-      // Only the current tab is selected.
       expect(
         tester
             .widgetList<ShellTab>(find.byType(ShellTab))
@@ -112,10 +130,10 @@ void main() {
         1,
       );
     }
-    // The logo goes home from any page.
+    // The shared Asodya logo goes home from any page.
     await tester.tap(find.byKey(const Key('brand-home')));
     await tester.pumpAndSettle();
-    expect(find.text(translate('overviewTitle', 'en')), findsOneWidget);
+    expect(find.byKey(const Key('hero-headline')), findsOneWidget);
   });
 
   testWidgets('the tabs go into one menu at 1000 px and below', (tester) async {
@@ -139,7 +157,7 @@ void main() {
     }
     await tester.tap(find.byKey(const Key('menu-tabDownload')));
     await tester.pumpAndSettle();
-    expect(find.byKey(const Key('platform-iosIpados')), findsOneWidget);
+    expect(find.byKey(const Key('install-iphone')), findsOneWidget);
   });
 
   testWidgets('the window never overflows at 390, 768, 1001 and 1300 px', (
@@ -163,7 +181,7 @@ void main() {
             if (paragraph.computeMinIntrinsicWidth(double.infinity) >
                 paragraph.size.width + 0.5) {
               unbreakable.add(
-                '$width $locale: ${paragraph.text.toPlainText()}',
+                '$route $width $locale: ${paragraph.text.toPlainText()}',
               );
             }
           }
@@ -173,35 +191,46 @@ void main() {
     expect(unbreakable, isEmpty);
   });
 
-  testWidgets('each landing image is at its mapped page', (tester) async {
+  testWidgets('at most three photos, only allowed ones, none of people', (
+    tester,
+  ) async {
+    expect(landingImages.length, lessThanOrEqualTo(3));
+    expect(allowedPhotos.containsAll(landingImages.keys), isTrue);
     for (final MapEntry(key: route, value: ids) in pages.entries) {
       await open(tester, route);
-      for (final id in ids) {
-        expect(find.byKey(Key('image-$id')), findsOneWidget, reason: id);
-      }
-      // No image of another page.
-      for (final other in landingImages.keys.where((i) => !ids.contains(i))) {
-        expect(find.byKey(Key('image-$other')), findsNothing, reason: other);
+      for (final id in landingImages.keys) {
+        expect(
+          find.byKey(Key('image-$id')),
+          ids.contains(id) ? findsOneWidget : findsNothing,
+          reason: '$route $id',
+        );
       }
     }
   });
 
-  testWidgets('the state images sit above their messages', (tester) async {
+  testWidgets('the state images are drawn and sit above their messages', (
+    tester,
+  ) async {
     await open(
       tester,
       '/v1/menu/wilson/private-note',
       service: fixtureService(handler: (_) async => http.Response('{}', 404)),
     );
-    final s01 = tester.getTopLeft(find.byKey(const Key('image-S01')));
     expect(
-      s01.dy,
+      tester.getTopLeft(find.byKey(const Key('image-S01'))).dy,
       lessThan(tester.getTopLeft(find.byKey(const Key('not-found'))).dy),
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('image-S01')),
+        matching: find.byKey(const Key('sketch-emptyDesk')),
+      ),
+      findsOneWidget,
     );
 
     await open(tester, '/v1/menu');
-    final s03 = tester.getTopLeft(find.byKey(const Key('image-S03')));
     expect(
-      s03.dy,
+      tester.getTopLeft(find.byKey(const Key('image-S03'))).dy,
       lessThan(tester.getTopLeft(find.byKey(const Key('no-results'))).dy),
     );
 
@@ -228,63 +257,510 @@ void main() {
     expired = true;
     await tester.pump(const Duration(seconds: 4));
     await tester.pumpAndSettle();
-    final s02 = tester.getTopLeft(find.byKey(const Key('image-S02')));
     expect(
-      s02.dy,
+      tester.getTopLeft(find.byKey(const Key('image-S02'))).dy,
       lessThan(tester.getTopLeft(find.byKey(const Key('room-expired'))).dy),
     );
   });
 
-  testWidgets('feature rows alternate sides; each group starts on the right', (
+  group('Overview hero', () {
+    testWidgets('the headline is at least 56 px with the marked word', (
+      tester,
+    ) async {
+      for (final locale in ['en', 'pt-BR', 'th']) {
+        await open(tester, '/v1/home', locale: locale);
+        final rich = tester.widget<Text>(
+          find.byKey(const Key('hero-headline')),
+        );
+        expect(rich.textSpan!.style!.fontSize, greaterThanOrEqualTo(56));
+        expect(
+          find.bySemanticsLabel(headline(locale)),
+          findsOneWidget,
+          reason: locale,
+        );
+        expect(find.text(translate('heroWord', locale)), findsOneWidget);
+      }
+      await open(tester, '/v1/home', width: 390);
+      final phone = tester.widget<Text>(find.byKey(const Key('hero-headline')));
+      expect(phone.textSpan!.style!.fontSize, 40);
+    });
+
+    testWidgets('the word marks move, and stay still under reduced motion', (
+      tester,
+    ) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(1300, 900);
+      addTearDown(tester.view.reset);
+      Future<double> progressAfter(Duration wait) async {
+        await tester.pump(wait);
+        final paint = tester.widget<CustomPaint>(
+          find.byKey(const Key('hero-word-marks')),
+        );
+        return (paint.painter as dynamic).progress as double;
+      }
+
+      await tester.pumpWidget(bare(const AnimatedHeadline()));
+      final a = await progressAfter(const Duration(milliseconds: 300));
+      final b = await progressAfter(const Duration(milliseconds: 900));
+      expect(b, isNot(a));
+      await tester.pumpWidget(const SizedBox());
+
+      stillMotion(tester);
+      await tester.pumpWidget(bare(const AnimatedHeadline()));
+      expect(await progressAfter(const Duration(seconds: 1)), stillProgress);
+      expect(await progressAfter(const Duration(seconds: 2)), stillProgress);
+    });
+
+    testWidgets('one strong purple action per page; it is Download here', (
+      tester,
+    ) async {
+      for (final route in pages.keys) {
+        await open(tester, route);
+        expect(primaryButtons(tester), 1, reason: route);
+      }
+      await open(tester, '/v1/home');
+      final download = tester.widget<AppButton>(
+        find.byKey(const Key('overview-download')),
+      );
+      expect(download.kind, AppButtonKind.primary);
+      await tester.tap(find.byKey(const Key('overview-download')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('install-mac')), findsOneWidget);
+    });
+  });
+
+  group('Product showcase', () {
+    Future<ProductShowcaseState> pumpShowcase(
+      WidgetTester tester, {
+      bool still = false,
+    }) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(1300, 1200);
+      addTearDown(tester.view.reset);
+      if (still) stillMotion(tester);
+      await tester.pumpWidget(
+        bare(const ProductShowcase(interval: Duration(seconds: 2))),
+      );
+      await tester.pump();
+      return tester.state<ProductShowcaseState>(find.byType(ProductShowcase));
+    }
+
+    testWidgets('real desktop and phone screenshots, stacked', (tester) async {
+      await pumpShowcase(tester);
+      final assets = [
+        for (final image in tester.widgetList<Image>(find.byType(Image)))
+          (image.image as AssetImage).assetName,
+      ];
+      expect(assets, contains(desktopShot.asset(false)));
+      expect(assets, contains(phoneShot.asset(false)));
+      // The phone overlaps the corner of the desktop window.
+      final window = tester.getRect(find.byKey(const Key('window-mac')));
+      final phone = tester.getRect(find.byKey(const Key('phone-frame')));
+      expect(window.overlaps(phone), isTrue);
+      expect(phone.right, greaterThan(window.right));
+      await tester.pumpWidget(const SizedBox());
+    });
+
+    testWidgets('switches by itself, by choice, and waits on hover', (
+      tester,
+    ) async {
+      final s = await pumpShowcase(tester);
+      expect(s.platform, ShowcasePlatform.mac);
+      await tester.pump(const Duration(seconds: 2));
+      expect(s.platform, ShowcasePlatform.linux);
+      // The user chooses the browser.
+      await tester.tap(find.byKey(const Key('showcase-browser')));
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(s.platform, ShowcasePlatform.browser);
+      expect(
+        (tester
+            .widgetList<Image>(find.byType(Image))
+            .map((i) => (i.image as AssetImage).assetName)),
+        contains(browserShot.asset(false)),
+      );
+      // The pointer on it pauses the timer.
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      await mouse.addPointer(
+        location: tester.getCenter(find.byKey(const Key('phone-frame'))),
+      );
+      await tester.pump();
+      expect(s.paused, isTrue);
+      await tester.pump(const Duration(seconds: 5));
+      expect(s.platform, ShowcasePlatform.browser);
+      await mouse.moveTo(const Offset(1, 1199));
+      await tester.pump();
+      expect(s.paused, isFalse);
+      await tester.pump(const Duration(seconds: 2));
+      expect(s.platform, ShowcasePlatform.mac);
+      await mouse.removePointer();
+      await tester.pumpWidget(const SizedBox());
+    });
+
+    testWidgets('the focus pauses it too', (tester) async {
+      final s = await pumpShowcase(tester);
+      Focus.of(
+        tester.element(find.byKey(const Key('showcase-linux'))),
+      ).requestFocus();
+      await tester.pump();
+      FocusManager.instance.highlightStrategy =
+          FocusHighlightStrategy.alwaysTraditional;
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pump();
+      expect(s.paused, isTrue);
+      await tester.pump(const Duration(seconds: 6));
+      expect(s.platform, ShowcasePlatform.mac);
+      await tester.pumpWidget(const SizedBox());
+      FocusManager.instance.highlightStrategy =
+          FocusHighlightStrategy.automatic;
+    });
+
+    testWidgets('never moves under reduced motion', (tester) async {
+      final s = await pumpShowcase(tester, still: true);
+      await tester.pump(const Duration(seconds: 10));
+      expect(s.platform, ShowcasePlatform.mac);
+    });
+  });
+
+  group('Install section', () {
+    testWidgets('every platform has its icon, action and install path', (
+      tester,
+    ) async {
+      await open(tester, '/v1/home');
+      for (final p in InstallPlatform.values) {
+        final block = find.byKey(Key('install-${p.name}'));
+        expect(block, findsOneWidget, reason: p.name);
+        expect(
+          find.descendant(of: block, matching: find.byType(SketchIcon)),
+          findsOneWidget,
+          reason: p.name,
+        );
+        expect(
+          find.byKey(Key('install-${p.name}-action')),
+          findsOneWidget,
+          reason: p.name,
+        );
+        if (p != InstallPlatform.browser) {
+          expect(find.byKey(Key('install-${p.name}-how')), findsOneWidget);
+        }
+      }
+      // The browser has an address to copy; nothing is released yet.
+      expect(find.byKey(const Key('install-browser-copy')), findsOneWidget);
+      expect(
+        tester
+            .widget<Text>(find.byKey(const Key('install-iphone-status')))
+            .data,
+        'Not available to the public yet.',
+      );
+      for (final p in ['mac', 'linux', 'tablets', 'androidPhones']) {
+        expect(
+          tester.widget<Text>(find.byKey(Key('install-$p-status'))).data,
+          'No public release yet.',
+        );
+        expect(
+          tester
+              .widget<AppButton>(find.byKey(Key('install-$p-action')))
+              .onPressed,
+          isNull,
+        );
+      }
+      expect(find.byKey(const Key('install-note')), findsOneWidget);
+      await tester.ensureVisible(find.byKey(const Key('install-mac-how')));
+      await tester.tap(find.byKey(const Key('install-mac-how')));
+      await tester.pumpAndSettle();
+      expect(find.text(translate('downloadTitle', 'en')), findsWidgets);
+    });
+
+    testWidgets('copying the address and the source command', (tester) async {
+      final copied = <String>[];
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (call) async {
+          if (call.method == 'Clipboard.setData') {
+            copied.add((call.arguments as Map)['text'] as String);
+          }
+          return null;
+        },
+      );
+      await open(tester, '/v1/home/download');
+      for (final key in ['install-browser-copy', 'source-command']) {
+        final button = find.descendant(
+          of: find.byKey(Key(key)),
+          matching: find.byType(AppIconButton),
+        );
+        await tester.ensureVisible(button);
+        await tester.tap(button);
+        await tester.pumpAndSettle();
+      }
+      expect(copied, [
+        LandingSettings.siteAddress,
+        LandingSettings.cloneCommand,
+      ]);
+    });
+
+    testWidgets('a released platform shows version, date, command, action', (
+      tester,
+    ) async {
+      stillMotion(tester);
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(1300, 1000);
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        bare(
+          const DownloadPage(
+            releases: {
+              DownloadPlatform.linux: PlatformRelease(
+                version: '2.0.0',
+                date: '2026-12-01',
+                checksum: 'abc123',
+                installCommand: 'sh install.sh',
+              ),
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final block = find.byKey(const Key('install-linux'));
+      expect(
+        tester.widget<Text>(find.byKey(const Key('install-linux-status'))).data,
+        'Available',
+      );
+      expect(
+        find.descendant(
+          of: block,
+          matching: find.text('Version 2.0.0 · 2026-12-01'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: block, matching: find.text('sh install.sh')),
+        findsOneWidget,
+      );
+      expect(
+        tester
+            .widget<AppButton>(find.byKey(const Key('install-linux-action')))
+            .onPressed,
+        isNotNull,
+      );
+      expect(
+        tester
+            .widget<AppButton>(find.byKey(const Key('install-mac-action')))
+            .onPressed,
+        isNull,
+      );
+    });
+  });
+
+  group('Interactive states', () {
+    testWidgets('a card shows hover, focus-visible and pressed states', (
+      tester,
+    ) async {
+      var taps = 0;
+      await tester.pumpWidget(
+        bare(
+          Center(
+            child: SizedBox(
+              width: 300,
+              child: InteractiveCard(
+                onTap: () => taps++,
+                child: const Text('Card'),
+              ),
+            ),
+          ),
+        ),
+      );
+      final s = tester.state<InteractiveCardState>(
+        find.byType(InteractiveCard),
+      );
+      BoxDecoration surface() =>
+          tester
+                  .widget<AnimatedContainer>(
+                    find.byKey(const Key('card-surface')),
+                  )
+                  .decoration!
+              as BoxDecoration;
+      final rest = surface();
+      expect(s.state, CardState.rest);
+
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      await mouse.addPointer(location: tester.getCenter(find.text('Card')));
+      await tester.pumpAndSettle();
+      expect(s.state, CardState.hover);
+      expect(surface().border, isNot(rest.border));
+      expect(surface().color, AppColors.light.subtle);
+      await mouse.moveTo(const Offset(1, 1));
+      await tester.pumpAndSettle();
+
+      FocusManager.instance.highlightStrategy =
+          FocusHighlightStrategy.alwaysTraditional;
+      Focus.of(tester.element(find.text('Card'))).requestFocus();
+      await tester.pumpAndSettle();
+      expect(s.state, CardState.focus);
+      expect(
+        (surface().border! as Border).top.color,
+        AppColors.light.selectionOutline,
+      );
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pumpAndSettle();
+      expect(taps, 1);
+      FocusManager.instance.highlightStrategy =
+          FocusHighlightStrategy.automatic;
+
+      final press = await tester.startGesture(
+        tester.getCenter(find.text('Card')),
+      );
+      await tester.pumpAndSettle();
+      expect(s.state, CardState.pressed);
+      expect(surface().color, AppColors.light.pressed);
+      await press.up();
+      await tester.pumpAndSettle();
+      expect(taps, 2);
+      await mouse.removePointer();
+    });
+
+    testWidgets('a link shows hover, focus-visible and pressed states', (
+      tester,
+    ) async {
+      var taps = 0;
+      await tester.pumpWidget(
+        bare(
+          Center(
+            child: AppLink(label: 'Read more', onTap: () => taps++),
+          ),
+        ),
+      );
+      final s = tester.state<AppLinkState>(find.byType(AppLink));
+      TextStyle style() => tester.widget<Text>(find.byType(Text).last).style!;
+      expect(style().decoration, TextDecoration.none);
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      await mouse.addPointer(location: tester.getCenter(find.byType(AppLink)));
+      await tester.pumpAndSettle();
+      expect(s.state, CardState.hover);
+      expect(style().decoration, TextDecoration.underline);
+      await mouse.moveTo(const Offset(1, 1));
+      await tester.pumpAndSettle();
+      FocusManager.instance.highlightStrategy =
+          FocusHighlightStrategy.alwaysTraditional;
+      Focus.of(tester.element(find.text('Read more'))).requestFocus();
+      await tester.pumpAndSettle();
+      expect(s.state, CardState.focus);
+      expect(
+        ((tester
+                            .widget<Container>(
+                              find.byKey(const Key('link-surface')),
+                            )
+                            .decoration!
+                        as BoxDecoration)
+                    .border!
+                as Border)
+            .top
+            .color,
+        AppColors.light.selectionOutline,
+      );
+      FocusManager.instance.highlightStrategy =
+          FocusHighlightStrategy.automatic;
+      Focus.of(tester.element(find.text('Read more'))).unfocus();
+      await tester.pumpAndSettle();
+      final press = await tester.startGesture(
+        tester.getCenter(find.byType(AppLink)),
+      );
+      await tester.pumpAndSettle();
+      expect(s.state, CardState.pressed);
+      await press.up();
+      await tester.pumpAndSettle();
+      expect(taps, 1);
+      await mouse.removePointer();
+    });
+
+    testWidgets('the Overview cards are controls that open their page', (
+      tester,
+    ) async {
+      await open(tester, '/v1/home');
+      for (final key in [
+        'card-notes',
+        'card-instant',
+        'card-writing',
+        'card-chart',
+        'card-tasks',
+      ]) {
+        expect(
+          find.descendant(
+            of: find.byKey(Key(key)),
+            matching: find.byType(InteractiveCard),
+          ),
+          findsOneWidget,
+          reason: key,
+        );
+      }
+      await tester.ensureVisible(find.byKey(const Key('card-chart')));
+      await tester.tap(find.byKey(const Key('card-chart')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('group-pageContent')), findsOneWidget);
+    });
+  });
+
+  test('colour jobs per H7 in both themes', () {
+    for (final c in [AppColors.light, AppColors.dark]) {
+      // Purple fill with white text: the one main action.
+      expect(c.accent, AppPalette.purple);
+      expect(c.onAccent, AppPalette.white);
+      // Green fill with dark text: selection, the current tab, focus.
+      expect(c.selection, AppPalette.green);
+      expect(c.onSelection, AppPalette.night);
+    }
+    expect(AppColors.light.link, AppPalette.purple);
+    expect(AppColors.dark.link, AppPalette.green);
+  });
+
+  testWidgets('green and purple both show on every page in both themes', (
+    tester,
+  ) async {
+    for (final theme in ['light', 'dark']) {
+      for (final route in pages.keys) {
+        await open(tester, route, theme: theme);
+        // Purple: the page's one main action.
+        expect(primaryButtons(tester), 1, reason: '$route $theme');
+        // Green: the current tab and the chosen language.
+        final tab = tester.widgetList<ShellTab>(find.byType(ShellTab));
+        expect(tab.where((t) => t.selected), hasLength(1));
+      }
+    }
+  });
+
+  testWidgets('features: groups alternate sides; rows say what they need', (
     tester,
   ) async {
     await open(tester, '/v1/home/features');
     const handler = LandingHandler();
-    for (final group in handler.groups) {
-      for (final (i, row) in handler.rows(group).indexed) {
-        final side = i.isEven ? 'right' : 'left';
-        expect(find.byKey(Key('row-${row.image}-$side')), findsOneWidget);
-        // The row title; the top bar also has an "Instant" text.
-        final text = tester.getCenter(
-          find
-              .descendant(
-                of: find.byKey(Key('row-${row.image}-$side')),
-                matching: find.text(
-                  translate('feature${row.image}Title', 'en'),
-                ),
-              )
-              .first,
-        );
-        final image = tester.getCenter(find.byKey(Key('image-${row.image}')));
-        expect(text.dx < image.dx, i.isEven, reason: row.image);
-      }
+    for (final (g, group) in handler.groups.indexed) {
+      final section = find.byKey(Key('group-${group.name}'));
+      final art = tester.getCenter(
+        find.descendant(of: section, matching: find.byType(SketchArt)),
+      );
+      final first = handler.rows(group).first;
+      final text = tester.getCenter(find.byKey(Key('feature-${first.image}')));
+      expect(art.dx > text.dx, g.isEven, reason: group.name);
+      // At most one visual per group.
+      expect(
+        find.descendant(of: section, matching: find.byType(SketchArt)),
+        findsOneWidget,
+      );
     }
-    // Each feature says what it needs.
-    expect(
-      find.descendant(
-        of: find.byKey(const Key('needs-F14')),
-        matching: find.text('Needs internet, no login'),
-      ),
-      findsOneWidget,
-    );
-    expect(
-      find.descendant(
-        of: find.byKey(const Key('needs-F08')),
-        matching: find.text('Needs internet and sign-in'),
-      ),
-      findsOneWidget,
-    );
-    expect(
-      find.descendant(
-        of: find.byKey(const Key('needs-F01')),
-        matching: find.text('Works offline, no login'),
-      ),
-      findsOneWidget,
-    );
+    for (final (id, label) in [
+      ('F14', 'Needs internet, no login'),
+      ('F08', 'Needs internet and sign-in'),
+      ('F01', 'Works offline, no login'),
+    ]) {
+      expect(
+        find.descendant(
+          of: find.byKey(Key('needs-$id')),
+          matching: find.text(label),
+        ),
+        findsOneWidget,
+      );
+    }
   });
 
-  test('a feature outside the release is removed with its image', () {
-    // Handwriting to text waits for the model release (transcription off).
+  test('a feature outside the release is removed', () {
     const off = LandingHandler(transcription: false);
     expect(
       off.rows(FeatureGroup.study).map((r) => r.image),
@@ -292,48 +768,33 @@ void main() {
     );
     const on = LandingHandler(transcription: true);
     expect(on.rows(FeatureGroup.study).map((r) => r.image), contains('F10'));
-    // Every row of the page has its image and both strings.
     for (final row in landingFeatures) {
-      expect(landingImages.containsKey(row.image), isTrue);
       expect(landingStrings.containsKey('feature${row.image}Title'), isTrue);
       expect(landingStrings.containsKey('feature${row.image}Text'), isTrue);
     }
   });
 
-  testWidgets('the release switch removes the F10 row and its image', (
-    tester,
-  ) async {
+  testWidgets('the release switch removes the F10 row', (tester) async {
     tester.view.physicalSize = const Size(1300, 1000);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     Future<void> pump(bool transcription) async {
       SharedPreferences.setMockInitialValues({});
       await tester.pumpWidget(
-        AppScope(
-          service: fixtureService(),
-          preferences: Preferences(),
-          child: MaterialApp(
-            theme: appTheme(Brightness.light),
-            home: Scaffold(
-              body: SingleChildScrollView(
-                child: FeaturesPage(
-                  handler: LandingHandler(transcription: transcription),
-                ),
-              ),
-            ),
-          ),
+        bare(
+          FeaturesPage(handler: LandingHandler(transcription: transcription)),
         ),
       );
       await tester.pumpAndSettle();
     }
 
     await pump(false);
-    expect(find.byKey(const Key('image-F10')), findsNothing);
+    expect(find.byKey(const Key('feature-F10')), findsNothing);
     await pump(true);
-    expect(find.byKey(const Key('image-F10')), findsOneWidget);
+    expect(find.byKey(const Key('feature-F10')), findsOneWidget);
   });
 
-  testWidgets('on a phone the text comes first and the image below it', (
+  testWidgets('on a phone the text comes first and the visual below it', (
     tester,
   ) async {
     await open(tester, '/v1/home/engineering', width: 390);
@@ -342,21 +803,7 @@ void main() {
     );
     final image = tester.getTopLeft(find.byKey(const Key('image-E02')));
     expect(image.dy, greaterThan(title.dy));
-    // Full width: the image spans the content column.
     expect(tester.getSize(find.byKey(const Key('image-E02'))).width, 350);
-  });
-
-  testWidgets('one strong action: Download is the only primary button', (
-    tester,
-  ) async {
-    await open(tester, '/v1/home');
-    await tester.tap(find.byKey(const Key('overview-download')));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const Key('platform-mac')), findsOneWidget);
-    await open(tester, '/v1/home');
-    await tester.tap(find.byKey(const Key('overview-browse')));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const Key('no-results')), findsOneWidget);
   });
 
   testWidgets('training notice links Terms and Privacy on two pages', (
@@ -401,13 +848,6 @@ void main() {
       );
     }
     expect(find.byKey(const Key('footer-build')), findsOneWidget);
-    // The footer lines up with the page content, not centered narrower.
-    expect(
-      tester.getTopLeft(find.byKey(const Key('footer-content'))).dx,
-      tester.getTopLeft(find.byKey(const Key('image-E02'))).dx,
-    );
-    // The public repositories of H6 section 3 point 11; screen_trail is the
-    // public tracking package.
     expect(LandingSettings.repos.map((r) => r.name), [
       'annotations',
       'annotations_api',
@@ -418,29 +858,25 @@ void main() {
       'cortex',
       'screen_trail',
     ]);
+    expect(
+      tester.getTopLeft(find.byKey(const Key('footer-content'))).dx,
+      tester.getTopLeft(find.byKey(const Key('image-E02'))).dx,
+    );
   });
 
   testWidgets('each diagram part links to its repository at a tag', (
     tester,
   ) async {
     final opened = <String>[];
-    SharedPreferences.setMockInitialValues({});
     tester.view.physicalSize = const Size(1300, 900);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     await tester.pumpWidget(
-      AppScope(
-        service: fixtureService(),
-        preferences: Preferences(),
-        child: MaterialApp(
-          theme: appTheme(Brightness.light),
-          home: Scaffold(
-            body: SketchDiagram(
-              name: 'architecture',
-              stages: architectureStages,
-              onOpen: (repo) => opened.add(repo.url),
-            ),
-          ),
+      bare(
+        SketchDiagram(
+          name: 'architecture',
+          stages: architectureStages,
+          onOpen: (repo) => opened.add(repo.url),
         ),
       ),
     );
@@ -461,96 +897,6 @@ void main() {
         ),
       );
     }
-    // The visitor sees a diagram, not source code.
-    expect(find.byType(CustomPaint), findsWidgets);
-  });
-
-  testWidgets('download cards: status per platform and the copy commands', (
-    tester,
-  ) async {
-    await open(tester, '/v1/home/download');
-    expect(
-      tester.widget<Text>(find.byKey(const Key('status-iosIpados'))).data,
-      'Not available to the public yet.',
-    );
-    for (final p in ['mac', 'linux', 'android']) {
-      expect(
-        tester.widget<Text>(find.byKey(Key('status-$p'))).data,
-        'No public release yet.',
-      );
-    }
-    final copied = <String>[];
-    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-      SystemChannels.platform,
-      (call) async {
-        if (call.method == 'Clipboard.setData') {
-          copied.add((call.arguments as Map)['text'] as String);
-        }
-        return null;
-      },
-    );
-    await tester.tap(
-      find.descendant(
-        of: find.byKey(const Key('source-command')),
-        matching: find.byType(AppIconButton),
-      ),
-    );
-    await tester.pumpAndSettle();
-    expect(copied, [LandingSettings.cloneCommand]);
-  });
-
-  testWidgets('a released card shows version, date, checksum and command', (
-    tester,
-  ) async {
-    SharedPreferences.setMockInitialValues({});
-    tester.view.physicalSize = const Size(1300, 1000);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.reset);
-    await tester.pumpWidget(
-      AppScope(
-        service: fixtureService(),
-        preferences: Preferences(),
-        child: MaterialApp(
-          theme: appTheme(Brightness.light),
-          home: const Scaffold(
-            body: SingleChildScrollView(
-              child: DownloadPage(
-                releases: {
-                  DownloadPlatform.linux: PlatformRelease(
-                    version: '2.0.0',
-                    date: '2026-12-01',
-                    checksum: 'abc123',
-                    installCommand: 'sh install.sh',
-                  ),
-                },
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-    final card = find.byKey(const Key('platform-linux'));
-    for (final line in [
-      'Version: 2.0.0',
-      'Date: 2026-12-01',
-      'SHA-256: abc123',
-      'sh install.sh',
-    ]) {
-      expect(
-        find.descendant(of: card, matching: find.text(line)),
-        findsOneWidget,
-        reason: line,
-      );
-    }
-    expect(
-      tester.widget<Text>(find.byKey(const Key('status-linux'))).data,
-      'Available',
-    );
-    expect(
-      tester.widget<Text>(find.byKey(const Key('status-mac'))).data,
-      'No public release yet.',
-    );
   });
 
   testWidgets('no page shows private or internal names', (tester) async {
@@ -573,19 +919,8 @@ void main() {
       expect(value, hasLength(3), reason: key);
       for (final text in value) {
         expect(text.trim(), isNotEmpty, reason: key);
-        expect(
-          text.contains('\u2014') || text.contains('\u2013'),
-          isFalse,
-          reason: key,
-        );
+        expect(text.contains('—') || text.contains('–'), isFalse, reason: key);
       }
-    }
-  });
-
-  test('the image map has the 43 target ids with their files', () {
-    expect(landingImages, hasLength(43));
-    for (final MapEntry(:key, :value) in landingImages.entries) {
-      expect(value.file, startsWith('${key}_'));
     }
   });
 }

@@ -565,4 +565,88 @@ const landingStrings = <String, List<String>>{
   'footerApiDocs': ['API docs', 'Documentação da API', 'เอกสาร API'],
   'footerSource': ['Public source', 'Código público', 'ซอร์ส​สาธารณะ'],
   'footerBuild': ['Build', 'Versão', 'บิลด์'],
+
+  // Redesign (annotations#53, owner direction 2026-11-20)
+  'heroBefore': [
+    'Write, organize and review your study ',
+    'Escreva, organize e revise suas ',
+    'เขียน​ จัด​ระเบียบ​ และ​ทบทวน',
+  ],
+  'heroWord': ['notes', 'anotações', 'บันทึก'],
+  'heroAfter': ['.', ' de estudo.', 'การ​เรียน​ของ​คุณ'],
+  'showcaseLabel': [
+    'The app on each platform',
+    'O aplicativo em cada plataforma',
+    'แอป​บน​แต่ละ​แพลตฟอร์ม',
+  ],
+  'showMac': ['Mac', 'Mac', 'Mac'],
+  'showLinux': ['Linux', 'Linux', 'Linux'],
+  'showBrowser': ['Browser', 'Navegador', 'เบราว์เซอร์'],
+  'installTitle': [
+    'Install Annotations',
+    'Instale o Annotations',
+    'ติดตั้ง​ Annotations',
+  ],
+  'platformTablets': [
+    'iPad and Android tablets',
+    'iPad e tablets Android',
+    'iPad​ และ​แท็บเล็ต​ Android',
+  ],
+  'platformAndroidPhones': [
+    'Android phones',
+    'Celulares Android',
+    'โทรศัพท์​ Android',
+  ],
+  'platformIphone': ['iPhone', 'iPhone', 'iPhone'],
+  'platformWeb': ['Browser', 'Navegador', 'เบราว์เซอร์'],
+  'statusWeb': ['Available now.', 'Disponível agora.', 'ใช้​งาน​ได้​แล้ว'],
+  'actionOpenWeb': [
+    'Open in the browser',
+    'Abrir no navegador',
+    'เปิด​ใน​เบราว์เซอร์',
+  ],
+  'howToInstall': ['How to install', 'Como instalar', 'วิธี​ติดตั้ง'],
+  'copyAddress': ['Copy address', 'Copiar endereço', 'คัดลอก​ที่​อยู่'],
+  'addressCopied': [
+    'Address copied',
+    'Endereço copiado',
+    'คัดลอก​ที่​อยู่​แล้ว',
+  ],
+  'installSeparately': [
+    'Each app is installed on its own device.',
+    'Cada aplicativo é instalado no seu próprio dispositivo.',
+    'แต่ละ​แอป​ติดตั้ง​แยก​บน​อุปกรณ์​ของ​ตัว​เอง',
+  ],
+  'allFeatures': ['All features', 'Todos os recursos', 'ฟีเจอร์​ทั้งหมด'],
+  'stepsTitle': [
+    'Install steps',
+    'Passos de instalação',
+    'ขั้น​ตอน​การ​ติดตั้ง',
+  ],
+  'diagramDraft': [
+    'A saved draft',
+    'Um rascunho salvo',
+    'ฉบับ​ร่าง​ที่​บันทึก​ไว้',
+  ],
+  'diagramReview': ['You review it', 'Você revisa', 'คุณ​ตรวจ'],
+  'diagramAccept': [
+    'You accept it, unpublished',
+    'Você aceita, sem publicar',
+    'คุณ​ยอมรับ​ ไม่​เผยแพร่',
+  ],
+  'diagramWrite': [
+    'Write on your device',
+    'Escreva no dispositivo',
+    'เขียน​บน​อุปกรณ์',
+  ],
+  'diagramSignIn': [
+    'Sign in to sync',
+    'Entre para sincronizar',
+    'ลงชื่อ​เข้าใช้​เพื่อ​ซิงค์',
+  ],
+  'diagramPublish': [
+    'Publish what you choose',
+    'Publique o que escolher',
+    'เผยแพร่​สิ่ง​ที่​คุณ​เลือก',
+  ],
 };
