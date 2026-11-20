@@ -75,6 +75,10 @@ void main() {
 
   testWidgets('the logo and the title go home', (tester) async {
     SharedPreferences.setMockInitialValues({});
+    // The landing hero and showcase move; reduced motion keeps them still.
+    tester.platformDispatcher.accessibilityFeaturesTestValue =
+        const FakeAccessibilityFeatures(disableAnimations: true);
+    addTearDown(tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
     await tester.pumpWidget(
       AnnotationsApp(
         trackingEnabled: false,

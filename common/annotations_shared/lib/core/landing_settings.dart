@@ -45,6 +45,8 @@ class PlatformRelease {
 enum DownloadPlatform { mac, linux, android, iosIpados }
 
 abstract final class LandingSettings {
+  /// The public address of the browser app.
+  static const siteAddress = 'https://annotations.asodya.com';
   static const asodya = 'https://asodya.com';
   static const terms = 'https://asodya.com/terms-of-service';
   static const privacy = 'https://asodya.com/privacy-policy';
@@ -94,292 +96,49 @@ abstract final class LandingSettings {
   };
 }
 
-/// How an image is shown (H6 section 4 point 3).
-enum ImageKind { band, row, cardOf2, cardOf3, state }
-
-/// One landing image: its target id (H6 section 4), the file and the shape
-/// the map gives its place. The image shows whole inside that shape.
+/// One photo of the landing by its H6 slot id. The owner's design review
+/// (2026-11-20) cut the 43-place map to the few allowed photos; the rest of
+/// the visuals are drawn in code or real app screenshots.
 class LandingImage {
-  const LandingImage(
-    this.id,
-    this.file,
-    this.kind,
-    this.ratio, {
-    this.tall = false,
-  });
+  const LandingImage(this.id, this.file, this.ratio);
 
   final String id;
   final String file;
-  final ImageKind kind;
 
-  /// True when the file is taller than wide: beside text it shows at most
-  /// 280 px wide (H6 section 4 point 2).
-  final bool tall;
-
-  /// Width divided by height, from the H6 map.
+  /// Width divided by height of the slot.
   final double ratio;
 
   String get asset => 'lib/presentation/frontend/assets/images/$file';
 }
 
-const _w169 = 16 / 9, _w43 = 4 / 3, _w32 = 3 / 2;
-
-/// The 43 images by target id (H6 section 4 points 4 to 9).
+/// The photos of the whole site: at most three, from the allowed set.
 const landingImages = <String, LandingImage>{
-  'O01': LandingImage(
-    'O01',
-    'O01_hero_tablet_writing.webp',
-    ImageKind.row,
-    _w169,
-  ),
-  'O02': LandingImage(
-    'O02',
-    'O02_instant_collab_laptops.webp',
-    ImageKind.cardOf2,
-    _w43,
-  ),
-  'O03': LandingImage(
-    'O03',
-    'O03_notes_study_alone.webp',
-    ImageKind.cardOf2,
-    _w43,
-  ),
-  'O04': LandingImage(
-    'O04',
-    'O04_browse_notes_phone.webp',
-    ImageKind.cardOf3,
-    _w32,
-  ),
-  'O05': LandingImage(
-    'O05',
-    'O05_open_instant_review.webp',
-    ImageKind.cardOf3,
-    _w32,
-  ),
-  'O06': LandingImage(
-    'O06',
-    'O06_download_closed_laptop.webp',
-    ImageKind.cardOf3,
-    _w32,
-  ),
-  'O07': LandingImage(
-    'O07',
-    'O07_writer_platforms_side_by_side.webp',
-    ImageKind.cardOf3,
-    _w32,
-  ),
-  'O08': LandingImage(
-    'O08',
-    'O08_phone_platforms_typing.webp',
-    ImageKind.cardOf3,
-    _w32,
-  ),
-  'O09': LandingImage(
-    'O09',
-    'O09_browser_window_monitor.webp',
-    ImageKind.cardOf3,
-    _w32,
-  ),
-  'O10': LandingImage(
-    'O10',
-    'O10_training_notice_band_pages.webp',
-    ImageKind.band,
-    21 / 9,
-  ),
-  'F01': LandingImage(
-    'F01',
-    'F01_digital_paper_desk.webp',
-    ImageKind.row,
-    _w43,
-  ),
-  'F02': LandingImage(
-    'F02',
-    'F02_type_and_draw_keyboard.webp',
-    ImageKind.row,
-    _w43,
-  ),
-  'F03': LandingImage(
-    'F03',
-    'F03_four_pens_collection.webp',
-    ImageKind.row,
-    _w43,
-  ),
-  'F04': LandingImage(
-    'F04',
-    'F04_point_editing_curves.webp',
-    ImageKind.row,
-    _w43,
-  ),
-  'F05': LandingImage(
-    'F05',
-    'F05_erasers_precision_lens.webp',
-    ImageKind.row,
-    _w43,
-  ),
-  'F06': LandingImage(
-    'F06',
-    'F06_backgrounds_notebooks.webp',
-    ImageKind.row,
-    _w43,
-  ),
-  'F07': LandingImage(
-    'F07',
-    'F07_cards_clipped_notes.webp',
-    ImageKind.row,
-    _w43,
-  ),
-  'F08': LandingImage(
-    'F08',
-    'F08_reports_charts_graphs.webp',
-    ImageKind.row,
-    _w43,
-  ),
-  'F09': LandingImage('F09', 'F09_tasks_todo_prompt.webp', ImageKind.row, _w43),
-  'F10': LandingImage(
-    'F10',
-    'F10_handwriting_to_text.webp',
-    ImageKind.row,
-    _w43,
-  ),
-  'F11': LandingImage(
-    'F11',
-    'F11_pdf_and_print_stack.webp',
-    ImageKind.row,
-    _w43,
-  ),
-  'F12': LandingImage(
-    'F12',
-    'F12_quizzes_laptop_study.webp',
-    ImageKind.row,
-    _w43,
-  ),
-  'F13': LandingImage(
-    'F13',
-    'F13_media_to_text_audio.webp',
-    ImageKind.row,
-    _w43,
-  ),
-  'F14': LandingImage(
-    'F14',
-    'F14_instant_laptops_timer.webp',
-    ImageKind.row,
-    _w43,
-  ),
-  'F15': LandingImage(
-    'F15',
-    'F15_public_notes_library.webp',
-    ImageKind.row,
-    _w43,
-  ),
-  'F16': LandingImage(
-    'F16',
-    'F16_view_lock_focus_night.webp',
-    ImageKind.row,
-    _w43,
-  ),
-  'H01': LandingImage(
-    'H01',
-    'H01_write_device_transit.webp',
-    ImageKind.cardOf3,
-    _w32,
-  ),
-  'H02': LandingImage(
-    'H02',
-    'H02_sign_in_key_badge.webp',
-    ImageKind.cardOf3,
-    _w32,
-  ),
-  'H03': LandingImage(
-    'H03',
-    'H03_publish_notice_board.webp',
-    ImageKind.cardOf3,
-    _w32,
-  ),
-  'H04': LandingImage(
-    'H04',
-    'H04_instant_life_cafe_phones.webp',
-    ImageKind.row,
-    _w32,
-  ),
-  'H05': LandingImage(
-    'H05',
-    'H05_review_draft_corrections.webp',
-    ImageKind.row,
-    _w32,
-  ),
-  'H06': LandingImage(
-    'H06',
-    'H06_local_note_home_desk.webp',
-    ImageKind.cardOf3,
-    _w32,
-  ),
-  'H07': LandingImage(
-    'H07',
-    'H07_private_sync_bag.webp',
-    ImageKind.cardOf3,
-    _w32,
-  ),
-  'H08': LandingImage(
-    'H08',
-    'H08_public_note_shared_table.webp',
-    ImageKind.cardOf3,
-    _w32,
-  ),
-  'E01': LandingImage(
-    'E01',
-    'E01_engineering_header_blueprint.webp',
-    ImageKind.row,
-    _w169,
-  ),
-  'E02': LandingImage(
-    'E02',
-    'E02_engineering_open_source_board.webp',
-    ImageKind.row,
-    _w32,
-  ),
-  'E03': LandingImage(
-    'E03',
-    'E03_engineering_own_model_data.webp',
-    ImageKind.row,
-    _w32,
-  ),
-  'D01': LandingImage(
-    'D01',
-    'D01_download_header_multidevice.webp',
-    ImageKind.row,
-    _w169,
-  ),
-  'D02': LandingImage(
-    'D02',
-    'D02_download_mac_linux_keyboard.webp',
-    ImageKind.row,
-    _w32,
-  ),
-  'D03': LandingImage(
-    'D03',
-    'D03_download_iphone_ipad_devices.webp',
-    ImageKind.row,
-    _w32,
-  ),
-  'S01': LandingImage(
-    'S01',
-    'S01_app_note_not_found_empty.webp',
-    ImageKind.state,
-    1,
-  ),
-  'S02': LandingImage(
-    'S02',
-    'S02_app_instant_room_expired.webp',
-    ImageKind.state,
-    1,
-  ),
-  'S03': LandingImage(
-    'S03',
-    'S03_app_no_search_results_empty.webp',
-    ImageKind.state,
-    1,
-  ),
+  'E02': LandingImage('E02', 'E02_engineering_open_source_board.webp', 3 / 2),
 };
+
+/// A real screenshot of the app in light and dark (H6 point 13), rendered
+/// from the app widgets by test/landing_screens_capture_test.dart.
+class AppScreenshot {
+  const AppScreenshot(this.name, this.ratio);
+
+  final String name;
+
+  /// Width divided by height.
+  final double ratio;
+
+  String asset(bool dark) =>
+      'lib/presentation/frontend/assets/images/showcase_${name}_${dark ? 'dark' : 'light'}.webp';
+}
+
+const desktopShot = AppScreenshot('desktop', 1280 / 800);
+const browserShot = AppScreenshot('browser', 1280 / 800);
+const phoneShot = AppScreenshot('phone', 390 / 844);
+
+/// The window frames of the product showcase, in timer order.
+enum ShowcasePlatform { mac, linux, browser }
+
+/// The install blocks, in page order (owner direction 2026-11-20).
+enum InstallPlatform { mac, linux, tablets, androidPhones, iphone, browser }
 
 /// The groups of the Features page, in page order. Each group gets one
 /// color pair of [AppPalette.pairs], by index.

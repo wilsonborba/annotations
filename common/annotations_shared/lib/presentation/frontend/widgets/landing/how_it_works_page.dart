@@ -1,12 +1,18 @@
+import 'package:annotations_shared/core/tracking_manifest.dart';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
+import '../../../../core/landing_settings.dart';
+import '../../components/controls.dart';
 import '../../components/scope.dart';
+import '../../components/sketch_art.dart';
+import '../../components/sketch_diagram.dart';
 import '../../components/tokens.dart';
 import 'landing_blocks.dart';
 
-/// How it works, /v1/home/how-it-works (H6 section 3 point 7): the life of
-/// a note, the life of an Instant room, handwriting to text, where notes
-/// live, the training notice and the questions.
+/// How it works, /v1/home/how-it-works (H6 section 3 point 7, owner
+/// direction 2026-11-20): text-led sections with drawn flows instead of
+/// photos. Open Instant is the page's one strong action.
 class HowItWorksPage extends StatelessWidget {
   const HowItWorksPage({super.key});
 
@@ -18,108 +24,199 @@ class HowItWorksPage extends StatelessWidget {
     ('faqTrainingQ', 'faqTrainingA'),
   ];
 
+  static const noteFlow = <List<DiagramPart>>[
+    [DiagramPart('diagramWrite')],
+    [DiagramPart('diagramSignIn')],
+    [DiagramPart('diagramPublish')],
+  ];
+
+  static const draftFlow = <List<DiagramPart>>[
+    [DiagramPart('diagramDraft')],
+    [DiagramPart('diagramReview')],
+    [DiagramPart('diagramAccept')],
+  ];
+
   @override
-  Widget build(BuildContext context) => LandingBody(
-    children: [
-      RowText(page: true, title: context.tr('howTitle')),
-      Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          SectionTitle(context.tr('howNoteTitle')),
-          CardLine(
-            cards: [
-              LandingCard(
-                image: 'H01',
-                title: context.tr('howWriteTitle'),
-                text: context.tr('howWriteText'),
-              ),
-              LandingCard(
-                image: 'H02',
-                title: context.tr('howSignInTitle'),
-                text: context.tr('howSignInText'),
-              ),
-              LandingCard(
-                image: 'H03',
-                title: context.tr('howPublishTitle'),
-                text: context.tr('howPublishText'),
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    void none(PublicRepo _) {}
+    Widget visual(SketchScene scene) => Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: context.colors.subtle,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: SketchArt(scene),
+    );
+    return LandingBody(
+      children: [
+        RowText(
+          page: true,
+          title: context.tr('howTitle'),
+          lead: context.tr('overviewLead'),
+        ),
+        Column(
+          key: const Key('how-note'),
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SectionTitle(context.tr('howNoteTitle')),
+            SketchDiagram(name: 'note', stages: noteFlow, onOpen: none),
+            const SizedBox(height: 28),
+            _Steps(
+              steps: const [
+                (SketchGlyph.pen, 'howWriteTitle', 'howWriteText'),
+                (SketchGlyph.key, 'howSignInTitle', 'howSignInText'),
+                (SketchGlyph.board, 'howPublishTitle', 'howPublishText'),
+              ],
+            ),
+          ],
+        ),
+        VisualRow(
+          rowKey: const Key('how-instant'),
+          visualRight: true,
+          visual: visual(SketchScene.instant),
+          child: RowText(
+            title: context.tr('howInstantTitle'),
+            lead: context.tr('howInstantText'),
+            children: [
+              track(
+                'landing.instant.open',
+                AppButton.primary(
+                  key: const Key('how-open-instant'),
+                  label: context.tr('actionInstant'),
+                  onPressed: () => context.go('/v1/instant'),
+                ),
               ),
             ],
           ),
-        ],
-      ),
-      ImageRow(
-        image: 'H04',
-        imageRight: true,
-        child: RowText(
-          title: context.tr('howInstantTitle'),
-          lead: context.tr('howInstantText'),
         ),
-      ),
-      ImageRow(
-        image: 'H05',
-        imageRight: false,
-        child: RowText(
-          title: context.tr('howTranscribeTitle'),
-          lead: context.tr('howTranscribeText'),
+        Column(
+          key: const Key('how-transcribe'),
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SectionTitle(
+              context.tr('howTranscribeTitle'),
+              lead: context.tr('howTranscribeText'),
+            ),
+            SketchDiagram(name: 'draft', stages: draftFlow, onOpen: none),
+          ],
         ),
-      ),
-      Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          SectionTitle(context.tr('howWhereTitle')),
-          CardLine(
-            cards: [
-              LandingCard(
-                image: 'H06',
-                title: context.tr('howLocalTitle'),
-                text: context.tr('howLocalText'),
-              ),
-              LandingCard(
-                image: 'H07',
-                title: context.tr('howSyncTitle'),
-                text: context.tr('howSyncText'),
-              ),
-              LandingCard(
-                image: 'H08',
-                title: context.tr('howPublicTitle'),
-                text: context.tr('howPublicText'),
-              ),
-            ],
-          ),
-        ],
-      ),
-      const TrainingNotice(),
-      Column(
-        key: const Key('faq'),
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          SectionTitle(context.tr('faqTitle')),
-          for (final (question, answer) in faq)
-            Container(
-              padding: const EdgeInsets.symmetric(vertical: 18),
-              decoration: BoxDecoration(
-                border: Border(top: BorderSide(color: context.colors.border)),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    context.tr(question),
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                  const SizedBox(height: 6),
-                  ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 760),
-                    child: Text(
-                      context.tr(answer),
-                      style: Theme.of(context).textTheme.bodyMedium,
+        Column(
+          key: const Key('how-where'),
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SectionTitle(context.tr('howWhereTitle')),
+            _Steps(
+              numbered: false,
+              steps: const [
+                (SketchGlyph.laptop, 'howLocalTitle', 'howLocalText'),
+                (SketchGlyph.cloud, 'howSyncTitle', 'howSyncText'),
+                (SketchGlyph.people, 'howPublicTitle', 'howPublicText'),
+              ],
+            ),
+          ],
+        ),
+        const TrainingNotice(),
+        Column(
+          key: const Key('faq'),
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SectionTitle(context.tr('faqTitle')),
+            for (final (question, answer) in faq)
+              Container(
+                padding: const EdgeInsets.symmetric(vertical: 18),
+                decoration: BoxDecoration(
+                  border: Border(top: BorderSide(color: context.colors.border)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(context.tr(question), style: text.titleMedium),
+                    const SizedBox(height: 6),
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 720),
+                      child: Text(context.tr(answer), style: text.bodyMedium),
                     ),
-                  ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+/// Three short text cards with a drawn icon, side by side on a wide
+/// window.
+class _Steps extends StatelessWidget {
+  const _Steps({required this.steps, this.numbered = true});
+
+  final List<(SketchGlyph, String, String)> steps;
+  final bool numbered;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    final c = context.colors;
+    final pairs = [
+      (AppPalette.green, AppPalette.purple),
+      AppPalette.pairs[1],
+      AppPalette.pairs[3],
+    ];
+    final cards = [
+      for (final (i, (glyph, title, body)) in steps.indexed)
+        Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: c.surface,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: c.border),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  IconTile(glyph, fill: pairs[i % pairs.length].$1, size: 40),
+                  if (numbered) ...[
+                    const SizedBox(width: 12),
+                    Text('${i + 1}', style: text.titleLarge),
+                  ],
                 ],
               ),
-            ),
+              const SizedBox(height: 14),
+              Text(context.tr(title), style: text.titleMedium),
+              const SizedBox(height: 6),
+              Text(
+                context.tr(body),
+                style: text.bodyMedium!.copyWith(color: c.textSecondary),
+              ),
+            ],
+          ),
+        ),
+    ];
+    if (isPhone(context)) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (var i = 0; i < cards.length; i++) ...[
+            if (i > 0) const SizedBox(height: 12),
+            cards[i],
+          ],
+        ],
+      );
+    }
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (var i = 0; i < cards.length; i++) ...[
+            if (i > 0) const SizedBox(width: 16),
+            Expanded(child: cards[i]),
+          ],
         ],
       ),
-    ],
-  );
+    );
+  }
 }

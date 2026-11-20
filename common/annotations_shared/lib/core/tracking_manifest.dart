@@ -40,6 +40,31 @@ const annotationScreens = <TrailScreen>[
   ),
 ];
 const annotationElements = <String, TrailElement>{
+  'landing.card.notes': TrailElement(
+    id: 'landing.card.notes',
+    label: 'Landing card notes',
+    path: 'landing > card > notes',
+  ),
+  'landing.card.feature': TrailElement(
+    id: 'landing.card.feature',
+    label: 'Landing card feature',
+    path: 'landing > card > feature',
+  ),
+  'landing.showcase.select': TrailElement(
+    id: 'landing.showcase.select',
+    label: 'Landing showcase select',
+    path: 'landing > showcase > select',
+  ),
+  'landing.install.action': TrailElement(
+    id: 'landing.install.action',
+    label: 'Landing install action',
+    path: 'landing > install > action',
+  ),
+  'landing.install.how': TrailElement(
+    id: 'landing.install.how',
+    label: 'Landing install how',
+    path: 'landing > install > how',
+  ),
   'shell.navigation.overview': TrailElement(
     id: 'shell.navigation.overview',
     label: 'Shell navigation overview',
@@ -70,20 +95,10 @@ const annotationElements = <String, TrailElement>{
     label: 'Landing download open',
     path: 'landing > download > open',
   ),
-  'landing.card.browse': TrailElement(
-    id: 'landing.card.browse',
-    label: 'Landing card browse',
-    path: 'landing > card > browse',
-  ),
   'landing.card.instant': TrailElement(
     id: 'landing.card.instant',
     label: 'Landing card instant',
     path: 'landing > card > instant',
-  ),
-  'landing.card.download': TrailElement(
-    id: 'landing.card.download',
-    label: 'Landing card download',
-    path: 'landing > card > download',
   ),
   'landing.notice.terms': TrailElement(
     id: 'landing.notice.terms',

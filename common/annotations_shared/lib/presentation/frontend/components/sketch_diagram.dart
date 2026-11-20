@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../../core/landing_settings.dart';
 import 'scope.dart';
+import 'sketch_pen.dart';
 import 'tokens.dart';
 
 /// A diagram with a handwritten look, drawn in code (58edb2df): boxes with
@@ -159,41 +160,6 @@ class SketchArrow extends StatelessWidget {
   );
 }
 
-/// The points of a pen line from [a] to [b] that wanders a little, the same
-/// way on every paint for one [random] seed.
-List<Offset> _penLine(Offset a, Offset b, Random random, double wobble) {
-  final length = (b - a).distance;
-  final steps = max(2, (length / 18).round());
-  final normal = length == 0
-      ? Offset.zero
-      : Offset(-(b - a).dy / length, (b - a).dx / length);
-  return [
-    for (var i = 0; i <= steps; i++)
-      Offset.lerp(a, b, i / steps)! +
-          normal *
-              ((i == 0 || i == steps ? 0.3 : 1) *
-                  (random.nextDouble() - .5) *
-                  wobble),
-  ];
-}
-
-Path _smooth(List<Offset> points) {
-  final path = Path()..moveTo(points.first.dx, points.first.dy);
-  for (var i = 1; i < points.length - 1; i++) {
-    final mid = Offset.lerp(points[i], points[i + 1], .5)!;
-    path.quadraticBezierTo(points[i].dx, points[i].dy, mid.dx, mid.dy);
-  }
-  path.lineTo(points.last.dx, points.last.dy);
-  return path;
-}
-
-Paint _pen(Color color, double width) => Paint()
-  ..color = color
-  ..style = PaintingStyle.stroke
-  ..strokeWidth = width
-  ..strokeCap = StrokeCap.round
-  ..strokeJoin = StrokeJoin.round;
-
 /// A box border drawn as two pen passes, like a hand-drawn rectangle.
 class SketchBoxPainter extends CustomPainter {
   const SketchBoxPainter({required this.color, required this.seed});
@@ -212,12 +178,12 @@ class SketchBoxPainter extends CustomPainter {
       r.bottomLeft + const Offset(2, -2),
     ];
     for (final (pass, width, alpha) in const [(0, 1.7, 1.0), (1, 1.0, .45)]) {
-      final paint = _pen(color.withValues(alpha: alpha), width);
+      final paint = penPaint(color.withValues(alpha: alpha), width);
       for (var i = 0; i < 4; i++) {
         // The second pass overshoots the corners a little, as a pen does.
         final a = corners[i] + Offset(pass * 1.2, pass * -.8);
         final b = corners[(i + 1) % 4] + Offset(pass * -.6, pass * 1.0);
-        canvas.drawPath(_smooth(_penLine(a, b, random, 2.4)), paint);
+        canvas.drawPath(smoothPath(penLine(a, b, random, 2.4)), paint);
       }
     }
   }
@@ -242,16 +208,22 @@ class SketchArrowPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final random = Random(seed);
-    final paint = _pen(color, 1.8);
+    final paint = penPaint(color, 1.8);
     final a = down ? Offset(size.width / 2, 4) : Offset(4, size.height / 2);
     final b = down
         ? Offset(size.width / 2, size.height - 4)
         : Offset(size.width - 4, size.height / 2);
-    canvas.drawPath(_smooth(_penLine(a, b, random, 3)), paint);
+    canvas.drawPath(smoothPath(penLine(a, b, random, 3)), paint);
     final back = down ? const Offset(0, -9) : const Offset(-9, 0);
     final side = down ? const Offset(6, 0) : const Offset(0, 6);
-    canvas.drawPath(_smooth(_penLine(b, b + back + side, random, 1.2)), paint);
-    canvas.drawPath(_smooth(_penLine(b, b + back - side, random, 1.2)), paint);
+    canvas.drawPath(
+      smoothPath(penLine(b, b + back + side, random, 1.2)),
+      paint,
+    );
+    canvas.drawPath(
+      smoothPath(penLine(b, b + back - side, random, 1.2)),
+      paint,
+    );
   }
 
   @override

@@ -393,24 +393,10 @@
       "source": "lib/presentation/frontend/widgets/landing/landing_page.dart"
     },
     {
-      "id": "landing.card.browse",
-      "label": "Landing card browse",
-      "path": "landing > card > browse",
-      "description": "Interaction for landing card browse in widgets/landing/landing_page.dart",
-      "source": "lib/presentation/frontend/widgets/landing/landing_page.dart"
-    },
-    {
       "id": "landing.card.instant",
       "label": "Landing card instant",
       "path": "landing > card > instant",
       "description": "Interaction for landing card instant in widgets/landing/landing_page.dart",
-      "source": "lib/presentation/frontend/widgets/landing/landing_page.dart"
-    },
-    {
-      "id": "landing.card.download",
-      "label": "Landing card download",
-      "path": "landing > card > download",
-      "description": "Interaction for landing card download in widgets/landing/landing_page.dart",
       "source": "lib/presentation/frontend/widgets/landing/landing_page.dart"
     },
     {
@@ -485,6 +471,41 @@
       "label": "Download surface",
       "path": "download > surface",
       "description": "Screen surface and nearest ancestor fallback"
+    },
+    {
+      "id": "landing.card.notes",
+      "label": "Landing card notes",
+      "path": "landing > card > notes",
+      "description": "Interaction for landing card notes in widgets/landing/landing_page.dart",
+      "source": "lib/presentation/frontend/widgets/landing/landing_page.dart"
+    },
+    {
+      "id": "landing.card.feature",
+      "label": "Landing card feature",
+      "path": "landing > card > feature",
+      "description": "Interaction for landing card feature in widgets/landing/landing_page.dart",
+      "source": "lib/presentation/frontend/widgets/landing/landing_page.dart"
+    },
+    {
+      "id": "landing.showcase.select",
+      "label": "Landing showcase select",
+      "path": "landing > showcase > select",
+      "description": "Interaction for landing showcase select in widgets/landing/landing_sections.dart",
+      "source": "lib/presentation/frontend/widgets/landing/landing_sections.dart"
+    },
+    {
+      "id": "landing.install.action",
+      "label": "Landing install action",
+      "path": "landing > install > action",
+      "description": "Interaction for landing install action in widgets/landing/landing_sections.dart",
+      "source": "lib/presentation/frontend/widgets/landing/landing_sections.dart"
+    },
+    {
+      "id": "landing.install.how",
+      "label": "Landing install how",
+      "path": "landing > install > how",
+      "description": "Interaction for landing install how in widgets/landing/landing_sections.dart",
+      "source": "lib/presentation/frontend/widgets/landing/landing_sections.dart"
     }
   ]
 }

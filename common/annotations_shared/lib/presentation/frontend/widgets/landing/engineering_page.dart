@@ -3,9 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../../core/landing_settings.dart';
+import '../../components/controls.dart';
+import '../../components/interactive_card.dart';
+import '../../components/icons.dart';
 import '../../components/scope.dart';
 import '../../components/sketch_diagram.dart';
-import '../../components/tokens.dart';
 import 'landing_blocks.dart';
 
 /// Engineering, /v1/home/engineering (H6 section 3 point 8): diagrams drawn
@@ -23,14 +25,10 @@ class EngineeringPage extends StatelessWidget {
 
     return LandingBody(
       children: [
-        ImageRow(
-          image: 'E01',
-          imageRight: true,
-          child: RowText(
-            page: true,
-            title: context.tr('engTitle'),
-            lead: context.tr('engLead'),
-          ),
+        RowText(
+          page: true,
+          title: context.tr('engTitle'),
+          lead: context.tr('engLead'),
         ),
         Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -72,46 +70,45 @@ class EngineeringPage extends StatelessWidget {
                       padding: const EdgeInsets.symmetric(vertical: 3),
                       child: track(
                         'engineering.repo.open',
-                        Semantics(
-                          link: true,
-                          child: InkWell(
-                            key: Key('repo-${repo.name}'),
-                            onTap: () {
-                              trackChoice(
-                                context,
-                                'engineering.repo.open',
-                                repo.name,
-                              );
-                              launchUrl(Uri.parse(repo.url));
-                            },
-                            child: Text(
-                              '${repo.name} ${repo.tag}',
-                              style: Theme.of(context).textTheme.bodyMedium!
-                                  .copyWith(
-                                    color: context.colors.link,
-                                    fontWeight: FontWeight.w600,
-                                    decoration: TextDecoration.underline,
-                                    decorationColor: context.colors.link,
-                                  ),
-                            ),
-                          ),
+                        AppLink(
+                          key: Key('repo-${repo.name}'),
+                          label: '${repo.name} ${repo.tag}',
+                          onTap: () {
+                            trackChoice(
+                              context,
+                              'engineering.repo.open',
+                              repo.name,
+                            );
+                            launchUrl(Uri.parse(repo.url));
+                          },
                         ),
                       ),
                     ),
                 ],
               ),
+              track(
+                'download.repo.open',
+                AppButton.primary(
+                  key: const Key('engineering-source'),
+                  label: context.tr('repoLink'),
+                  icon: AppIcons.openIn,
+                  onPressed: () =>
+                      launchUrl(Uri.parse(LandingSettings.app.url)),
+                ),
+              ),
             ],
           ),
         ),
-        ImageRow(
-          image: 'E03',
-          imageRight: true,
-          child: RowText(
-            title: context.tr('engModelTitle'),
-            lead: context.tr('engModelText'),
-          ),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SectionTitle(
+              context.tr('engModelTitle'),
+              lead: context.tr('engModelText'),
+            ),
+            SketchDiagram(name: 'model', stages: modelStages, onOpen: open),
+          ],
         ),
-        SketchDiagram(name: 'model', stages: modelStages, onOpen: open),
         Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
