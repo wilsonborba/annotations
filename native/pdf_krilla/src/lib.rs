@@ -428,7 +428,7 @@ pub extern "C" fn asodya_krilla_alloc(size: usize) -> *mut u8 {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn asodya_krilla_spike_ping() -> i32 {
+pub extern "C" fn asodya_krilla_ping() -> i32 {
     41
 }
 

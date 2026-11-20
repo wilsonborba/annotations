@@ -216,4 +216,30 @@ void main() {
     extractAndMaybeDump(inkOut.pdfs.first.bytes, 'ink_only');
     expect(inkOut.pdfs.first.bytes.length, greaterThan(500));
   });
+
+  test('pdf_krilla.wasm exists and is not older than its Rust sources', () {
+    final repoRoot = Directory.current.parent.parent;
+    final wasm = File(
+      '${repoRoot.path}/common/annotations_shared/lib/presentation/frontend/assets/wasm/pdf_krilla.wasm',
+    );
+    final libRs = File('${repoRoot.path}/native/pdf_krilla/src/lib.rs');
+    final cargoToml = File('${repoRoot.path}/native/pdf_krilla/Cargo.toml');
+
+    expect(
+      wasm.existsSync(),
+      isTrue,
+      reason: 'Missing pdf_krilla.wasm; run ./scripts/build_pdf_krilla.sh wasm',
+    );
+    final wasmMtime = wasm.lastModifiedSync();
+    expect(
+      wasmMtime.isBefore(libRs.lastModifiedSync()),
+      isFalse,
+      reason: 'pdf_krilla.wasm is older than lib.rs; rebuild with ./scripts/build_pdf_krilla.sh wasm',
+    );
+    expect(
+      wasmMtime.isBefore(cargoToml.lastModifiedSync()),
+      isFalse,
+      reason: 'pdf_krilla.wasm is older than Cargo.toml; rebuild with ./scripts/build_pdf_krilla.sh wasm',
+    );
+  });
 }

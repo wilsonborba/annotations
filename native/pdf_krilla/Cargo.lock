@@ -429,7 +429,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "pdf_krilla_spike"
+name = "pdf_krilla"
 version = "0.1.0"
 dependencies = [
  "icu_segmenter",

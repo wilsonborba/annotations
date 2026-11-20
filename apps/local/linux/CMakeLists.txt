@@ -102,14 +102,15 @@ install(FILES "${FLUTTER_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
   COMPONENT Runtime)
 
 # Build and bundle the Rust krilla PDF FFI library.
-set(KRILLA_CRATE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../native/pdf_krilla_spike")
-set(KRILLA_SO_PATH "${KRILLA_CRATE_DIR}/target/release/libpdf_krilla_spike.so")
+set(KRILLA_CRATE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../native/pdf_krilla")
+set(KRILLA_BUILD_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/../../../scripts/build_pdf_krilla.sh")
+set(KRILLA_SO_PATH "${KRILLA_CRATE_DIR}/target/release/libpdf_krilla.so")
 add_custom_command(
   OUTPUT "${KRILLA_SO_PATH}"
-  COMMAND cargo build --release --manifest-path "${KRILLA_CRATE_DIR}/Cargo.toml"
+  COMMAND "${KRILLA_BUILD_SCRIPT}" linux
   WORKING_DIRECTORY "${KRILLA_CRATE_DIR}"
-  DEPENDS "${KRILLA_CRATE_DIR}/Cargo.toml" "${KRILLA_CRATE_DIR}/src/lib.rs"
-  COMMENT "Building libpdf_krilla_spike.so via cargo"
+  DEPENDS "${KRILLA_CRATE_DIR}/Cargo.toml" "${KRILLA_CRATE_DIR}/src/lib.rs" "${KRILLA_BUILD_SCRIPT}"
+  COMMENT "Building libpdf_krilla.so via scripts/build_pdf_krilla.sh"
 )
 add_custom_target(krilla_pdf_native ALL DEPENDS "${KRILLA_SO_PATH}")
 add_dependencies(${BINARY_NAME} krilla_pdf_native)

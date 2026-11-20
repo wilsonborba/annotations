@@ -23,3 +23,5 @@ coverage/
 .metadata
 
 __pycache__/
+native/pdf_krilla/target/
+common/annotations_shared/lib/presentation/frontend/assets/wasm/pdf_krilla.wasm

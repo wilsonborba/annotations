@@ -204,6 +204,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 33CC10FB2044A3C60003C045 /* Build configuration list for PBXNativeTarget "Runner" */;
 			buildPhases = (
+				A1B2C3D4E5F6000100000001 /* Build pdf_krilla Rust library */,
 				33CC10E92044A3C60003C045 /* Sources */,
 				33CC10EA2044A3C60003C045 /* Frameworks */,
 				33CC10EB2044A3C60003C045 /* Resources */,
@@ -328,6 +329,24 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "\"$FLUTTER_ROOT\"/packages/flutter_tools/bin/macos_assemble.sh && touch Flutter/ephemeral/tripwire";
+		};
+		A1B2C3D4E5F6000100000001 /* Build pdf_krilla Rust library */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/../../../native/pdf_krilla/Cargo.toml",
+				"$(SRCROOT)/../../../native/pdf_krilla/src/lib.rs",
+			);
+			name = "Build pdf_krilla Rust library";
+			outputPaths = (
+				"$(SRCROOT)/../../../native/pdf_krilla/target/apple/libpdf_krilla_macos.a",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/bash;
+			shellScript = "\"$SRCROOT/../../../scripts/build_pdf_krilla.sh\" macos\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 

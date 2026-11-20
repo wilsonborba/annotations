@@ -39,20 +39,27 @@ DynamicLibrary? _loadLibrary() {
   if (_searchedLib) return _cachedLib;
   _searchedLib = true;
 
-  // 1. Standard system / bundle RPATH / Android jniLibs lookup.
+  // 1. Apple platforms statically link libpdf_krilla.a with -force_load.
+  if (Platform.isIOS || Platform.isMacOS) {
+    final lib = DynamicLibrary.process();
+    _cachedLib = lib;
+    return lib;
+  }
+
+  // 2. Standard system / bundle RPATH / Android jniLibs lookup.
   try {
-    final lib = DynamicLibrary.open('libpdf_krilla_spike.so');
+    final lib = DynamicLibrary.open('libpdf_krilla.so');
     _cachedLib = lib;
     return lib;
   } on Object {
     // Fall through to development/test workspace lookup.
   }
 
-  // 2. Walk up from current working directory for flutter test / dart test.
+  // 3. Walk up from current working directory for flutter test / dart test.
   var dir = Directory.current;
   for (var i = 0; i < 6; i++) {
     final candidate = File(
-      '${dir.path}/native/pdf_krilla_spike/target/release/libpdf_krilla_spike.so',
+      '${dir.path}/native/pdf_krilla/target/release/libpdf_krilla.so',
     );
     if (candidate.existsSync()) {
       try {
@@ -75,7 +82,7 @@ Future<bool> krillaIsAvailable() async {
   if (lib == null) return false;
   try {
     final ping = lib.lookupFunction<_PingNative, _PingDart>(
-      'asodya_krilla_spike_ping',
+      'asodya_krilla_ping',
     );
     return ping() == 41;
   } on Object {
