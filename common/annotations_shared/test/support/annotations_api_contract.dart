@@ -83,11 +83,10 @@ class AnnotationsApiContract {
         );
       }
       final repMap = Map<String, dynamic>.from(reps);
-      final repUnknown = _unknownField(
-        repMap,
-        const {'original', 'typed'},
-        'representations.',
-      );
+      final repUnknown = _unknownField(repMap, const {
+        'original',
+        'typed',
+      }, 'representations.');
       if (repUnknown != null) return repUnknown;
       for (final e in repMap.entries) {
         if (e.value is! Map) {
@@ -98,11 +97,10 @@ class AnnotationsApiContract {
           );
         }
         final docMap = Map<String, dynamic>.from(e.value as Map);
-        final docUnknown = _unknownField(
-          docMap,
-          const {'schema_version', 'document'},
-          'representations.${e.key}.',
-        );
+        final docUnknown = _unknownField(docMap, const {
+          'schema_version',
+          'document',
+        }, 'representations.${e.key}.');
         if (docUnknown != null) return docUnknown;
         if (docMap['document'] is! Map) {
           return _err(
@@ -120,8 +118,7 @@ class AnnotationsApiContract {
     }
 
     // PUT /me/notes/{id} -> annotations_api/lib/domain/notes.rs::replace
-    if (method == 'PUT' &&
-        RegExp(r'^/me/notes/[^/]+$').hasMatch(path)) {
+    if (method == 'PUT' && RegExp(r'^/me/notes/[^/]+$').hasMatch(path)) {
       if (_missingIfMatch(req)) {
         return _err(
           428,
@@ -156,8 +153,7 @@ class AnnotationsApiContract {
     }
 
     // PATCH /me/notes/{id} -> annotations_api/lib/domain/notes.rs::patch
-    if (method == 'PATCH' &&
-        RegExp(r'^/me/notes/[^/]+$').hasMatch(path)) {
+    if (method == 'PATCH' && RegExp(r'^/me/notes/[^/]+$').hasMatch(path)) {
       if (_missingIfMatch(req)) {
         return _err(
           428,
@@ -183,8 +179,7 @@ class AnnotationsApiContract {
     }
 
     // DELETE /me/notes/{id} -> annotations_api/lib/domain/notes.rs::delete
-    if (method == 'DELETE' &&
-        RegExp(r'^/me/notes/[^/]+$').hasMatch(path)) {
+    if (method == 'DELETE' && RegExp(r'^/me/notes/[^/]+$').hasMatch(path)) {
       if (_missingIfMatch(req)) {
         return _err(
           428,
@@ -206,7 +201,10 @@ class AnnotationsApiContract {
         );
       }
       final b = body ?? const {};
-      final unknown = _unknownField(b, const {'language', 'representations'}, '');
+      final unknown = _unknownField(b, const {
+        'language',
+        'representations',
+      }, '');
       if (unknown != null) return unknown;
       final lang = b['language'];
       if (lang is! String || lang.isEmpty) {
@@ -225,11 +223,10 @@ class AnnotationsApiContract {
         );
       }
       final repMap = Map<String, dynamic>.from(reps);
-      final repUnknown = _unknownField(
-        repMap,
-        const {'original', 'typed'},
-        'representations.',
-      );
+      final repUnknown = _unknownField(repMap, const {
+        'original',
+        'typed',
+      }, 'representations.');
       if (repUnknown != null) return repUnknown;
       for (final e in repMap.entries) {
         if (e.value is! String || (e.value as String).isEmpty) {
@@ -257,8 +254,7 @@ class AnnotationsApiContract {
     }
 
     // POST /instant/{code}/files -> annotations_api/lib/domain/transfers.rs::Metadata
-    if (method == 'POST' &&
-        RegExp(r'^/instant/[^/]+/files$').hasMatch(path)) {
+    if (method == 'POST' && RegExp(r'^/instant/[^/]+/files$').hasMatch(path)) {
       final b = body ?? const {};
       final unknown = _unknownField(b, const {
         'filename',
@@ -284,13 +280,14 @@ class AnnotationsApiContract {
       return _validateFileFields(b, requirePurpose: true);
     }
 
-    // POST /me/content_jobs -> annotations_api/lib/domain/transcriptions.rs
+    // POST /me/content_jobs -> annotations_api/lib/domain/content_jobs.rs
     if (method == 'POST' && path == '/me/content_jobs') {
       final b = body ?? const {};
       final unknown = _unknownField(b, const {
         'client_job_id',
         'kind',
         'file_ids',
+        'text',
       }, '');
       if (unknown != null) return unknown;
       if (b['client_job_id'] is! String ||
@@ -298,15 +295,23 @@ class AnnotationsApiContract {
         return _err(422, 'missing_field', 'client_job_id is required');
       }
       if (b['kind'] != 'extraction' && b['kind'] != 'study_notes') {
-        return _err(422, 'invalid_kind', 'kind must be extraction or study_notes');
+        return _err(
+          422,
+          'invalid_kind',
+          'kind must be extraction or study_notes',
+        );
       }
-      if (b['file_ids'] is! List || (b['file_ids'] as List).isEmpty) {
-        return _err(422, 'missing_field', 'file_ids is required');
+      final hasFiles =
+          b['file_ids'] is List && (b['file_ids'] as List).isNotEmpty;
+      final hasText =
+          b['text'] is String && (b['text'] as String).trim().isNotEmpty;
+      if (!hasFiles && !hasText) {
+        return _err(422, 'missing_field', 'file_ids or text is required');
       }
       return null;
     }
 
-    // POST /me/tasks -> annotations_api/lib/domain/tasks.rs
+    // POST /me/tasks -> annotations_api/lib/domain/plane_tasks.rs
     if (method == 'POST' && path == '/me/tasks') {
       final b = body ?? const {};
       final unknown = _unknownField(b, const {
@@ -324,7 +329,7 @@ class AnnotationsApiContract {
       return null;
     }
 
-    // PATCH /me/tasks/{id} -> annotations_api/lib/domain/tasks.rs
+    // PATCH /me/tasks/{id} -> annotations_api/lib/domain/plane_tasks.rs
     if (method == 'PATCH' && RegExp(r'^/me/tasks/[^/]+$').hasMatch(path)) {
       final b = body ?? const {};
       final unknown = _unknownField(b, const {
@@ -353,7 +358,8 @@ class AnnotationsApiContract {
     Set<String> allowed,
     String prefix,
   ) {
-    final unknown = map.keys.where((k) => !allowed.contains(k)).toList()..sort();
+    final unknown = map.keys.where((k) => !allowed.contains(k)).toList()
+      ..sort();
     if (unknown.isEmpty) return null;
     return _err(
       422,
@@ -370,11 +376,10 @@ class AnnotationsApiContract {
         'The value has the wrong type: metadata',
       );
     }
-    return _unknownField(
-      Map<String, dynamic>.from(raw),
-      const {'title', 'tags'},
-      'metadata.',
-    );
+    return _unknownField(Map<String, dynamic>.from(raw), const {
+      'title',
+      'tags',
+    }, 'metadata.');
   }
 
   static http.Response? _validateFileFields(
@@ -401,11 +406,7 @@ class AnnotationsApiContract {
     }
     final size = b['size'];
     if (size is! int || size <= 0) {
-      return _err(
-        422,
-        'invalid_size',
-        'size is a positive number of bytes',
-      );
+      return _err(422, 'invalid_size', 'size is a positive number of bytes');
     }
     final checksum = b['checksum'];
     if (checksum is! String ||
@@ -421,7 +422,9 @@ class AnnotationsApiContract {
 
   static http.Response _err(int status, String code, String message) {
     return http.Response(
-      jsonEncode({'error': {'code': code, 'message': message}}),
+      jsonEncode({
+        'error': {'code': code, 'message': message},
+      }),
       status,
       headers: {'content-type': 'application/json'},
     );

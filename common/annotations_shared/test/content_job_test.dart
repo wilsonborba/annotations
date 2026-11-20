@@ -47,62 +47,62 @@ void main() {
               expect(body?.containsKey('size_bytes'), isFalse);
               return http.Response(jsonEncode({'file_id': 'f_sel_1'}), 201);
             }
-          if (req.method == 'PUT' &&
-              req.url.path.endsWith('/me/files/f_sel_1/content')) {
-            expect(req.bodyBytes, [1, 2, 3, 4]);
-            return http.Response(
-              jsonEncode({'file_id': 'f_sel_1', 'ready': true}),
-              200,
-            );
-          }
-          if (req.method == 'POST' &&
-              req.url.path.endsWith('/me/content_jobs')) {
-            final body = jsonDecode(req.body) as Map<String, dynamic>;
-            expect(body.containsKey('note_id'), isFalse);
-            expect(body['client_job_id'], isNotEmpty);
-            expect(body['kind'], 'extraction');
-            expect(body['file_ids'], ['f_sel_1']);
-            return http.Response(
-              jsonEncode({
-                'job_id': 'job_99',
-                'status': 'running',
-                'last_event_seq': 1,
-              }),
-              201,
-            );
-          }
-          if (req.method == 'GET' &&
-              req.url.path.endsWith('/me/content_jobs/job_99/events')) {
-            ssePollCount++;
-            if (ssePollCount == 1) {
-              expect(req.url.queryParameters['after'], '1');
-              expect(req.headers['last-event-id'], '1');
+            if (req.method == 'PUT' &&
+                req.url.path.endsWith('/me/files/f_sel_1/content')) {
+              expect(req.bodyBytes, [1, 2, 3, 4]);
               return http.Response(
-                'id: 2\nevent: progress\ndata: {"status":"running"}\n\n',
+                jsonEncode({'file_id': 'f_sel_1', 'ready': true}),
+                200,
+              );
+            }
+            if (req.method == 'POST' &&
+                req.url.path.endsWith('/me/content_jobs')) {
+              final body = jsonDecode(req.body) as Map<String, dynamic>;
+              expect(body.containsKey('note_id'), isFalse);
+              expect(body['client_job_id'], isNotEmpty);
+              expect(body['kind'], 'extraction');
+              expect(body['file_ids'], ['f_sel_1']);
+              return http.Response(
+                jsonEncode({
+                  'job_id': 'job_99',
+                  'status': 'running',
+                  'last_event_seq': 1,
+                }),
+                201,
+              );
+            }
+            if (req.method == 'GET' &&
+                req.url.path.endsWith('/me/content_jobs/job_99/events')) {
+              ssePollCount++;
+              if (ssePollCount == 1) {
+                expect(req.url.queryParameters['after'], '1');
+                expect(req.headers['last-event-id'], '1');
+                return http.Response(
+                  'id: 2\nevent: progress\ndata: {"status":"running"}\n\n',
+                  200,
+                  headers: {'content-type': 'text/event-stream'},
+                );
+              }
+              expect(req.url.queryParameters['after'], '2');
+              expect(req.headers['last-event-id'], '2');
+              return http.Response(
+                'id: 3\nevent: completed\ndata: {"status":"completed"}\n\n',
                 200,
                 headers: {'content-type': 'text/event-stream'},
               );
             }
-            expect(req.url.queryParameters['after'], '2');
-            expect(req.headers['last-event-id'], '2');
-            return http.Response(
-              'id: 3\nevent: completed\ndata: {"status":"completed"}\n\n',
-              200,
-              headers: {'content-type': 'text/event-stream'},
-            );
-          }
-          if (req.method == 'GET' &&
-              req.url.path.endsWith('/me/content_jobs/job_99')) {
-            return http.Response(
-              jsonEncode({
-                'job_id': 'job_99',
-                'output_text': 'Extracted summary',
-              }),
-              200,
-            );
-          }
-          return http.Response('{}', 404);
-        },
+            if (req.method == 'GET' &&
+                req.url.path.endsWith('/me/content_jobs/job_99')) {
+              return http.Response(
+                jsonEncode({
+                  'job_id': 'job_99',
+                  'output_text': 'Extracted summary',
+                }),
+                200,
+              );
+            }
+            return http.Response('{}', 404);
+          },
         ).toMockClient();
 
         final api = ApiAdapter(
