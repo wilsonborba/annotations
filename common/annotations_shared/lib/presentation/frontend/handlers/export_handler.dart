@@ -53,6 +53,7 @@ class ExportHandler extends ChangeNotifier {
     PdfExportMapper? mapper,
     PdfPagesRenderer? renderPages,
     Future<String?> Function(String name)? saveLocation,
+    this.untitledTitle = 'Untitled note',
   }) : _mapper = mapper ?? PdfExportMapper(),
        _render = renderPages ?? renderPdfPages,
        _saveLocation = saveLocation ?? _pickSave {
@@ -64,6 +65,9 @@ class ExportHandler extends ChangeNotifier {
 
   final LocalNote note;
   final LocalNoteStore store;
+
+  /// The printed title of a note that has none, in the interface language.
+  final String untitledTitle;
   final PdfExportMapper _mapper;
   final PdfPagesRenderer _render;
   final Future<String?> Function(String name) _saveLocation;
@@ -281,7 +285,7 @@ class ExportHandler extends ChangeNotifier {
       }
 
       final out = await _mapper.export(
-        title: note.title ?? originalNote?.title ?? 'Untitled note',
+        title: note.title ?? originalNote?.title ?? untitledTitle,
         slug: _slug,
         original: originalNote?.document,
         typed: typedNote?.document,

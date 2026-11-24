@@ -98,6 +98,7 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
                           final export = ExportHandler(
                             note: note,
                             store: workspace.store,
+                            untitledTitle: context.tr('untitledNote'),
                           );
                           await showExportDialog(context, export);
                           export.dispose();

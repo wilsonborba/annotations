@@ -23,6 +23,7 @@ import 'package:annotations_shared/presentation/frontend/widgets/export/export_d
 import 'package:archive/archive.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pdf/widgets.dart' as pw;
 import 'package:pdfrx/pdfrx.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -825,5 +826,72 @@ void main() {
             tester.widget<Text>(count()).data == '2 pages',
       );
     });
+
+    testWidgets('an untitled note prints the title in the interface language', (
+      tester,
+    ) async {
+      final now = DateTime.now();
+      final titles = <String>[];
+      final handler = ExportHandler(
+        note: LocalNote(
+          id: 'u1',
+          schema: _origSchema,
+          document: _originalDoc(),
+          title: null,
+          revision: 1,
+          createdAt: now,
+          updatedAt: now,
+          syncState: LocalSyncState.local,
+          accountId: null,
+        ),
+        store: _MissingFileStore(),
+        mapper: _TitleSpy(titles),
+        renderPages: (_, _) async => [await _solidImage()],
+        untitledTitle: strings['untitledNote']![2],
+      );
+      addTearDown(handler.dispose);
+      await tester.runAsync(() => handler.build());
+      expect(titles, isNotEmpty);
+      expect(titles.toSet(), {strings['untitledNote']![2]});
+    });
   });
+}
+
+final class _TitleSpy extends PdfExportMapper {
+  _TitleSpy(this.titles);
+  final List<String> titles;
+
+  @override
+  Future<PdfExportOutput> export({
+    required String title,
+    required String slug,
+    NoteDocument? original,
+    NoteDocument? typed,
+    required PdfExportOptions options,
+    Set<String> availableFileIds = const {},
+    Set<String> failedChartIds = const {},
+    Map<String, Uint8List> attachments = const {},
+    pw.Font? baseFont,
+    pw.Font? boldFont,
+    pw.Font? thaiFont,
+    Uint8List? regularFontBytes,
+    Uint8List? boldFontBytes,
+  }) {
+    titles.add(title);
+    return super.export(
+      title: title,
+      slug: slug,
+      original: original,
+      typed: typed,
+      options: options,
+      availableFileIds: availableFileIds,
+      failedChartIds: failedChartIds,
+      attachments: attachments,
+      baseFont: baseFont,
+      boldFont: boldFont,
+      thaiFont: thaiFont,
+      regularFontBytes: regularFontBytes,
+      boldFontBytes: boldFontBytes,
+    );
+  }
 }
