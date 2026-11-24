@@ -24,6 +24,11 @@ const landingTabs = <(String, String, String)>[
 /// At this width and below the tabs go into one menu (Cortex pattern).
 const tabsMenuWidth = 1000.0;
 
+/// Keep the full three-language control only when the AppBar has room for it
+/// beside the brand and account, theme and navigation actions.
+const compactLanguageWidth = 800.0;
+const compactWordmarkWidth = 620.0;
+
 class PageShell extends StatelessWidget {
   final Widget child;
 
@@ -47,7 +52,7 @@ class PageShell extends StatelessWidget {
               AppBrand(
                 homeLabel: context.tr('home'),
                 // Beside the tabs the title needs a wide window.
-                showTitle: wide ? width >= 1180 : width >= 430,
+                showTitle: wide ? width >= 1180 : width >= compactWordmarkWidth,
                 onHome: () => context.go('/v1/home'),
               ),
             ),
@@ -87,14 +92,14 @@ class PageShell extends StatelessWidget {
             ),
             const SizedBox(width: 16),
           ],
-          if (width < 360)
+          if (width < compactLanguageWidth)
             _CompactLanguageSwitch(
               selected: prefs.locale,
               onChanged: prefs.language,
             )
           else
             LanguageSwitch(selected: prefs.locale, onChanged: prefs.language),
-          SizedBox(width: width < 360 ? 2 : 6),
+          SizedBox(width: width < 430 ? 2 : 6),
           track(
             'shell.theme.toggle',
             AppIconButton.navigation(
@@ -105,8 +110,8 @@ class PageShell extends StatelessWidget {
             ),
           ),
           if (AppScope.of(context).account != null)
-            SizedBox(width: width < 360 ? 2 : 8),
-          AccountControl(location: location, compact: width < 600),
+            SizedBox(width: width < 430 ? 2 : 8),
+          AccountControl(location: location, compact: !wide),
           if (!wide)
             track(
               'shell.navigation.menu',
@@ -118,7 +123,7 @@ class PageShell extends StatelessWidget {
                   label: context.tr('menu'),
                   round: true,
                   entries: [
-                    if (width < 600) ...accountEntries,
+                    if (!wide) ...accountEntries,
                     for (final (route, key) in [
                       for (final (route, key, _) in landingTabs) (route, key),
                       ('/v1/menu', 'barNotes'),
@@ -137,7 +142,7 @@ class PageShell extends StatelessWidget {
                 ),
               ),
             ),
-          SizedBox(width: width < 360 ? 6 : 12),
+          SizedBox(width: width < 430 ? 6 : 12),
         ],
       ),
       // The router's navigator fills the body; each page scrolls on its
