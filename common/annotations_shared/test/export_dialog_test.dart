@@ -23,6 +23,7 @@ import 'package:annotations_shared/presentation/frontend/widgets/export/export_d
 import 'package:archive/archive.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pdfrx/pdfrx.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'attachment_fixtures.dart' show usePdfiumInTests;
@@ -304,6 +305,19 @@ void main() {
           'biology-notes-typed.pdf',
         ]);
         expect(handler.pages.length, greaterThanOrEqualTo(2));
+        await tester.runAsync(() async {
+          for (var index = 0; index < handler.output!.pdfs.length; index++) {
+            final document = await PdfDocument.openData(
+              handler.output!.pdfs[index].bytes,
+            );
+            expect(
+              handler.previewPdfs[index].pages.length,
+              document.pages.length,
+              reason: '${handler.output!.pdfs[index].filename} preview count',
+            );
+            await document.dispose();
+          }
+        });
 
         final saved = await tester.runAsync(() => handler.save());
         expect(saved, isTrue);
