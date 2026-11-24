@@ -15,6 +15,7 @@ import 'package:flutter/foundation.dart';
 import '../models/local_note.dart';
 import '../models/note_document.dart';
 import 'editor_files.dart';
+import 'instant_room_files.dart';
 import 'instant_room_service.dart';
 import 'instant_room_sync.dart';
 import 'note_autosave.dart';
@@ -233,6 +234,7 @@ final class RoomShare implements PaperSaver {
     _expiry?.cancel();
     sync.conflicts.clear();
     conflicts.value = const [];
+    if (files case final RoomFiles roomFiles) roomFiles.clear();
     _editor?.receive(documentOf(room.document));
     _set(InstantSharingState.expired);
   }

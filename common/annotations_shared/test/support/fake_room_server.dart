@@ -28,6 +28,11 @@ final class FakeRoomServer {
   final itemRevisions = <String, int>{};
   int revision = 1;
   bool expired = false;
+
+  /// Room files: metadata by id, and the bytes once uploaded.
+  final fileMeta = <String, FakeJson>{};
+  final fileBytes = <String, List<int>>{};
+  bool failUploads = false;
   bool offline = false;
   final calls = <String>[];
 
@@ -46,7 +51,10 @@ final class FakeRoomServer {
     'item_revisions': itemRevisions,
     'max_file_bytes': 50000000,
     'max_ip_bytes': 50000000,
-    'files': const [],
+    'files': [
+      for (final e in fileMeta.entries)
+        if (fileBytes.containsKey(e.key)) {'id': e.key, ...e.value},
+    ],
   };
 
   /// The server sends objects with sorted keys (serde_json without
@@ -71,6 +79,32 @@ final class FakeRoomServer {
     if (!path.startsWith('/instant/$code')) return _err(404, 'not_found');
     if (expired) return _err(410, 'room_expired');
     final rest = path.substring('/instant/$code'.length);
+    if (rest == '/files' && req.method == 'POST') {
+      final b = Map<String, Object?>.from(jsonDecode(req.body) as Map);
+      if (_unknown(b, {'filename', 'content_type', 'size', 'checksum'})) {
+        return _err(422, 'unknown_field');
+      }
+      final id = 'f${fileMeta.length + 1}';
+      fileMeta[id] = {
+        'filename': b['filename'],
+        'content_type': b['content_type'],
+        'size_bytes': b['size'],
+        'preview': '${b['content_type']}'.startsWith('image/'),
+      };
+      return http.Response(jsonEncode({'id': id}), 200);
+    }
+    final content = RegExp(r'^/files/([^/]+)/content$').firstMatch(rest);
+    if (content != null && req.method == 'PUT') {
+      if (failUploads) return _err(500, 'storage_failed');
+      fileBytes[content.group(1)!] = req.bodyBytes;
+      return http.Response(jsonEncode({'ok': true}), 200);
+    }
+    final file = RegExp(r'^/files/([^/]+)$').firstMatch(rest);
+    if (file != null && req.method == 'GET') {
+      final bytes = fileBytes[file.group(1)!];
+      if (bytes == null) return _err(404, 'not_found');
+      return http.Response.bytes(bytes, 200);
+    }
     final body = req.body.isEmpty
         ? const <String, Object?>{}
         : Map<String, Object?>.from(jsonDecode(req.body) as Map);

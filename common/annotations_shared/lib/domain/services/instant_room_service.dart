@@ -93,6 +93,10 @@ class InstantRoomService {
   final List<Map<String, Object?>> pendingEdits = [];
   final List<InstantUploadedFile> files = [];
 
+  /// The files of the room as the server lists them, by id: filename,
+  /// content_type, size_bytes and preview (annotations#44).
+  final Map<String, Map<String, Object?>> roomFiles = {};
+
   InstantUploadAllowance allowance = const InstantUploadAllowance(
     maxFileBytes: 10 * 1024 * 1024,
     usedBytes: 0,
@@ -208,6 +212,15 @@ class InstantRoomService {
       final r = revMap[id] ?? map['item_revision'];
       itemRevisions[id] = (r as num?)?.toInt() ?? 1;
     }
+    if (resp['files'] case final List list) {
+      roomFiles
+        ..clear()
+        ..addEntries([
+          for (final f in list)
+            if (f is Map && f['id'] != null)
+              MapEntry('${f['id']}', Map<String, Object?>.from(f)),
+        ]);
+    }
     if (resp['max_file_bytes'] is num || resp['max_ip_bytes'] is num) {
       allowance = InstantUploadAllowance(
         maxFileBytes:
@@ -241,6 +254,7 @@ class InstantRoomService {
     pendingEdits.clear();
     conflicts.clear();
     files.clear();
+    roomFiles.clear();
   }
 
   /// Commits a completed item edit (never called during an unfinished gesture).
