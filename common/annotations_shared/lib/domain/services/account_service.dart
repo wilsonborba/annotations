@@ -105,6 +105,12 @@ class AccountService extends ChangeNotifier {
   AccountSessionGuard captureSessionGuard() =>
       AccountSessionGuard._(_sessionGeneration, platform.readCookie('csrf'));
 
+  bool isCurrentSession(AccountSessionGuard guard) =>
+      signedIn &&
+      guard.revision == _sessionGeneration &&
+      guard._csrf != null &&
+      guard._csrf == platform.readCookie('csrf');
+
   /// Reads the live session once at a time.
   Future<void> check() {
     final ending = _loggingOut;
@@ -193,11 +199,7 @@ class AccountService extends ChangeNotifier {
   /// Expires a refused private request only if it still belongs to the
   /// session that made it.
   void expireIfCurrent(AccountSessionGuard guard) {
-    if (guard.revision == _sessionGeneration &&
-        guard._csrf != null &&
-        guard._csrf == platform.readCookie('csrf')) {
-      expire();
-    }
+    if (isCurrentSession(guard)) expire();
   }
 
   void _expire(int generation) {

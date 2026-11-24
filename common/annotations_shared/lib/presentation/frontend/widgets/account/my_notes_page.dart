@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../../../core/tracking_manifest.dart';
@@ -63,12 +65,20 @@ class _MyNotesPageState extends State<MyNotesPage> {
     if (service == null) return;
     if (account?.signedIn != true) return;
     final guard = account!.captureSessionGuard();
-    final notes = service.list();
+    final notes = service.list().then((items) {
+      if (!account.isCurrentSession(guard)) {
+        unawaited(account.check());
+        throw const MyNotesError(0);
+      }
+      return items;
+    });
     // A refused call: the session is dead. Signed out once, no loop.
     notes.then(
       (_) {},
       onError: (Object e) {
-        if (e is MyNotesError && e.refused) {
+        if (!account.isCurrentSession(guard)) {
+          unawaited(account.check());
+        } else if (e is MyNotesError && e.refused) {
           account.expireIfCurrent(guard);
         }
       },

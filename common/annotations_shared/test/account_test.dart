@@ -579,11 +579,6 @@ void main() {
           'published': null,
         },
       ];
-      await g.account.check();
-      await tester.pumpAndSettle();
-      expect(find.text('B private note'), findsOneWidget);
-      expect(find.text('A private note'), findsNothing);
-
       delayed.complete(
         FakeGateway.json({
           'items': [
@@ -598,6 +593,8 @@ void main() {
           'sync_cursor': 'old-a',
         }),
       );
+      await tester.pump();
+      expect(find.text('A private note'), findsNothing);
       await tester.pumpAndSettle();
       expect(find.text('B private note'), findsOneWidget);
       expect(find.text('A private note'), findsNothing);
