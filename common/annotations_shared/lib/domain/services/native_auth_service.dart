@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 
@@ -184,6 +185,64 @@ class NativeAuthService {
   bool sessionPaused = false;
   bool pendingServerRevocation = false;
 
+  // Serializes secure-store operations and distinguishes session replacement
+  // from metadata updates. A late owner verification may only update the
+  // exact session generation it read.
+  int _sessionRevision = 0;
+  int _loginGeneration = 0;
+  Future<void> _storageTail = Future<void>.value();
+
+  int get sessionRevision => _sessionRevision;
+
+  Future<T> _serialized<T>(Future<T> Function() operation) {
+    final result = Completer<T>();
+    _storageTail = _storageTail.then((_) async {
+      try {
+        result.complete(await operation());
+      } catch (error, stack) {
+        result.completeError(error, stack);
+      }
+    });
+    return result.future;
+  }
+
+  Future<NativeSession?> readSession() => _serialized(storage.readSession);
+
+  Future<void> writeSession(NativeSession session) {
+    _sessionRevision++;
+    return _serialized(() => storage.writeSession(session));
+  }
+
+  Future<bool> writeVerifiedSessionIfCurrent({
+    required NativeSession expected,
+    required int revision,
+    required NativeSession verified,
+  }) => _serialized(() async {
+    if (_sessionRevision != revision) return false;
+    final stored = await storage.readSession();
+    if (_sessionRevision != revision || !_sameSession(stored, expected)) {
+      return false;
+    }
+    await storage.writeSession(verified);
+    return _sessionRevision == revision;
+  });
+
+  Future<bool> deleteSessionIfCurrent(NativeSession expected) {
+    _sessionRevision++;
+    final revision = _sessionRevision;
+    return _serialized(() async {
+      final stored = await storage.readSession();
+      if (_sessionRevision != revision || !_sameSession(stored, expected)) {
+        return false;
+      }
+      await storage.deleteSession();
+      return _sessionRevision == revision;
+    });
+  }
+
+  static bool _sameSession(NativeSession? a, NativeSession b) =>
+      a != null && a.sessionId == b.sessionId && a.csrfToken == b.csrfToken;
+
   bool get canWriteLocal => true;
 
   NativeAuthService({
@@ -239,11 +298,13 @@ class NativeAuthService {
       matchCode: matchCodeFromChallenge(challenge),
       startedAt: now ?? DateTime.now().toUtc(),
     );
+    _loginGeneration++;
     pendingHandoff = handoff;
     return handoff;
   }
 
   void cancelPendingLogin() {
+    _loginGeneration++;
     pendingHandoff = null;
   }
 
@@ -258,6 +319,7 @@ class NativeAuthService {
   /// One-shot Finish check (called on user Finish click or app resume; never polled).
   Future<FinishLoginResult> finishLogin({DateTime? now}) async {
     final handoff = pendingHandoff;
+    final generation = _loginGeneration;
     if (handoff == null) {
       return const FinishLoginResult(
         status: FinishLoginStatus.used,
@@ -372,7 +434,14 @@ class NativeAuthService {
       csrfToken: '${dataMap['csrf_token'] ?? json['csrf_token'] ?? ''}',
       locationMessage: locMsg,
     );
-    await storage.writeSession(session);
+    if (_loginGeneration != generation || !identical(pendingHandoff, handoff)) {
+      return const FinishLoginResult(
+        status: FinishLoginStatus.cancelled,
+        message: 'Login was cancelled.',
+      );
+    }
+    _loginGeneration++;
+    await writeSession(session);
     sessionPaused = false;
     pendingServerRevocation = false;
     pendingHandoff = null;
@@ -388,8 +457,13 @@ class NativeAuthService {
   /// Signs out only this device session, keeping local notes untouched.
   /// Works immediately when offline with `pendingServerRevocation = true`.
   Future<void> signOut() async {
-    final existing = await storage.readSession();
-    await storage.deleteSession();
+    _loginGeneration++;
+    _sessionRevision++;
+    final revision = _sessionRevision;
+    final existing = await _serialized(storage.readSession);
+    await _serialized(() async {
+      if (_sessionRevision == revision) await storage.deleteSession();
+    });
     sessionPaused = false;
     if (existing == null) return;
     try {
@@ -397,9 +471,9 @@ class NativeAuthService {
         Uri.parse('$gatewayBaseUrl/user/sync/v1/log-out'),
         headers: existing.authHeaders(isMutation: true),
       );
-      pendingServerRevocation = false;
+      if (_sessionRevision == revision) pendingServerRevocation = false;
     } catch (_) {
-      pendingServerRevocation = true;
+      if (_sessionRevision == revision) pendingServerRevocation = true;
     }
   }
 

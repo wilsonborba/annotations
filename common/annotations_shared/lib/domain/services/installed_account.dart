@@ -49,6 +49,7 @@ class InstalledAccount extends ChangeNotifier {
   /// Verified owner for local reads/edits when the gateway is offline. This
   /// never makes the account signed in or authorizes cloud operations.
   String? get localOwnerId => _session?.verifiedUserId;
+  NativeSession? get activeSession => _session;
 
   /// The match code while a login waits for Finish, else null.
   String? get matchCode => auth.pendingHandoff?.matchCode;
@@ -61,21 +62,35 @@ class InstalledAccount extends ChangeNotifier {
   bool finishing = false;
 
   NativeSession? _session;
+  int _operationGeneration = 0;
+
+  static bool _sameSession(NativeSession? a, NativeSession b) =>
+      a != null && a.sessionId == b.sessionId && a.csrfToken == b.csrfToken;
+
+  bool _isCurrent(int generation, NativeSession session, int revision) =>
+      generation == _operationGeneration &&
+      auth.sessionRevision == revision &&
+      _sameSession(_session, session);
 
   /// The session headers for the user's API calls, or null signed out.
   Map<String, String>? headers({bool mutation = false}) =>
       _session?.authHeaders(isMutation: mutation);
 
   Future<void> check() async {
-    _session = await auth.storage.readSession();
-    if (_session == null) return _set(AccountStatus.signedOut);
+    final generation = ++_operationGeneration;
+    final session = await auth.readSession();
+    if (generation != _operationGeneration) return;
+    _session = session;
+    if (session == null) return _set(AccountStatus.signedOut);
+    final revision = auth.sessionRevision;
     try {
       final res = await client
           .get(
             Uri.parse('${auth.gatewayBaseUrl}/user/info/v1/'),
-            headers: _session!.authHeaders(),
+            headers: session.authHeaders(),
           )
           .timeout(const Duration(seconds: 15));
+      if (!_isCurrent(generation, session, revision)) return;
       if (res.statusCode == 200) {
         final data = (jsonDecode(utf8.decode(res.bodyBytes)) as Map)['data'];
         _email = data is Map ? '${data['email'] ?? ''}' : '';
@@ -83,29 +98,51 @@ class InstalledAccount extends ChangeNotifier {
             ? '${data['id'] ?? data['user_id'] ?? ''}'.trim()
             : '';
         if (userId.isEmpty || userId.contains('\n') || userId.contains('\r')) {
-          _session = _session!.withVerifiedUserId(null);
-          await auth.storage.writeSession(_session!);
+          final unverified = session.withVerifiedUserId(null);
+          final saved = await auth.writeVerifiedSessionIfCurrent(
+            expected: session,
+            revision: revision,
+            verified: unverified,
+          );
+          if (!_isCurrent(generation, session, revision) || !saved) return;
+          _session = unverified;
           return _set(AccountStatus.signedOut);
         }
-        _session = _session!.withVerifiedUserId(userId);
-        await auth.storage.writeSession(_session!);
+        final verified = session.withVerifiedUserId(userId);
+        final saved = await auth.writeVerifiedSessionIfCurrent(
+          expected: session,
+          revision: revision,
+          verified: verified,
+        );
+        if (!_isCurrent(generation, session, revision) || !saved) return;
+        _session = verified;
         _userId = userId;
         return _set(AccountStatus.signedIn);
       }
-      if (res.statusCode == 401 || res.statusCode == 403) return expire();
+      if (res.statusCode == 401 || res.statusCode == 403) {
+        return expire(expected: session);
+      }
       // Another answer: keep the session, show it signed in only after a
       // real check; local writing keeps working.
-      _set(AccountStatus.signedOut);
+      if (_isCurrent(generation, session, revision)) {
+        _set(AccountStatus.signedOut);
+      }
     } catch (_) {
       // Offline: local writing keeps working; sync waits for a check.
-      _set(AccountStatus.signedOut);
+      if (_isCurrent(generation, session, revision)) {
+        _set(AccountStatus.signedOut);
+      }
     }
   }
 
   /// A refused call: the session is dead. Signed out once, no retry.
-  Future<void> expire() async {
+  Future<void> expire({required NativeSession expected}) async {
+    final current = _session;
+    if (!_sameSession(current, expected)) return;
+    final generation = ++_operationGeneration;
+    final deleted = await auth.deleteSessionIfCurrent(expected);
+    if (!deleted || generation != _operationGeneration) return;
     auth.markSessionExpired();
-    await auth.storage.deleteSession();
     _session = null;
     _set(AccountStatus.signedOut);
   }
@@ -168,6 +205,7 @@ class InstalledAccount extends ChangeNotifier {
       if (result.status == FinishLoginStatus.success) {
         // The new secure session has no verified owner yet. Drop the previous
         // account's local scope before checking the replacement session.
+        ++_operationGeneration;
         _session = result.session;
         _userId = _email = '';
         _set(AccountStatus.signedOut);
@@ -189,9 +227,11 @@ class InstalledAccount extends ChangeNotifier {
 
   /// Ends this device session; local notes stay (F2 point 6).
   Future<void> logOut() async {
+    final generation = ++_operationGeneration;
     _session = null;
     _set(AccountStatus.signedOut);
     await auth.signOut();
+    if (generation != _operationGeneration) return;
     _session = null;
     _set(AccountStatus.signedOut);
   }
@@ -219,10 +259,11 @@ class SessionClient extends http.BaseClient {
   @override
   Future<http.StreamedResponse> send(http.BaseRequest request) async {
     final write = request.method != 'GET' && request.method != 'HEAD';
-    request.headers.addAll(account.headers(mutation: write) ?? const {});
+    final session = account.activeSession;
+    request.headers.addAll(session?.authHeaders(isMutation: write) ?? const {});
     final response = await inner.send(request);
     if (response.statusCode == 401 || response.statusCode == 403) {
-      await account.expire();
+      if (session != null) await account.expire(expected: session);
     }
     return response;
   }

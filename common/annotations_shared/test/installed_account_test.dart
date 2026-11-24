@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:async';
 import 'dart:io';
 
 import 'package:annotations_shared/app.dart';
@@ -89,6 +90,29 @@ class FakeGateway {
     appContextKey: key,
     authBase: 'https://auth.test',
   );
+}
+
+class DelayedVerifiedStorage implements SecureSessionStorage {
+  NativeSession? session;
+  final enteredVerifiedWrite = Completer<void>();
+  final releaseVerifiedWrite = Completer<void>();
+
+  @override
+  Future<NativeSession?> readSession() async => session;
+
+  @override
+  Future<void> writeSession(NativeSession value) async {
+    if (value.sessionId == 'sid-a' && value.verifiedUserId != null) {
+      enteredVerifiedWrite.complete();
+      await releaseVerifiedWrite.future;
+    }
+    session = value;
+  }
+
+  @override
+  Future<void> deleteSession() async {
+    session = null;
+  }
 }
 
 /// Opens a Fernet token with the real cipher (the inverse of the app).
@@ -231,6 +255,164 @@ void main() {
       );
       await replacement.check();
       expect(replacement.localOwnerId, isNull);
+    },
+  );
+
+  test(
+    'late account A response cannot bind its owner to replacement B',
+    () async {
+      final storage = InMemorySecureSessionStorage();
+      final responseA = Completer<http.Response>();
+      final responseB = Completer<http.Response>();
+      final client = MockClient((request) async {
+        final cookie = request.headers['cookie'] ?? '';
+        if (cookie.contains('sid-a')) return responseA.future;
+        if (cookie.contains('sid-b')) return responseB.future;
+        return http.Response('unauthorized', 401);
+      });
+      final auth = NativeAuthService(
+        client: client,
+        storage: storage,
+        gatewayBaseUrl: gateway,
+      );
+      final account = InstalledAccount(
+        auth: auth,
+        client: client,
+        platform: 'linux',
+        open: (_) async {},
+        aes: aesCbcEncrypt,
+        appContextKey: key,
+      );
+      const a = NativeSession(sessionId: 'sid-a', csrfToken: 'csrf-a');
+      const b = NativeSession(sessionId: 'sid-b', csrfToken: 'csrf-b');
+      await auth.writeSession(a);
+      final checkA = account.check();
+      await Future<void>.delayed(Duration.zero);
+      await auth.writeSession(b);
+      final checkB = account.check();
+      await Future<void>.delayed(Duration.zero);
+      responseB.complete(
+        http.Response('{"data":{"id":"owner-b","email":"b@test"}}', 200),
+      );
+      await checkB;
+      responseA.complete(
+        http.Response('{"data":{"id":"owner-a","email":"a@test"}}', 200),
+      );
+      await checkA;
+      expect(account.localOwnerId, 'owner-b');
+      expect(account.userId, 'owner-b');
+      expect((await storage.readSession())?.sessionId, 'sid-b');
+      expect((await storage.readSession())?.verifiedUserId, 'owner-b');
+    },
+  );
+
+  test(
+    'late unauthorized response and logout cannot clear replacement session',
+    () async {
+      final storage = InMemorySecureSessionStorage();
+      final responseA = Completer<http.Response>();
+      final responseB = Completer<http.Response>();
+      final responseLogout = Completer<http.Response>();
+      var bCalls = 0;
+      final client = MockClient((request) async {
+        if (request.method != 'GET') return http.Response('ok', 200);
+        final cookie = request.headers['cookie'] ?? '';
+        if (cookie.contains('sid-a')) return responseA.future;
+        if (cookie.contains('sid-b')) {
+          bCalls++;
+          return bCalls == 1 ? responseB.future : responseLogout.future;
+        }
+        return http.Response('unauthorized', 401);
+      });
+      final auth = NativeAuthService(
+        client: client,
+        storage: storage,
+        gatewayBaseUrl: gateway,
+      );
+      final account = InstalledAccount(
+        auth: auth,
+        client: client,
+        platform: 'linux',
+        open: (_) async {},
+        aes: aesCbcEncrypt,
+        appContextKey: key,
+      );
+      const a = NativeSession(sessionId: 'sid-a', csrfToken: 'csrf-a');
+      const b = NativeSession(sessionId: 'sid-b', csrfToken: 'csrf-b');
+      await auth.writeSession(a);
+      final checkA = account.check();
+      await Future<void>.delayed(Duration.zero);
+      await auth.writeSession(b);
+      final checkB = account.check();
+      await Future<void>.delayed(Duration.zero);
+      responseB.complete(
+        http.Response('{"data":{"id":"owner-b","email":"b@test"}}', 200),
+      );
+      await checkB;
+      responseA.complete(http.Response('unauthorized', 401));
+      await checkA;
+      expect(account.localOwnerId, 'owner-b');
+      expect((await storage.readSession())?.sessionId, 'sid-b');
+
+      final pending = account.check();
+      await Future<void>.delayed(Duration.zero);
+      await account.logOut();
+      responseLogout.completeError(const SocketException('late response'));
+      await pending;
+      expect(account.localOwnerId, isNull);
+      expect(await storage.readSession(), isNull);
+    },
+  );
+
+  test(
+    'secure-store write finishing late cannot replace a newer session',
+    () async {
+      final storage = DelayedVerifiedStorage();
+      final responseA = Completer<http.Response>();
+      final responseB = Completer<http.Response>();
+      final client = MockClient((request) async {
+        final cookie = request.headers['cookie'] ?? '';
+        if (cookie.contains('sid-a')) return responseA.future;
+        if (cookie.contains('sid-b')) return responseB.future;
+        return http.Response('unauthorized', 401);
+      });
+      final auth = NativeAuthService(
+        client: client,
+        storage: storage,
+        gatewayBaseUrl: gateway,
+      );
+      final account = InstalledAccount(
+        auth: auth,
+        client: client,
+        platform: 'linux',
+        open: (_) async {},
+        aes: aesCbcEncrypt,
+        appContextKey: key,
+      );
+      await auth.writeSession(
+        const NativeSession(sessionId: 'sid-a', csrfToken: 'csrf-a'),
+      );
+      final checkA = account.check();
+      await Future<void>.delayed(Duration.zero);
+      responseA.complete(
+        http.Response('{"data":{"id":"owner-a","email":"a@test"}}', 200),
+      );
+      await storage.enteredVerifiedWrite.future;
+
+      final replace = auth.writeSession(
+        const NativeSession(sessionId: 'sid-b', csrfToken: 'csrf-b'),
+      );
+      final checkB = account.check();
+      storage.releaseVerifiedWrite.complete();
+      await replace;
+      await Future<void>.delayed(Duration.zero);
+      responseB.complete(
+        http.Response('{"data":{"id":"owner-b","email":"b@test"}}', 200),
+      );
+      await Future.wait([checkA, checkB]);
+      expect(account.localOwnerId, 'owner-b');
+      expect(storage.session?.sessionId, 'sid-b');
+      expect(storage.session?.verifiedUserId, 'owner-b');
     },
   );
 
