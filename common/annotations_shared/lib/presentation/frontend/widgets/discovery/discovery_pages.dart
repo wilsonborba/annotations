@@ -143,6 +143,7 @@ class BrowsePage extends StatelessWidget {
               InputChip(
                 key: Key('active-$kind'),
                 label: Text('${context.tr(kind)}: $value'),
+                deleteIcon: const AppIcon(AppIcons.close, size: 16),
                 onDeleted: () => _go(context, cleared),
                 deleteButtonTooltipMessage: context.tr('clearFilter'),
               ),
@@ -517,6 +518,7 @@ class _ReaderPageState extends State<ReaderPage> {
                   'reader.view.switch',
                   SegmentedButton<NoteViewMode>(
                     key: const Key('reader-switch'),
+                    showSelectedIcon: false,
                     segments: [
                       ButtonSegment(
                         value: NoteViewMode.original,
@@ -547,7 +549,8 @@ class _ReaderPageState extends State<ReaderPage> {
               height: height < 480 ? 480 : height,
               child: typed
                   ? Align(
-                      alignment: Alignment.topCenter,
+                      // The formal page lines up with the title above it.
+                      alignment: Alignment.topLeft,
                       child: ConstrainedBox(
                         constraints: const BoxConstraints(maxWidth: 760),
                         child: NoteReader(
@@ -597,7 +600,10 @@ class _SearchFieldState extends State<_SearchField> {
       textInputAction: TextInputAction.search,
       decoration: InputDecoration(
         hintText: context.tr('search'),
-        prefixIcon: const Icon(Icons.search),
+        prefixIcon: const Padding(
+          padding: EdgeInsets.all(12),
+          child: AppIcon(AppIcons.search, size: 18),
+        ),
       ),
       onSubmitted: widget.onSubmit,
     ),
