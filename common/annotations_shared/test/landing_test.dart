@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:annotations_shared/app.dart';
 import 'package:annotations_shared/core/landing_settings.dart';
@@ -30,19 +31,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'design_goldens_test.dart' show loadAppFonts;
 import 'fixtures.dart';
 
-/// The landing pages and their photos (annotations#53 redesign: at most
-/// three photos on the whole site, from the allowed set).
-const pages = {
-  '/v1/home': <String>[],
-  '/v1/home/features': <String>[],
-  '/v1/home/how-it-works': <String>[],
-  '/v1/home/engineering': ['E02'],
-  '/v1/home/download': <String>[],
-};
-
-/// The allowed photo slots (owner direction 2026-11-20): the stickers, the
-/// library shelves, a computer in use.
-const allowedPhotos = {'E02', 'F15', 'O09'};
+/// The landing pages. The site has no photographs (owner, 2026-11-24).
+const pages = [
+  '/v1/home',
+  '/v1/home/features',
+  '/v1/home/how-it-works',
+  '/v1/home/engineering',
+  '/v1/home/download',
+];
 
 /// Turns on reduced motion for one test: the hero marks stay still and the
 /// showcase does not move, so pumpAndSettle can settle.
@@ -166,7 +162,7 @@ void main() {
     final unbreakable = <String>{};
     for (final locale in ['en', 'pt-BR', 'th']) {
       for (final width in [390.0, 768.0, 1001.0, 1300.0]) {
-        for (final route in pages.keys) {
+        for (final route in pages) {
           await open(tester, route, width: width, locale: locale);
           expect(
             tester.takeException(),
@@ -191,21 +187,53 @@ void main() {
     expect(unbreakable, isEmpty);
   });
 
-  testWidgets('at most three photos, only allowed ones, none of people', (
+  testWidgets('no photographs and no internet images on the site', (
     tester,
   ) async {
-    expect(landingImages.length, lessThanOrEqualTo(3));
-    expect(allowedPhotos.containsAll(landingImages.keys), isTrue);
-    for (final MapEntry(key: route, value: ids) in pages.entries) {
+    // The image folder holds only the logo and the app's own screenshots.
+    final files = Directory(
+      'lib/presentation/frontend/assets/images',
+    ).listSync().map((f) => f.uri.pathSegments.last).toSet();
+    expect(
+      files.where(
+        (f) =>
+            f != 'asodya_logo.png' &&
+            !RegExp(r'^showcase_[a-z]+_(light|dark)\.webp$').hasMatch(f),
+      ),
+      isEmpty,
+    );
+    // The licence manifest lists no photo.
+    final manifest = File(
+      'lib/presentation/frontend/assets/image_sources.md',
+    ).readAsStringSync();
+    expect(manifest.contains('|'), isFalse);
+    expect(manifest.contains('http'), isFalse);
+    // No page shows an image other than the logo and the app screenshots.
+    for (final route in pages) {
       await open(tester, route);
-      for (final id in landingImages.keys) {
+      for (final element in find.byType(Image).evaluate()) {
+        final image = (element.widget as Image).image;
+        final name = switch (image) {
+          AssetImage(:final assetName) => assetName,
+          ExactAssetImage(:final assetName) => assetName,
+          _ => '$image',
+        };
         expect(
-          find.byKey(Key('image-$id')),
-          ids.contains(id) ? findsOneWidget : findsNothing,
-          reason: '$route $id',
+          name.endsWith('asodya_logo.png') || name.contains('/showcase_'),
+          isTrue,
+          reason: '$route $name',
         );
       }
     }
+    // Engineering "Open source" is drawn in code.
+    await open(tester, '/v1/home/engineering');
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('art-open-source')),
+        matching: find.byKey(const Key('sketch-openSource')),
+      ),
+      findsOneWidget,
+    );
   });
 
   testWidgets('the state images are drawn and sit above their messages', (
@@ -314,7 +342,7 @@ void main() {
     testWidgets('one strong purple action per page; it is Download here', (
       tester,
     ) async {
-      for (final route in pages.keys) {
+      for (final route in pages) {
         await open(tester, route);
         expect(primaryButtons(tester), 1, reason: route);
       }
@@ -715,7 +743,7 @@ void main() {
     tester,
   ) async {
     for (final theme in ['light', 'dark']) {
-      for (final route in pages.keys) {
+      for (final route in pages) {
         await open(tester, route, theme: theme);
         // Purple: the page's one main action.
         expect(primaryButtons(tester), 1, reason: '$route $theme');
@@ -801,9 +829,9 @@ void main() {
     final title = tester.getTopLeft(
       find.text(translate('engSourceTitle', 'en')),
     );
-    final image = tester.getTopLeft(find.byKey(const Key('image-E02')));
+    final image = tester.getTopLeft(find.byKey(const Key('art-open-source')));
     expect(image.dy, greaterThan(title.dy));
-    expect(tester.getSize(find.byKey(const Key('image-E02'))).width, 350);
+    expect(tester.getSize(find.byKey(const Key('art-open-source'))).width, 350);
   });
 
   testWidgets('training notice links Terms and Privacy on two pages', (
@@ -860,7 +888,7 @@ void main() {
     ]);
     expect(
       tester.getTopLeft(find.byKey(const Key('footer-content'))).dx,
-      tester.getTopLeft(find.byKey(const Key('image-E02'))).dx,
+      tester.getTopLeft(find.byKey(const Key('art-open-source'))).dx,
     );
   });
 
@@ -905,7 +933,7 @@ void main() {
       caseSensitive: false,
     );
     for (final locale in ['en', 'pt-BR', 'th']) {
-      for (final route in pages.keys) {
+      for (final route in pages) {
         await open(tester, route, locale: locale);
         for (final text in texts(tester)) {
           expect(forbidden.hasMatch(text), isFalse, reason: '$route: $text');

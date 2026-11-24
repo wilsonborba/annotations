@@ -296,7 +296,8 @@ const publicNote = {
   'author': {'id': 'study-group', 'name': 'Study group'},
   'language': 'en',
   'available_languages': ['en', 'pt-BR'],
-  'updated_at': 0,
+  // A realistic date for the showcase (2026-11-18), never 1970-01-01.
+  'updated_at': 1794996000,
   'topics': [],
   'body': {
     'blocks': [

@@ -96,26 +96,6 @@ abstract final class LandingSettings {
   };
 }
 
-/// One photo of the landing by its H6 slot id. The owner's design review
-/// (2026-11-20) cut the 43-place map to the few allowed photos; the rest of
-/// the visuals are drawn in code or real app screenshots.
-class LandingImage {
-  const LandingImage(this.id, this.file, this.ratio);
-
-  final String id;
-  final String file;
-
-  /// Width divided by height of the slot.
-  final double ratio;
-
-  String get asset => 'lib/presentation/frontend/assets/images/$file';
-}
-
-/// The photos of the whole site: at most three, from the allowed set.
-const landingImages = <String, LandingImage>{
-  'E02': LandingImage('E02', 'E02_engineering_open_source_board.webp', 3 / 2),
-};
-
 /// A real screenshot of the app in light and dark (H6 point 13), rendered
 /// from the app widgets by test/landing_screens_capture_test.dart.
 class AppScreenshot {
