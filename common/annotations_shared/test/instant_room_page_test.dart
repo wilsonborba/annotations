@@ -3,10 +3,12 @@
 // the remaining time warns near the expiry; a lost connection shows Try
 // again; an expired room shows S02 and "This room has expired".
 import 'package:annotations_shared/app.dart';
+import 'package:annotations_shared/core/settings.dart';
 import 'package:annotations_shared/dal/remote/api_adapter.dart';
 import 'package:annotations_shared/domain/services/annotations_service.dart';
 import 'package:annotations_shared/domain/models/note_document.dart';
 import 'package:annotations_shared/domain/services/instant_room_share.dart';
+import 'package:annotations_shared/presentation/frontend/components/qr_share.dart';
 import 'package:annotations_shared/presentation/frontend/handlers/instant_room_handler.dart';
 import 'package:annotations_shared/presentation/frontend/widgets/instant/instant_room_page.dart';
 import 'package:flutter/material.dart';
@@ -55,6 +57,12 @@ void main() {
       'PUT /instant/river-lab',
     ]);
     expect(find.byKey(const Key('room-code')), findsOneWidget);
+    expect(find.byKey(const Key('room-copy')), findsOneWidget);
+    expect(find.byKey(const Key('room-qr')), findsOneWidget);
+    expect(
+      tester.widget<QrShareControl>(find.byKey(const Key('room-qr'))).url,
+      InstantRoomPage.joinUri(server.code),
+    );
     expect(find.text('river-lab'), findsOneWidget);
     expect(find.byKey(const Key('paper-status')), findsOneWidget);
     expect(find.byKey(const Key('room-state-shared')), findsOneWidget);
@@ -103,6 +111,8 @@ void main() {
     expect(find.byKey(const Key('room-expired')), findsOneWidget);
     expect(find.text('This room has expired'), findsOneWidget);
     expect(find.byKey(const Key('paper-status')), findsNothing);
+    expect(find.byKey(const Key('room-copy')), findsNothing);
+    expect(find.byKey(const Key('room-qr')), findsNothing);
     await closeRoom(tester);
   });
 
@@ -156,6 +166,17 @@ void main() {
   test('the join link is the room path, with no query or fragment', () {
     final uri = InstantRoomPage.joinUri('river lab/7');
     expect(uri.path, '/v1/instant/river%20lab%2F7');
+    expect(uri.hasQuery && uri.query.isNotEmpty, isFalse);
+    expect(uri.fragment, isEmpty);
+  });
+
+  test('production join links use only the configured public origin', () {
+    Settings.use(const Settings(development: false));
+    addTearDown(() => Settings.use(const Settings()));
+    final uri = InstantRoomPage.joinUri('river lab/7');
+    expect(uri.origin, 'https://annotations.asodya.com');
+    expect(uri.path, '/v1/instant/river%20lab%2F7');
+    expect(uri.userInfo, isEmpty);
     expect(uri.hasQuery && uri.query.isNotEmpty, isFalse);
     expect(uri.fragment, isEmpty);
   });

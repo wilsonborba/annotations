@@ -101,6 +101,12 @@ const strings = <String, List<String>>{
   ],
   'copy': ['Copy link', 'Copiar link', 'คัดลอกลิงก์'],
   'copied': ['Link copied', 'Link copiado', 'คัดลอกลิงก์แล้ว'],
+  'shareQr': ['Show QR code', 'Mostrar código QR', 'แสดงคิวอาร์โค้ด'],
+  'qrInstantCaption': [
+    'Scan to open this Instant room',
+    'Escaneie para abrir esta sala Instant',
+    'สแกนเพื่อเปิดห้อง Instant นี้',
+  ],
   'open': ['Open original', 'Abrir original', 'เปิดต้นฉบับ'],
   'back': ['Back to notes', 'Voltar às anotações', 'กลับไปที่บันทึก'],
   'roomTitle': [

@@ -19,6 +19,7 @@ import '../../../../domain/services/instant_room_service.dart';
 import '../../components/controls.dart';
 import '../../components/icons.dart';
 import '../../components/landing_image.dart';
+import '../../components/qr_share.dart';
 import '../../components/scope.dart';
 import '../../components/shell.dart';
 import '../../components/theme.dart';
@@ -33,11 +34,8 @@ class InstantRoomPage extends StatefulWidget {
 
   /// The link that opens the room [code]: Copy link uses it, and the QR
   /// share control of annotations#65 takes the same link.
-  static Uri joinUri(String code) => Uri.base.replace(
-    path: '/v1/instant/${Uri.encodeComponent(code)}',
-    query: '',
-    fragment: '',
-  );
+  static Uri joinUri(String code) =>
+      publicAppUri(pathSegments: ['v1', 'instant', code]);
 
   /// Phones get simple typed controls; the browser gets them on a phone
   /// sized screen and the full editor otherwise (A2 matrix, Instant rows).
@@ -133,6 +131,12 @@ class RoomHeader extends StatelessWidget {
     final left = handler.remaining.inSeconds;
     final time = '${left ~/ 60}:${(left % 60).toString().padLeft(2, '0')}';
     final soon = handler.nearExpiry;
+    final phone = MediaQuery.sizeOf(context).width < 600;
+    final qr = QrShareControl(
+      key: const Key('room-qr'),
+      url: InstantRoomPage.joinUri(code),
+      caption: context.tr('qrInstantCaption'),
+    );
     return Container(
       key: const Key('room-header'),
       padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
@@ -185,8 +189,10 @@ class RoomHeader extends StatelessWidget {
                   },
                 ),
               ),
+              if (!phone) qr,
             ],
           ),
+          if (phone) qr,
           Semantics(
             liveRegion: soon,
             child: Row(
