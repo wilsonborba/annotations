@@ -135,7 +135,7 @@ class AttachmentHandler extends ChangeNotifier {
   }
 
   Future<void> _run(AttachmentJob job) async {
-    final store = paper.autosave.store;
+    final store = paper.autosave.files;
     LocalAttachment? stored;
     try {
       final s = job.source;
@@ -195,7 +195,7 @@ class AttachmentHandler extends ChangeNotifier {
   Future<Map<String, Object?>> _itemFor(LocalAttachment file) async {
     final kind = cardKindFor(file.type);
     final id = newId();
-    final store = paper.autosave.store;
+    final store = paper.autosave.files;
     switch (kind) {
       case 'image':
         var (w, h) = (320.0, 240.0);
@@ -470,7 +470,7 @@ class AttachmentHandler extends ChangeNotifier {
     final fileId = it['file_id'] as String?;
     final file = fileId == null
         ? null
-        : await paper.autosave.store.attachment(fileId);
+        : await paper.autosave.files.attachment(fileId);
     if (file == null) return false;
     return _launch(Uri.file(file.path));
   }
@@ -479,7 +479,7 @@ class AttachmentHandler extends ChangeNotifier {
   Future<bool> saveCopy(String id) async {
     final fileId = _json(id)?['file_id'] as String?;
     if (fileId == null) return false;
-    final store = paper.autosave.store;
+    final store = paper.autosave.files;
     final file = await store.attachment(fileId);
     final bytes = await store.readAttachment(fileId);
     if (file == null || bytes == null) return false;

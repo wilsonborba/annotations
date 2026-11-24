@@ -13,7 +13,10 @@ import 'package:http/testing.dart';
 typedef FakeJson = Map<String, Object?>;
 
 final class FakeRoomServer {
-  FakeRoomServer({this.code = 'ROOM12', this.expiresAt = 1700000900});
+  /// A room that expires 15 minutes from now unless [expiresAt] is given.
+  FakeRoomServer({this.code = 'ROOM12', int? expiresAt})
+    : expiresAt =
+          expiresAt ?? DateTime.now().millisecondsSinceEpoch ~/ 1000 + 900;
 
   final String code;
   final int expiresAt;

@@ -100,7 +100,7 @@ class PaperHandler extends ChangeNotifier {
   /// Opens a saved local note.
   factory PaperHandler.open(
     LocalNote note,
-    NoteAutosave autosave, {
+    PaperSaver autosave, {
     PaperSettings settings = const PaperSettings(),
   }) => PaperHandler(
     noteId: note.id,
@@ -124,7 +124,7 @@ class PaperHandler extends ChangeNotifier {
     _changed();
   }
 
-  final NoteAutosave autosave;
+  final PaperSaver autosave;
   final PaperSettings settings;
   final ObjectSelector selector;
   final PaperPage page;
@@ -135,7 +135,7 @@ class PaperHandler extends ChangeNotifier {
   final TextStyle textStyle;
 
   /// The stored files that cards show (annotations#34).
-  late final files = AttachmentCache(autosave.store);
+  late final files = AttachmentCache(autosave.files);
 
   /// The view, null until the canvas has its size.
   final view = ValueNotifier<PaperView?>(null);
@@ -351,6 +351,25 @@ class PaperHandler extends ChangeNotifier {
     // A locked view never follows an edit (B8).
     if (v != null && !_locked) view.value = _clamped(v.scroll, v.zoom, v.size);
     notifyListeners();
+  }
+
+  /// Shows a room document that came from the server (annotations#44).
+  /// Returns false while a gesture holds the page or a stroke is being
+  /// drawn: the caller tries again later, so an unfinished gesture is never
+  /// mixed with a shared change. Not a local edit: nothing is shared back.
+  bool receive(InstantRoomDocument next) {
+    if (holding || activeInk.value != null) return false;
+    final editor = session;
+    if (editor is! InstantEditor) return false;
+    editor.receive(next);
+    _height = null;
+    _layout = null;
+    selection.value = selector.prune(document, selection.value);
+    if (hover.value != null && layout?.unitOf(hover.value!) == null) {
+      hover.value = null;
+    }
+    notifyListeners();
+    return true;
   }
 
   /// Saves again after a failure.
