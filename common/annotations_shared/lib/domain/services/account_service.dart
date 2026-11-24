@@ -309,8 +309,12 @@ class AccountService extends ChangeNotifier {
       gate.complete();
     }
     if (!exchanged || generation != _sessionGeneration) return false;
+    final exchangedCsrf = platform.readCookie('csrf');
+    if (exchangedCsrf == null) return false;
     await check();
-    return generation == _sessionGeneration && signedIn;
+    return signedIn &&
+        platform.readCookie('csrf') == exchangedCsrf &&
+        _sessionCsrf == exchangedCsrf;
   }
 
   /// Ends this device session; public reading and Instant keep working.
