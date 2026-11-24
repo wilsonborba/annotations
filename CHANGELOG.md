@@ -34,6 +34,8 @@
 
 ### 🐛 Bug Fixes
 
+- *(sync)* Persist server note identity and revisions for cloud calls (#63)
+- *(sync)* Isolate conflict copies and require revision ids (#63)
 - *(privacy)* Exclude Instant content from tracking and error reports (#17)
 - *(editor)* Resolve the text engine font family to the package fonts so notes use Ubuntu Sans with the Thai fallback (#59)
 - *(shell)* Give each page its own scroll view so a route transition never overflows the outgoing page (#58)
