@@ -2,12 +2,36 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:annotations_shared/domain/models/ink.dart';
 import 'package:annotations_shared/domain/models/note_document.dart';
+import 'package:annotations_shared/domain/services/editor_rules.dart';
 import 'package:annotations_shared/domain/services/pdf_export_mapper.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
 import 'note_capacity_test.dart' show handwriting;
+import 'pdf_raster.dart';
+
+/// A straight red pen line captured with the real editor capture code, as
+/// the app stores it: Bezier nodes in hundredths, no x/y/height.
+Map<String, Object?> redLine(
+  String id,
+  double x0,
+  double y0,
+  double x1,
+  double y1,
+) {
+  final capture = StrokeCapture(
+    const BrushSettings(tool: InkTool.round, width: 3, color: '#DC2626FF'),
+    pageWidth: 1000,
+  );
+  for (var k = 0; k <= 20; k++) {
+    final a = k / 20;
+    capture.add(x0 + (x1 - x0) * a, y0 + (y1 - y0) * a, 1000 + k * 8);
+  }
+  return capture.toItem(id)!;
+}
 
 void main() {
   final origSchema = DocumentSchema(DocumentFamily.original.schemaName, 1);
@@ -347,6 +371,184 @@ void main() {
         isNot(contains('/Subtype /Image')),
       );
       await extractPdfText(inkRes.pdfs.first.bytes, 'ink_only');
+      // The handwriting itself is on the page: dark pixels below the title,
+      // around the stroke's place (x 63..81, y 50..70 in page units).
+      final raster = await PdfRaster.page(inkRes.pdfs.first.bytes);
+      var ink = 0;
+      for (var y = 80; y < 130; y++) {
+        for (var x = 40; x < 110; x++) {
+          final (r, g, b) = raster.at(x, y);
+          if (r < 120 && g < 120 && b < 120) ink++;
+        }
+      }
+      expect(ink, greaterThan(15), reason: 'no handwriting pixels drawn');
     },
   );
+
+  group('Original ink is drawn from the stored nodes (annotations#42)', () {
+    final format = PdfPageFormat.a4;
+    final scale = (format.width - PdfExportMapper.marginPt * 2) / 1000;
+
+    Future<PdfRaster> render(List<Map<String, Object?>> items) async {
+      final doc = NoteDocument.fromJson({
+        'page': {
+          'width': 1000,
+          'background': {'kind': 'blank'},
+        },
+        'items': items,
+      }, schema: origSchema);
+      final out = await PdfExportMapper().export(
+        title: 'Ink',
+        slug: 'ink',
+        original: doc,
+        options: const PdfExportOptions(mode: PdfExportMode.original),
+        baseFont: loadFont(
+          'lib/presentation/frontend/assets/fonts/UbuntuSans-Variable.ttf',
+        ),
+        thaiFont: loadFont(
+          'lib/presentation/frontend/assets/fonts/IBMPlexSansThai-Regular.ttf',
+        ),
+      );
+      expect(out.pdfs, hasLength(1));
+      return PdfRaster.page(out.pdfs.first.bytes);
+    }
+
+    test('a stroke lands at its own place, length and color', () async {
+      final a = (await render([redLine('s1', 100, 100, 500, 100)])).box(isRed);
+      expect(a, isNotNull, reason: 'the stored stroke is not drawn at all');
+      final (l, t, r, b) = a!;
+      expect(l, closeTo(PdfExportMapper.marginPt + 100 * scale, 3));
+      expect(r - l, closeTo(400 * scale, 4));
+      expect(b - t, lessThan(6));
+
+      // The same line 200 units lower prints 200 scaled units lower.
+      final moved = (await render([
+        redLine('s1', 100, 300, 500, 300),
+      ])).box(isRed)!;
+      expect(moved.$2 - t, closeTo(200 * scale, 2));
+      expect(moved.$1, closeTo(l, 1));
+    });
+
+    test('ink on a later page prints at the top of that page', () async {
+      final doc = NoteDocument.fromJson({
+        'page': {
+          'width': 1000,
+          'background': {'kind': 'blank'},
+        },
+        'items': [
+          {
+            'id': 't1',
+            'kind': 'text',
+            'x': 96,
+            'y': 32,
+            'width': 320,
+            'height': 32,
+            'spans': [
+              {'text': 'Top'},
+            ],
+          },
+          redLine('s2', 100, 2000, 500, 2000),
+        ],
+      }, schema: origSchema);
+      final out = await PdfExportMapper().export(
+        title: 'Ink',
+        slug: 'ink',
+        original: doc,
+        options: const PdfExportOptions(mode: PdfExportMode.original),
+        baseFont: loadFont(
+          'lib/presentation/frontend/assets/fonts/UbuntuSans-Variable.ttf',
+        ),
+        thaiFont: loadFont(
+          'lib/presentation/frontend/assets/fonts/IBMPlexSansThai-Regular.ttf',
+        ),
+      );
+      expect((await PdfRaster.page(out.pdfs.first.bytes)).box(isRed), isNull);
+      final second = (await PdfRaster.page(
+        out.pdfs.first.bytes,
+        page: 2,
+      )).box(isRed);
+      expect(second, isNotNull, reason: 'the stroke is not on page 2');
+      expect(second!.$2, inInclusiveRange(PdfExportMapper.marginPt, 80));
+    });
+
+    test('a shape keeps its fill and its line, not a gray box', () async {
+      final raster = await render([
+        {
+          'id': 'sh1',
+          'kind': 'shape',
+          'shape': 'rectangle',
+          'color': '#DC2626FF',
+          'line_width': 2,
+          'opacity': 1,
+          'x': 100,
+          'y': 100,
+          'width': 200,
+          'height': 80,
+          'fill': '#FEE2E280',
+        },
+      ]);
+      final line = raster.box(isRed);
+      expect(line, isNotNull);
+      final (l, t, r, b) = line!;
+      expect(r - l, closeTo(200 * scale, 3));
+      expect(b - t, closeTo(80 * scale, 3));
+      final cx = (l + r) ~/ 2, cy = (t + b) ~/ 2;
+      final (pr, pg, pb) = raster.at(cx, cy);
+      expect(isPinkFill(pr, pg, pb), isTrue, reason: 'fill is $pr,$pg,$pb');
+    });
+
+    test('pagination uses real ink bounds and keeps groups together', () {
+      final doc = NoteDocument.fromJson({
+        'page': {
+          'width': 1000,
+          'background': {'kind': 'blank'},
+        },
+        'items': [
+          {
+            'id': 't1',
+            'kind': 'text',
+            'x': 96,
+            'y': 32,
+            'width': 320,
+            'height': 32,
+            'spans': [
+              {'text': 'Top'},
+            ],
+          },
+          redLine('low', 100, 2000, 400, 2000),
+          {
+            'id': 't2',
+            'kind': 'text',
+            'x': 96,
+            'y': 864,
+            'width': 320,
+            'height': 32,
+            'spans': [
+              {'text': 'Caption'},
+            ],
+          },
+          redLine('under', 100, 980, 400, 1060),
+          {
+            'id': 'g1',
+            'kind': 'group',
+            'members': ['t2', 'under'],
+          },
+        ],
+      }, schema: origSchema);
+      final pages = PdfExportMapper.planOriginalPages(
+        doc,
+        printableHeight: 1000,
+      );
+      List<String> ids(int p) => [
+        for (final it in pages[p].items) it['id'] as String,
+      ];
+      expect(pages, hasLength(3));
+      expect(ids(0), ['t1']);
+      // The group (caption and the ink under it) moves to the next page
+      // together, because its ink reaches past the first page.
+      expect(ids(1), ['t2', 'under']);
+      expect(ids(2), ['low']);
+      expect(pages[2].top, closeTo(2000 - 1.5, 0.01));
+    });
+  });
 }

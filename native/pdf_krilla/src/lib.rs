@@ -3,8 +3,9 @@ use krilla::Data;
 use krilla::Document;
 use krilla::color::rgb;
 use krilla::geom::{PathBuilder, Point, Rect};
+use krilla::num::NormalizedF32;
 use krilla::page::PageSettings;
-use krilla::paint::{Fill, Stroke};
+use krilla::paint::{Fill, FillRule, Stroke};
 use krilla::text::{Font, TextDirection};
 use serde::Deserialize;
 use std::slice;
@@ -60,7 +61,18 @@ pub struct PdfInputPage {
     #[serde(default)]
     pub strokes: Vec<PdfStrokeItem>,
     #[serde(default)]
+    pub fills: Vec<PdfFillItem>,
+    #[serde(default)]
     pub runs: Vec<PdfTextRun>,
+}
+
+/// One filled ink outline (a stroke or a shape line or fill) drawn as ONE
+/// path with the non-zero rule, so a stroke that crosses itself keeps one
+/// opacity. `argb` is 0xAARRGGBB with the item opacity already applied.
+#[derive(Debug, Deserialize)]
+pub struct PdfFillItem {
+    pub pieces: Vec<Vec<[f32; 2]>>,
+    pub argb: u32,
 }
 
 #[derive(Debug, Deserialize)]
@@ -193,6 +205,35 @@ fn draw_stroke_poly(surface: &mut krilla::surface::Surface<'_>, s: &PdfStrokeIte
     }
 }
 
+fn draw_fill(surface: &mut krilla::surface::Surface<'_>, f: &PdfFillItem) {
+    let mut pb = PathBuilder::new();
+    for piece in &f.pieces {
+        if piece.len() < 3 {
+            continue;
+        }
+        pb.move_to(piece[0][0], piece[0][1]);
+        for pt in &piece[1..] {
+            pb.line_to(pt[0], pt[1]);
+        }
+        pb.close();
+    }
+    let alpha = ((f.argb >> 24) & 0xFF) as f32 / 255.0;
+    let (r, g, b) = (
+        ((f.argb >> 16) & 0xFF) as u8,
+        ((f.argb >> 8) & 0xFF) as u8,
+        (f.argb & 0xFF) as u8,
+    );
+    if let (Some(path), Some(opacity)) = (pb.finish(), NormalizedF32::new(alpha)) {
+        surface.set_stroke(None);
+        surface.set_fill(Some(Fill {
+            paint: rgb::Color::new(r, g, b).into(),
+            opacity,
+            rule: FillRule::NonZero,
+        }));
+        surface.draw_path(&path);
+    }
+}
+
 fn draw_text_line(
     surface: &mut krilla::surface::Surface<'_>,
     font: &Font,
@@ -225,7 +266,10 @@ fn draw_text_line(
 }
 
 /// Renders a [PdfSpikeModel] using krilla (OpenType shaping + font embedding + vector strokes).
-pub fn render_pdf_bytes(model: &PdfSpikeModel, thai_font_bytes: Vec<u8>) -> Result<Vec<u8>, String> {
+pub fn render_pdf_bytes(
+    model: &PdfSpikeModel,
+    thai_font_bytes: Vec<u8>,
+) -> Result<Vec<u8>, String> {
     let font = Font::new(Data::from(thai_font_bytes), 0)
         .ok_or_else(|| "failed to load TTF font".to_string())?;
     let mut doc = Document::new();
@@ -258,7 +302,8 @@ pub fn render_pdf_bytes(model: &PdfSpikeModel, thai_font_bytes: Vec<u8>) -> Resu
         page.finish();
     }
     let _ = Rect::from_xywh(0.0, 0.0, 1.0, 1.0);
-    doc.finish().map_err(|e| format!("krilla finish error: {e:?}"))
+    doc.finish()
+        .map_err(|e| format!("krilla finish error: {e:?}"))
 }
 
 /// Renders a full [PdfDocumentInput] (Original fixed pages or Typed flowing blocks).
@@ -321,7 +366,15 @@ pub fn render_document_pdf_bytes(
                     surface = page.surface();
                     y = input.margin + block.font_size;
                 }
-                draw_text_line(&mut surface, font, block.font_size, input.margin, y, line, block.muted);
+                draw_text_line(
+                    &mut surface,
+                    font,
+                    block.font_size,
+                    input.margin,
+                    y,
+                    line,
+                    block.muted,
+                );
                 y += block.line_height;
             }
             y += block.space_after;
@@ -341,6 +394,9 @@ pub fn render_document_pdf_bytes(
                 for r in &page_in.rects {
                     draw_rect_border(&mut surface, r);
                 }
+                for f in &page_in.fills {
+                    draw_fill(&mut surface, f);
+                }
                 for s in &page_in.strokes {
                     draw_stroke_poly(&mut surface, s);
                 }
@@ -350,7 +406,15 @@ pub fn render_document_pdf_bytes(
                     let lines = break_lines_thai_safe(&run.text, run.max_width, approx_cw);
                     for (idx, line) in lines.iter().enumerate() {
                         let y = run.y + (idx as f32) * run.line_height;
-                        draw_text_line(&mut surface, font, run.font_size, run.x, y, line, run.muted);
+                        draw_text_line(
+                            &mut surface,
+                            font,
+                            run.font_size,
+                            run.x,
+                            y,
+                            line,
+                            run.muted,
+                        );
                     }
                 }
                 surface.finish();
@@ -359,7 +423,8 @@ pub fn render_document_pdf_bytes(
         }
     }
 
-    doc.finish().map_err(|e| format!("krilla finish error: {e:?}"))
+    doc.finish()
+        .map_err(|e| format!("krilla finish error: {e:?}"))
 }
 
 /// C-ABI entry point for Flutter FFI. Returns 0 on success, negative on error.
@@ -387,7 +452,8 @@ pub unsafe extern "C" fn asodya_krilla_render_pdf(
         Ok(v) => v,
         Err(_) => return -2,
     };
-    let regular_font = unsafe { slice::from_raw_parts(regular_font_ptr, regular_font_len) }.to_vec();
+    let regular_font =
+        unsafe { slice::from_raw_parts(regular_font_ptr, regular_font_len) }.to_vec();
     let bold_font = if bold_font_ptr.is_null() || bold_font_len == 0 {
         Vec::new()
     } else {

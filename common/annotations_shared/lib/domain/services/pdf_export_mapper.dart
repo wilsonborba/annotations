@@ -6,7 +6,10 @@ import 'package:flutter/services.dart' show rootBundle;
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
+import '../models/ink.dart';
 import '../models/note_document.dart';
+import 'editor_rules.dart';
+import 'ink_outline.dart';
 import 'krilla_pdf_backend.dart';
 
 enum PdfExportMode { original, typed, both }
@@ -78,6 +81,19 @@ final class PdfCompanionFile {
   final Uint8List bytes;
 
   const PdfCompanionFile({required this.filename, required this.bytes});
+}
+
+/// One printed page of an Original note: its top in page units, its items
+/// in document order, and the oversized unit it previews instead, if any.
+final class OriginalPrintPage {
+  const OriginalPrintPage({
+    required this.top,
+    required this.items,
+    this.oversized,
+  });
+  final double top;
+  final List<Map<String, dynamic>> items;
+  final Map<String, dynamic>? oversized;
 }
 
 final class PdfExportOutput {
@@ -209,6 +225,147 @@ class PdfExportMapper {
       hasPrivateChartWarning: hasPrivateChartWarning,
     );
   }
+
+  /// The printed pages of an Original document. Pagination works on the
+  /// top-level units the editor keeps together (a group with all its
+  /// members, or one item) and on their real page bounds: strokes and shapes
+  /// have no `x`/`y`/`height`, so their bounds come from their nodes and
+  /// points plus half the line width, like the editor computes them.
+  static List<OriginalPrintPage> planOriginalPages(
+    NoteDocument document, {
+    required double printableHeight,
+  }) {
+    final rawItems = ((document.toJson()['items'] as List?) ?? const [])
+        .map((e) => Map<String, dynamic>.from(e as Map))
+        .toList();
+    final byId = <String, Map<String, dynamic>>{
+      for (final it in rawItems)
+        if (it['id'] case final String id) id: it,
+    };
+    final layout = DocumentLayout.of(document);
+    final units =
+        <
+          ({
+            Map<String, dynamic> root,
+            List<Map<String, dynamic>> items,
+            double top,
+            double height,
+          })
+        >[];
+    double boxTop(Map<String, dynamic> it) =>
+        (it['y'] as num?)?.toDouble() ?? 0.0;
+    double boxHeight(Map<String, dynamic> it) =>
+        (it['height'] as num?)?.toDouble() ?? 40.0;
+    if (layout == null) {
+      for (final it in rawItems) {
+        units.add((
+          root: it,
+          items: [it],
+          top: boxTop(it),
+          height: boxHeight(it),
+        ));
+      }
+    } else {
+      for (final id in layout.units) {
+        final ids = layout.withDescendants(id);
+        final members = [for (final m in ids) ?byId[m]]
+          ..removeWhere((it) => it['kind'] == 'group');
+        final rect = layout.boundsOf(ids);
+        final root = byId[id]!;
+        if (rect == null) {
+          units.add((
+            root: root,
+            items: members,
+            top: boxTop(root),
+            height: boxHeight(root),
+          ));
+          continue;
+        }
+        var pad = 0.0;
+        for (final it in members) {
+          final line = switch (it['kind']) {
+            'stroke' => (it['width'] as num?)?.toDouble() ?? 0.0,
+            'shape' => (it['line_width'] as num?)?.toDouble() ?? 0.0,
+            _ => 0.0,
+          };
+          pad = math.max(pad, line / 2);
+        }
+        units.add((
+          root: root,
+          items: members,
+          top: rect.top.toDouble() - pad,
+          height: rect.height.toDouble() + pad * 2,
+        ));
+      }
+    }
+    final breaks = computeOriginalPageBreaks(
+      items: [
+        for (final u in units) {'y': u.top, 'height': u.height},
+      ],
+      printableHeight: printableHeight,
+    );
+    final pages = <OriginalPrintPage>[];
+    for (var p = 0; p < breaks.length; p++) {
+      final yStart = breaks[p];
+      final from = p == 0 ? double.negativeInfinity : yStart;
+      final to = p + 1 < breaks.length ? breaks[p + 1] : double.infinity;
+      final onPage = [
+        for (final u in units)
+          if (u.top >= from && u.top < to) u,
+      ];
+      if (onPage.isEmpty && p > 0) continue;
+      final oversized = onPage
+          .where((u) => u.height > printableHeight)
+          .map((u) => u.root)
+          .firstOrNull;
+      // Document order is the drawing order (later is on top).
+      final ids = {
+        for (final u in onPage)
+          for (final it in u.items) it,
+      };
+      pages.add(
+        OriginalPrintPage(
+          top: yStart,
+          items: [
+            for (final it in rawItems)
+              if (ids.contains(it)) it,
+          ],
+          oversized: oversized,
+        ),
+      );
+    }
+    return pages;
+  }
+
+  /// The filled outlines of a stroke or shape [item] in page units, computed
+  /// by the editor's own brush outlines (`ink_outline.dart`): one fill per
+  /// outline with its color and opacity, a shape fill before its line. Empty
+  /// for other kinds, and for a stroke whose brush this app does not know
+  /// (it is never drawn with another brush).
+  static List<({List<List<InkVec>> pieces, int argb})> inkFills(
+    DocumentItem? item,
+  ) {
+    if (item is StrokeItem) {
+      final o = strokeOutline(item);
+      return o == null ? const [] : [(pieces: o.pieces, argb: o.argb)];
+    }
+    if (item is ShapeItem) {
+      final o = shapeOutline(item);
+      if (o == null) return const [];
+      return [
+        if (o.fill case final fill? when o.fillArgb != null)
+          (pieces: [fill], argb: o.fillArgb!),
+        (pieces: o.line.pieces, argb: o.line.argb),
+      ];
+    }
+    return const [];
+  }
+
+  static Map<String, DocumentItem> _typedItems(NoteDocument document) => {
+    if (document is PaperDocument)
+      for (final it in document.items)
+        if (it.id case final String id) id: it,
+  };
 
   /// Computes page break Y positions for a long Original canvas at clear spaces
   /// so no item (drawing, card, group, text box) is cut mid-object.
@@ -413,30 +570,19 @@ class PdfExportMapper {
     );
     final scale = printableW / canvasW;
 
-    final rawItems = ((json['items'] as List?) ?? const [])
-        .map((e) => Map<String, dynamic>.from(e as Map))
-        .toList();
-
-    final scaledPrintableH = printableH / scale;
-    final breaks = computeOriginalPageBreaks(
-      items: rawItems,
-      printableHeight: scaledPrintableH,
+    final typedItems = _typedItems(document);
+    final plan = planOriginalPages(
+      document,
+      printableHeight: printableH / scale,
     );
 
     final pagesOut = <Map<String, dynamic>>[];
-    for (var p = 0; p < breaks.length; p++) {
-      final yStart = breaks[p];
-      final yEnd = p + 1 < breaks.length ? breaks[p + 1] : double.infinity;
-      final pageItems = [
-        for (final it in rawItems)
-          if (((it['y'] as num?)?.toDouble() ?? 0.0) >= yStart &&
-              ((it['y'] as num?)?.toDouble() ?? 0.0) < yEnd)
-            it,
-      ];
-      if (pageItems.isEmpty && p > 0) continue;
+    for (var p = 0; p < plan.length; p++) {
+      final yStart = plan[p].top;
+      final pageItems = plan[p].items;
 
       final rects = <Map<String, dynamic>>[];
-      final strokes = <Map<String, dynamic>>[];
+      final fills = <Map<String, dynamic>>[];
       final runs = <Map<String, dynamic>>[];
 
       var contentTop = marginPt;
@@ -453,12 +599,10 @@ class PdfExportMapper {
         contentTop += 28.0;
       }
 
-      final hasOversized = pageItems.any(
-        (it) => ((it['height'] as num?)?.toDouble() ?? 40.0) > scaledPrintableH,
-      );
+      final oversized = plan[p].oversized;
 
-      if (hasOversized) {
-        final item = pageItems.first;
+      if (oversized != null) {
+        final item = oversized;
         final id = '${item['id'] ?? 'item'}';
         final fileId = item['file_id'] as String?;
         final companionName = 'companion-$id.json';
@@ -510,6 +654,25 @@ class PdfExportMapper {
         });
       } else {
         for (final item in pageItems) {
+          final kind = '${item['kind'] ?? 'text'}';
+          if (kind == 'stroke' || kind == 'shape') {
+            for (final f in inkFills(typedItems[item['id']])) {
+              fills.add({
+                'argb': f.argb,
+                'pieces': [
+                  for (final piece in f.pieces)
+                    [
+                      for (final v in piece)
+                        [
+                          marginPt + v.x * scale,
+                          contentTop + (v.y - yStart) * scale,
+                        ],
+                    ],
+                ],
+              });
+            }
+            continue;
+          }
           final x =
               marginPt +
               math.max(0.0, ((item['x'] as num?)?.toDouble() ?? 0.0) * scale);
@@ -527,9 +690,8 @@ class PdfExportMapper {
             18.0,
             ((item['height'] as num?)?.toDouble() ?? 40.0) * scale,
           );
-          final kind = '${item['kind'] ?? 'text'}';
 
-          if (kind != 'text' && kind != 'ink' && kind != 'stroke') {
+          if (kind != 'text') {
             rects.add({
               'x': x,
               'y': y,
@@ -540,28 +702,7 @@ class PdfExportMapper {
             });
           }
 
-          if (kind == 'ink' || kind == 'stroke') {
-            final rawPts =
-                (item['points'] as List?) ??
-                ((item['strokes'] as List?)?.firstOrNull is Map
-                    ? ((item['strokes'] as List).first as Map)['points']
-                          as List?
-                    : null) ??
-                const [];
-            if (rawPts.length >= 2) {
-              final poly = <List<double>>[];
-              for (final pt in rawPts) {
-                final px = pt is Map
-                    ? (pt['x'] as num).toDouble()
-                    : (pt[0] as num).toDouble();
-                final py = pt is Map
-                    ? (pt['y'] as num).toDouble()
-                    : (pt[1] as num).toDouble();
-                poly.add([x + px, y + py]);
-              }
-              strokes.add({'points': poly, 'width': 1.2});
-            }
-          } else {
+          {
             final summary = _itemTextSummary(
               item,
               kind: kind,
@@ -583,7 +724,7 @@ class PdfExportMapper {
           }
         }
       }
-      pagesOut.add({'rects': rects, 'strokes': strokes, 'runs': runs});
+      pagesOut.add({'rects': rects, 'fills': fills, 'runs': runs});
     }
 
     final payload = jsonEncode({
@@ -715,30 +856,16 @@ class PdfExportMapper {
     );
     final scale = printableW / canvasW;
 
-    final rawItems = ((json['items'] as List?) ?? const [])
-        .map((e) => Map<String, dynamic>.from(e as Map))
-        .toList();
-
-    final scaledPrintableH = printableH / scale;
-    final breaks = computeOriginalPageBreaks(
-      items: rawItems,
-      printableHeight: scaledPrintableH,
+    final typedItems = _typedItems(document);
+    final plan = planOriginalPages(
+      document,
+      printableHeight: printableH / scale,
     );
 
-    for (var p = 0; p < breaks.length; p++) {
-      final yStart = breaks[p];
-      final yEnd = p + 1 < breaks.length ? breaks[p + 1] : double.infinity;
-      final pageItems = [
-        for (final it in rawItems)
-          if (((it['y'] as num?)?.toDouble() ?? 0.0) >= yStart &&
-              ((it['y'] as num?)?.toDouble() ?? 0.0) < yEnd)
-            it,
-      ];
-      if (pageItems.isEmpty && p > 0) continue;
-
-      final hasOversized = pageItems.any(
-        (it) => ((it['height'] as num?)?.toDouble() ?? 40.0) > scaledPrintableH,
-      );
+    for (var p = 0; p < plan.length; p++) {
+      final yStart = plan[p].top;
+      final pageItems = plan[p].items;
+      final oversized = plan[p].oversized;
 
       doc.addPage(
         pw.Page(
@@ -758,9 +885,9 @@ class PdfExportMapper {
                     ),
                   ),
                 ),
-              if (hasOversized)
+              if (oversized != null)
                 _buildOversizedPage(
-                  pageItems.first,
+                  oversized,
                   options: options,
                   attachments: attachments,
                   companions: companions,
@@ -772,12 +899,19 @@ class PdfExportMapper {
                   child: pw.Stack(
                     children: [
                       for (final it in pageItems)
-                        _buildPositionedOriginalItem(
-                          it,
-                          yOrigin: yStart,
-                          scale: scale,
-                          options: options,
-                        ),
+                        if (it['kind'] == 'stroke' || it['kind'] == 'shape')
+                          _buildInkLayer(
+                            inkFills(typedItems[it['id']]),
+                            yOrigin: yStart,
+                            scale: scale,
+                          )
+                        else
+                          _buildPositionedOriginalItem(
+                            it,
+                            yOrigin: yStart,
+                            scale: scale,
+                            options: options,
+                          ),
                     ],
                   ),
                 ),
@@ -839,6 +973,44 @@ class PdfExportMapper {
     );
   }
 
+  /// One stroke or shape as vector fills over the whole content area, in
+  /// item order with the other items, following the drawing rule of
+  /// `ink_outline.dart`: each outline is one non-zero filled path.
+  pw.Widget _buildInkLayer(
+    List<({List<List<InkVec>> pieces, int argb})> fills, {
+    required double yOrigin,
+    required double scale,
+  }) {
+    return pw.Positioned.fill(
+      child: pw.CustomPaint(
+        painter: (canvas, size) {
+          for (final f in fills) {
+            canvas
+              ..saveContext()
+              ..setGraphicState(
+                PdfGraphicState(fillOpacity: ((f.argb >> 24) & 0xFF) / 255),
+              )
+              ..setFillColor(PdfColor.fromInt(f.argb | 0xFF000000));
+            for (final piece in f.pieces) {
+              if (piece.length < 3) continue;
+              canvas.moveTo(
+                piece.first.x * scale,
+                size.y - (piece.first.y - yOrigin) * scale,
+              );
+              for (final v in piece.skip(1)) {
+                canvas.lineTo(v.x * scale, size.y - (v.y - yOrigin) * scale);
+              }
+              canvas.closePath();
+            }
+            canvas
+              ..fillPath()
+              ..restoreContext();
+          }
+        },
+      ),
+    );
+  }
+
   pw.Widget _buildPositionedOriginalItem(
     Map<String, dynamic> item, {
     required double yOrigin,
@@ -864,7 +1036,7 @@ class PdfExportMapper {
         width: w,
         height: h,
         padding: const pw.EdgeInsets.all(4),
-        decoration: kind == 'text' || kind == 'ink'
+        decoration: kind == 'text'
             ? null
             : pw.BoxDecoration(border: pw.Border.all(color: PdfColors.grey400)),
         child: _renderItemBody(
@@ -921,44 +1093,6 @@ class PdfExportMapper {
       return pw.Text(
         'Quiz: $quizTitle ($count questions)$link',
         style: const pw.TextStyle(fontSize: 9),
-      );
-    }
-
-    if (kind == 'ink' || kind == 'stroke') {
-      final pts =
-          (item['points'] as List?) ??
-          ((item['strokes'] as List?)?.firstOrNull is Map
-              ? ((item['strokes'] as List).first as Map)['points'] as List?
-              : null) ??
-          const [];
-      return pw.CustomPaint(
-        size: PdfPoint(width, height),
-        painter: (canvas, size) {
-          canvas
-            ..setStrokeColor(PdfColors.blueGrey800)
-            ..setLineWidth(1.2);
-          if (pts.length >= 2) {
-            final first = pts.first;
-            final x0 = first is Map
-                ? (first['x'] as num).toDouble()
-                : (first[0] as num).toDouble();
-            final y0 = first is Map
-                ? (first['y'] as num).toDouble()
-                : (first[1] as num).toDouble();
-            canvas.moveTo(x0, size.y - y0);
-            for (var i = 1; i < pts.length; i++) {
-              final pt = pts[i];
-              final xi = pt is Map
-                  ? (pt['x'] as num).toDouble()
-                  : (pt[0] as num).toDouble();
-              final yi = pt is Map
-                  ? (pt['y'] as num).toDouble()
-                  : (pt[1] as num).toDouble();
-              canvas.lineTo(xi, size.y - yi);
-            }
-            canvas.strokePath();
-          }
-        },
       );
     }
 
