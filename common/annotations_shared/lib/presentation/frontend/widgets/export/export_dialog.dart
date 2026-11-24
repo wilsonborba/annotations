@@ -37,6 +37,7 @@ class _ExportDialogState extends State<ExportDialog> {
   String _issue(PdfPreflightIssue issue) => switch (issue.kind) {
     'missing_file' => context.tr('issueMissingFile'),
     'failed_chart' => context.tr('issueFailedChart'),
+    'partial_chart' => context.tr('issuePartialReport'),
     _ => context.tr('issueMissingFont'),
   };
 
@@ -154,7 +155,9 @@ class _ExportDialogState extends State<ExportDialog> {
                             Padding(
                               key: Key('issue-${issue.refId}'),
                               padding: const EdgeInsets.symmetric(vertical: 4),
-                              child: Text('${_issue(issue)}: ${issue.refId}'),
+                              child: Text(
+                                '${_issue(issue)}: ${h.issueTarget(issue)}',
+                              ),
                             ),
                         ],
                       ),

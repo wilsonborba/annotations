@@ -10,6 +10,8 @@ import 'package:annotations_shared/core/strings.dart';
 import 'package:annotations_shared/dal/local/sqlite_note_store.dart';
 import 'package:annotations_shared/domain/models/local_note.dart';
 import 'package:annotations_shared/domain/models/note_document.dart';
+import 'package:annotations_shared/domain/models/reports_card_reference.dart';
+import 'package:annotations_shared/domain/models/reports_embed_data.dart';
 import 'package:annotations_shared/domain/services/local_note_store.dart';
 import 'package:annotations_shared/domain/services/local_workspace.dart';
 import 'package:annotations_shared/domain/services/note_sync_service.dart';
@@ -26,6 +28,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:pdfrx/pdfrx.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:reports_view/reports_view.dart';
 
 import 'attachment_fixtures.dart' show usePdfiumInTests;
 import 'design_goldens_test.dart' show loadAppFonts;
@@ -173,6 +176,241 @@ void main() {
   });
 
   group('ExportHandler & B13 coverage', () {
+    test('missing file preflight uses its saved file name', () {
+      final schema = _origSchema;
+      final note = LocalNote(
+        id: 'file-note',
+        schema: schema,
+        document: NoteDocument.fromJson({
+          'page': {
+            'width': 1000,
+            'background': {'kind': 'blank'},
+          },
+          'items': [
+            {
+              'id': 'img_1',
+              'kind': 'image',
+              'x': 10,
+              'y': 10,
+              'width': 100,
+              'height': 100,
+              'file_id': 'missing-file-id',
+              'name': 'lecture-slides.pdf',
+            },
+          ],
+        }, schema: schema),
+        title: 'File note',
+        revision: 1,
+        createdAt: DateTime.utc(2026),
+        updatedAt: DateTime.utc(2026),
+        syncState: LocalSyncState.local,
+        accountId: null,
+      );
+      final handler = ExportHandler(note: note, store: _MissingFileStore());
+      expect(
+        handler.issueTarget(
+          const PdfPreflightIssue(
+            kind: 'missing_file',
+            refId: 'missing-file-id',
+            message: 'missing',
+          ),
+        ),
+        'lecture-slides.pdf',
+      );
+      handler.dispose();
+    });
+
+    test('public export never loads or captures Reports data', () async {
+      var loads = 0;
+      var captures = 0;
+      final note = LocalNote(
+        id: 'public-note',
+        schema: _origSchema,
+        document: _originalDoc(
+          items: [
+            {
+              'id': 'report-card',
+              'kind': 'reports_embed',
+              'x': 20,
+              'y': 80,
+              'width': 300,
+              'height': 100,
+              'report_id': 'report',
+              'project_slug': 'project',
+              'report_slug': 'report',
+              'dataset_id': 'dataset',
+              'mode': 'live',
+              'source': 'link',
+            },
+          ],
+        ),
+        title: 'Public note',
+        revision: 1,
+        createdAt: DateTime.utc(2026),
+        updatedAt: DateTime.utc(2026),
+        syncState: LocalSyncState.local,
+        accountId: null,
+      );
+      final handler = ExportHandler(
+        note: note,
+        store: _MissingFileStore(),
+        audience: PdfAudience.public,
+        loadReportsEmbed: (_) async {
+          loads++;
+          throw StateError('public source access is forbidden');
+        },
+        renderReportsChart: (_, {required partial}) async {
+          captures++;
+          return Uint8List.fromList([1, 2, 3]);
+        },
+        renderPages: (_, _) async => [await _solidImage()],
+      );
+
+      await handler.build();
+
+      expect(loads, 0);
+      expect(captures, 0);
+      expect(handler.stage, ExportStage.ready);
+      expect(
+        latin1.decode(handler.output!.pdfs.single.bytes, allowInvalid: true),
+        isNot(contains('/Subtype /Image')),
+      );
+      handler.dispose();
+    });
+
+    test(
+      'partial Reports rows need explicit continue and preview same PDF bytes',
+      () async {
+        const reference = ReportsCardReference(
+          project: 'project',
+          report: 'report',
+          dataset: 'dataset',
+        );
+        const descriptor = DatasetDescriptor(
+          datasetId: 'dataset',
+          title: 'Visits',
+          description: 'Visits by source',
+          equation: null,
+          fields: [
+            FieldInfo(
+              name: 'source',
+              label: 'Source',
+              type: 'string',
+              role: 'dimension',
+            ),
+            FieldInfo(
+              name: 'visits',
+              label: 'Visits',
+              type: 'integer',
+              role: 'measure',
+            ),
+          ],
+          filters: [],
+          canView: true,
+        );
+        const page = DatasetPage(
+          descriptor: descriptor,
+          rows: [
+            {'source': 'Direct', 'visits': 20},
+          ],
+          offset: 0,
+          limit: 5000,
+          totalRows: 2,
+        );
+        const reportData = ReportsEmbedData(
+          state: ReportsEmbedState.readable,
+          reference: reference,
+          descriptor: descriptor,
+          page: page,
+          complete: false,
+        );
+        final note = LocalNote(
+          id: 'partial-report-note',
+          schema: _origSchema,
+          document: _originalDoc(
+            items: [
+              {
+                'id': 'report-card',
+                'kind': 'reports_embed',
+                'x': 20,
+                'y': 80,
+                'width': 500,
+                'height': 300,
+                'report_id': 'report',
+                'project_slug': 'project',
+                'report_slug': 'report',
+                'dataset_id': 'dataset',
+                'mode': 'snapshot',
+                'source': 'link',
+                'snapshot_id': 'snapshot-1',
+                'captured_at': 1795520000,
+              },
+            ],
+          ),
+          title: 'Report note',
+          revision: 1,
+          createdAt: DateTime.utc(2026),
+          updatedAt: DateTime.utc(2026),
+          syncState: LocalSyncState.local,
+          accountId: null,
+        );
+        final png = Uint8List.fromList(
+          base64Decode(
+            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAAAAAA6fptVAAAACklEQVR4nGNgAAAAAgABSK+kcQAAAABJRU5ErkJggg==',
+          ),
+        );
+        final partialFlags = <bool>[];
+        Uint8List? previewInput;
+        var loadCalls = 0;
+        final handler = ExportHandler(
+          note: note,
+          store: _MissingFileStore(),
+          loadReportsEmbed: (_) async {
+            loadCalls++;
+            if (loadCalls == 1) {
+              return const ReportsEmbedData(
+                state: ReportsEmbedState.unavailable,
+                reference: null,
+              );
+            }
+            return reportData;
+          },
+          renderReportsChart: (_, {required partial}) async {
+            partialFlags.add(partial);
+            return png;
+          },
+          renderPages: (bytes, _) async {
+            previewInput = Uint8List.fromList(bytes);
+            return [await _solidImage()];
+          },
+        );
+
+        await handler.build(placeholders: false);
+        expect(handler.stage, ExportStage.preflight);
+        expect(handler.preflight!.issues.map((issue) => issue.kind), [
+          'failed_chart',
+        ]);
+        expect(handler.output!.pdfs, isEmpty);
+
+        await handler.build(placeholders: false);
+        expect(handler.stage, ExportStage.preflight);
+        expect(handler.preflight!.issues.map((issue) => issue.kind), [
+          'partial_chart',
+        ]);
+
+        await handler.build(placeholders: true);
+        expect(handler.stage, ExportStage.ready);
+        expect(loadCalls, 3);
+        expect(partialFlags, [true, true]);
+        expect(handler.output!.engine, 'pdf');
+        expect(previewInput, orderedEquals(handler.output!.pdfs.single.bytes));
+        expect(
+          latin1.decode(handler.output!.pdfs.single.bytes, allowInvalid: true),
+          contains('/Subtype/Image'),
+        );
+        handler.dispose();
+      },
+    );
     test('Both is limited to the saved transcription pair', () {
       final original = _pairedCandidate(
         id: 'n1',
@@ -870,6 +1108,8 @@ final class _TitleSpy extends PdfExportMapper {
     required PdfExportOptions options,
     Set<String> availableFileIds = const {},
     Set<String> failedChartIds = const {},
+    Set<String> partialChartIds = const {},
+    Map<String, Uint8List> reportImages = const {},
     Map<String, Uint8List> attachments = const {},
     pw.Font? baseFont,
     pw.Font? boldFont,
@@ -886,6 +1126,8 @@ final class _TitleSpy extends PdfExportMapper {
       options: options,
       availableFileIds: availableFileIds,
       failedChartIds: failedChartIds,
+      partialChartIds: partialChartIds,
+      reportImages: reportImages,
       attachments: attachments,
       baseFont: baseFont,
       boldFont: boldFont,

@@ -25,6 +25,11 @@ const strings = <String, List<String>>{
     'Instantâneo do relatório indisponível',
     'ไม่มีภาพตัวอย่างรายงาน',
   ],
+  'issuePartialReport': [
+    'Report has partial data',
+    'O relatório tem dados parciais',
+    'รายงานมีข้อมูลเพียงบางส่วน',
+  ],
   'issueMissingFont': ['Font unavailable', 'Fonte indisponível', 'ไม่มีฟอนต์'],
   'continuePlaceholders': [
     'Continue with marked placeholders',

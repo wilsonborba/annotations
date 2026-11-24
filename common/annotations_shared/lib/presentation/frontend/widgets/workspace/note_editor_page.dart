@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import '../../../../dal/remote/reports_api_adapter.dart';
+import '../../../../domain/models/reports_embed_data.dart';
+import '../../../../domain/services/reports_embed_source.dart';
 
 import '../../../../core/tracking_manifest.dart';
 import '../../../../domain/services/note_autosave.dart';
@@ -7,6 +10,7 @@ import '../../components/controls.dart';
 import '../../components/icons.dart';
 import '../../components/scope.dart';
 import '../../handlers/paper_handler.dart';
+import '../../handlers/reports_pdf_capture.dart';
 import '../export/export_dialog.dart';
 import '../typed/note_screen.dart';
 import '../../handlers/export_handler.dart';
@@ -95,10 +99,60 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
                             widget.noteId,
                           );
                           if (note == null || !context.mounted) return;
+                          final scope = AppScope.of(context);
+                          final installed = scope.installed;
+                          final reportsSource = installed == null
+                              ? null
+                              : ReportsEmbedSource(
+                                  api: ReportsApiAdapter(
+                                    headersProvider:
+                                        ReportsApiAdapter.nativeSessionHeaders(
+                                          installed.auth,
+                                        ),
+                                    client: installed.client,
+                                  ),
+                                  hasStoredViewerSession: () async =>
+                                      await installed.auth.storage
+                                          .readSession() !=
+                                      null,
+                                );
+                          final language = scope.preferences.locale;
                           final export = ExportHandler(
                             note: note,
                             store: workspace.store,
                             untitledTitle: context.tr('untitledNote'),
+                            loadReportsEmbed: reportsSource == null
+                                ? null
+                                : (item) async {
+                                    if (installed == null ||
+                                        !installed.signedIn) {
+                                      return const ReportsEmbedData(
+                                        state: ReportsEmbedState.signInRequired,
+                                        reference: null,
+                                      );
+                                    }
+                                    if (note.accountId != null &&
+                                        note.accountId != installed.userId) {
+                                      return const ReportsEmbedData(
+                                        state: ReportsEmbedState.restricted,
+                                        reference: null,
+                                      );
+                                    }
+                                    return reportsSource.loadDocument(
+                                      item,
+                                      trustedAccountId: installed.userId,
+                                      language: language,
+                                    );
+                                  },
+                            renderReportsChart: (data, {required partial}) =>
+                                captureReportsPdfChart(
+                                  context,
+                                  data,
+                                  partialLabel: context.tr(
+                                    'issuePartialReport',
+                                  ),
+                                  language: language,
+                                ),
                           );
                           await showExportDialog(context, export);
                           export.dispose();

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' as ui;
 
@@ -10,12 +11,18 @@ import 'package:pdfrx/pdfrx.dart';
 
 import '../../../domain/models/local_note.dart';
 import '../../../domain/models/note_document.dart';
+import '../../../domain/models/reports_embed_data.dart';
 import '../../../domain/services/local_note_store.dart';
 import '../../../domain/services/pdf_export_mapper.dart';
 
 /// Draws every page of a PDF for the print preview; throws on failure.
 typedef PdfPagesRenderer =
     Future<List<ui.Image>> Function(Uint8List bytes, int maxPixels);
+
+typedef ReportsEmbedLoader =
+    Future<ReportsEmbedData> Function(Map<String, dynamic> item);
+typedef ReportsChartRenderer =
+    Future<Uint8List> Function(ReportsEmbedData data, {required bool partial});
 
 /// Rendered preview pages grouped by their exported PDF filename.
 final class ExportPreviewPdf {
@@ -53,6 +60,9 @@ class ExportHandler extends ChangeNotifier {
     PdfExportMapper? mapper,
     PdfPagesRenderer? renderPages,
     Future<String?> Function(String name)? saveLocation,
+    this.audience = PdfAudience.personal,
+    this.loadReportsEmbed,
+    this.renderReportsChart,
     this.untitledTitle = 'Untitled note',
   }) : _mapper = mapper ?? PdfExportMapper(),
        _render = renderPages ?? renderPdfPages,
@@ -68,6 +78,9 @@ class ExportHandler extends ChangeNotifier {
 
   /// The printed title of a note that has none, in the interface language.
   final String untitledTitle;
+  final PdfAudience audience;
+  final ReportsEmbedLoader? loadReportsEmbed;
+  final ReportsChartRenderer? renderReportsChart;
   final PdfExportMapper _mapper;
   final PdfPagesRenderer _render;
   final Future<String?> Function(String name) _saveLocation;
@@ -156,6 +169,31 @@ class ExportHandler extends ChangeNotifier {
     return build();
   }
 
+  /// What a person knows the item of [issue] by: a missing file shows its
+  /// file name; other items keep their reference.
+  String issueTarget(PdfPreflightIssue issue) {
+    if (issue.kind != 'missing_file') return issue.refId;
+    String? find(Object? node) {
+      if (node is Map) {
+        if (node['file_id'] == issue.refId && node['name'] is String) {
+          return node['name'] as String;
+        }
+        for (final v in node.values) {
+          if (find(v) case final String name) return name;
+        }
+      } else if (node is List) {
+        for (final v in node) {
+          if (find(v) case final String name) return name;
+        }
+      }
+      return null;
+    }
+
+    return find(note.document.toJson()) ??
+        find(_pairedNote?.document.toJson()) ??
+        issue.refId;
+  }
+
   String get _slug {
     final base = (note.title ?? 'note').trim().toLowerCase();
     final slug = base.replaceAll(RegExp(r'[^a-z0-9\u0E00-\u0E7F]+'), '-');
@@ -226,13 +264,23 @@ class ExportHandler extends ChangeNotifier {
     _disposePreviewGroups(old);
   }
 
-  static Set<String> _reportIds(Iterable<NoteDocument?> documents) {
-    final ids = <String>{};
+  static String _reportImageKey(Map<String, dynamic> item) => jsonEncode([
+    item['report_id'] ?? '',
+    item['project_slug'] ?? '',
+    item['report_slug'] ?? '',
+    item['dataset_id'] ?? '',
+    item['mode'] ?? '',
+    item['snapshot_id'] ?? '',
+  ]);
+
+  static List<Map<String, dynamic>> _reportItems(
+    Iterable<NoteDocument?> documents,
+  ) {
+    final items = <Map<String, dynamic>>[];
     void scan(Object? value) {
       if (value is Map) {
         if (value['kind'] == 'reports_embed') {
-          final id = value['report_id'];
-          if (id is String && id.isNotEmpty) ids.add(id);
+          items.add(Map<String, dynamic>.from(value));
         }
         for (final nested in value.values) {
           scan(nested);
@@ -247,7 +295,7 @@ class ExportHandler extends ChangeNotifier {
     for (final document in documents) {
       if (document != null) scan(document.toJson());
     }
-    return ids;
+    return items;
   }
 
   /// Runs the preflight and builds the PDF(s) and their preview.
@@ -284,6 +332,46 @@ class ExportHandler extends ChangeNotifier {
         if (fileBytes != null) attachments[id] = fileBytes;
       }
 
+      final selectedDocuments = <NoteDocument?>[
+        if (includeOriginal) originalNote!.document,
+        if (includeTyped) typedNote!.document,
+      ];
+      final reportImages = <String, Uint8List>{};
+      final failedChartIds = <String>{};
+      final partialChartIds = <String>{};
+      if (audience != PdfAudience.public) {
+        var reportImageBytes = 0;
+        for (final item in _reportItems(selectedDocuments)) {
+          final imageKey = _reportImageKey(item);
+          try {
+            final load = loadReportsEmbed;
+            final render = renderReportsChart;
+            if (load == null || render == null) {
+              failedChartIds.add(imageKey);
+              continue;
+            }
+            final data = await load(item);
+            if (_disposed || seq != _buildSeq) return;
+            if (!data.canRender) {
+              failedChartIds.add(imageKey);
+              continue;
+            }
+            final image = await render(data, partial: !data.complete);
+            if (_disposed || seq != _buildSeq) return;
+            if (image.lengthInBytes > 4 * 1024 * 1024 ||
+                reportImageBytes + image.lengthInBytes > 16 * 1024 * 1024) {
+              failedChartIds.add(imageKey);
+              continue;
+            }
+            reportImages[imageKey] = image;
+            reportImageBytes += image.lengthInBytes;
+            if (!data.complete) partialChartIds.add(imageKey);
+          } on Object {
+            failedChartIds.add(imageKey);
+          }
+        }
+      }
+
       final out = await _mapper.export(
         title: note.title ?? originalNote?.title ?? untitledTitle,
         slug: _slug,
@@ -293,15 +381,13 @@ class ExportHandler extends ChangeNotifier {
           mode: mode,
           paperSize: paper,
           orientation: orientation,
+          audience: audience,
           continueWithPlaceholders: _placeholders,
         ),
         availableFileIds: attachments.keys.toSet(),
-        // The note stores report IDs, not frozen chart data, and this
-        // frontend currently has no Reports snapshot renderer.
-        failedChartIds: _reportIds([
-          if (includeOriginal) originalNote!.document,
-          if (includeTyped) typedNote!.document,
-        ]),
+        failedChartIds: failedChartIds,
+        partialChartIds: partialChartIds,
+        reportImages: reportImages,
         attachments: attachments,
         baseFont: _bundledLatin,
         thaiFont: _bundledThai,

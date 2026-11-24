@@ -20,6 +20,15 @@ enum PdfOrientation { portrait, landscape }
 
 enum PdfAudience { public, personal }
 
+String _reportImageKey(Map<String, dynamic> item) => jsonEncode([
+  item['report_id'] ?? '',
+  item['project_slug'] ?? '',
+  item['report_slug'] ?? '',
+  item['dataset_id'] ?? '',
+  item['mode'] ?? '',
+  item['snapshot_id'] ?? '',
+]);
+
 final class PdfExportOptions {
   final PdfExportMode mode;
   final PdfPaperSize paperSize;
@@ -46,7 +55,8 @@ final class PdfExportOptions {
 }
 
 final class PdfPreflightIssue {
-  final String kind; // missing_file | failed_chart | missing_font
+  final String
+  kind; // missing_file | failed_chart | partial_chart | missing_font
   final String refId;
   final String message;
 
@@ -159,6 +169,7 @@ class PdfExportMapper {
     required PdfExportOptions options,
     Set<String> availableFileIds = const {},
     Set<String> failedChartIds = const {},
+    Set<String> partialChartIds = const {},
     bool fontsAvailable = true,
   }) {
     final issues = <PdfPreflightIssue>[];
@@ -191,12 +202,24 @@ class PdfExportMapper {
         }
         if (kind == 'reports_embed') {
           final refId = '${node['report_id'] ?? ''}';
-          if (failedChartIds.contains(refId)) {
+          final cardKey = _reportImageKey(Map<String, dynamic>.from(node));
+          if (failedChartIds.contains(refId) ||
+              failedChartIds.contains(cardKey)) {
             issues.add(
               PdfPreflightIssue(
                 kind: 'failed_chart',
                 refId: refId,
                 message: 'Report snapshot $refId is unavailable.',
+              ),
+            );
+          }
+          if (partialChartIds.contains(refId) ||
+              partialChartIds.contains(cardKey)) {
+            issues.add(
+              PdfPreflightIssue(
+                kind: 'partial_chart',
+                refId: refId,
+                message: 'Report snapshot $refId contains only some rows.',
               ),
             );
           }
@@ -427,6 +450,8 @@ class PdfExportMapper {
     required PdfExportOptions options,
     Set<String> availableFileIds = const {},
     Set<String> failedChartIds = const {},
+    Set<String> partialChartIds = const {},
+    Map<String, Uint8List> reportImages = const {},
     Map<String, Uint8List> attachments = const {},
     pw.Font? baseFont,
     pw.Font? boldFont,
@@ -434,6 +459,9 @@ class PdfExportMapper {
     Uint8List? regularFontBytes,
     Uint8List? boldFontBytes,
   }) async {
+    final exportReportImages = options.audience == PdfAudience.public
+        ? const <String, Uint8List>{}
+        : reportImages;
     final krillaReady = await KrillaPdfBackend.isAvailable();
     final resolvedRegular = krillaReady
         ? (regularFontBytes ??
@@ -443,13 +471,17 @@ class PdfExportMapper {
         ? (boldFontBytes ??
               await _tryLoadBundledFont('IBMPlexSansThai-Bold.ttf'))
         : null;
-    final useKrilla = krillaReady && resolvedRegular != null;
+    // The native Krilla bridge currently has no raster-image payload. Keep
+    // the generated preview and saved PDF on the same image-capable engine.
+    final useKrilla =
+        krillaReady && resolvedRegular != null && exportReportImages.isEmpty;
     final pre = preflight(
       original: original,
       typed: typed,
       options: options,
       availableFileIds: availableFileIds,
       failedChartIds: failedChartIds,
+      partialChartIds: partialChartIds,
       fontsAvailable: useKrilla || (baseFont != null && thaiFont != null),
     );
 
@@ -478,6 +510,7 @@ class PdfExportMapper {
               document: original,
               options: options,
               attachments: attachments,
+              reportImages: exportReportImages,
               companions: companions,
               baseFont: baseFont,
               boldFont: boldFont,
@@ -501,6 +534,7 @@ class PdfExportMapper {
               title: title,
               document: typed,
               options: options,
+              reportImages: exportReportImages,
               baseFont: baseFont,
               boldFont: boldFont,
               thaiFont: thaiFont,
@@ -894,6 +928,7 @@ class PdfExportMapper {
     required NoteDocument document,
     required PdfExportOptions options,
     required Map<String, Uint8List> attachments,
+    required Map<String, Uint8List> reportImages,
     required List<PdfCompanionFile> companions,
     pw.Font? baseFont,
     pw.Font? boldFont,
@@ -970,6 +1005,7 @@ class PdfExportMapper {
                             yOrigin: yStart,
                             scale: scale,
                             options: options,
+                            reportImages: reportImages,
                           ),
                     ],
                   ),
@@ -1075,6 +1111,7 @@ class PdfExportMapper {
     required double yOrigin,
     required double scale,
     required PdfExportOptions options,
+    required Map<String, Uint8List> reportImages,
   }) {
     final x = ((item['x'] as num?)?.toDouble() ?? 0.0) * scale;
     final y = (((item['y'] as num?)?.toDouble() ?? 0.0) - yOrigin) * scale;
@@ -1112,6 +1149,7 @@ class PdfExportMapper {
           options: options,
           width: w,
           height: h,
+          reportImages: reportImages,
         ),
       ),
     );
@@ -1157,6 +1195,7 @@ class PdfExportMapper {
     required PdfExportOptions options,
     required double width,
     required double height,
+    Map<String, Uint8List> reportImages = const {},
   }) {
     if (kind == 'reports_embed') {
       if (options.audience == PdfAudience.public) {
@@ -1164,6 +1203,10 @@ class PdfExportMapper {
           'Restricted content (lock notice)',
           style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700),
         );
+      }
+      final image = reportImages[_reportImageKey(item)];
+      if (image != null) {
+        return pw.Image(pw.MemoryImage(image), fit: pw.BoxFit.contain);
       }
       return pw.Text(
         'Report snapshot unavailable (marked placeholder)',
@@ -1215,6 +1258,7 @@ class PdfExportMapper {
     required String title,
     required NoteDocument document,
     required PdfExportOptions options,
+    required Map<String, Uint8List> reportImages,
     pw.Font? baseFont,
     pw.Font? boldFont,
     pw.Font? thaiFont,
@@ -1240,7 +1284,12 @@ class PdfExportMapper {
             ),
           ),
           for (var i = 0; i < blocks.length; i++)
-            ..._buildTypedBlock(blocks, i, options: options),
+            ..._buildTypedBlock(
+              blocks,
+              i,
+              options: options,
+              reportImages: reportImages,
+            ),
         ],
       ),
     );
@@ -1251,6 +1300,7 @@ class PdfExportMapper {
     List<Map<String, dynamic>> blocks,
     int index, {
     required PdfExportOptions options,
+    required Map<String, Uint8List> reportImages,
   }) {
     final b = blocks[index];
     final kind = '${b['kind'] ?? b['type'] ?? 'paragraph'}';
@@ -1273,12 +1323,17 @@ class PdfExportMapper {
       return [
         pw.Padding(
           padding: const pw.EdgeInsets.symmetric(vertical: 4),
-          child: _renderItemBody(
-            b,
-            kind: kind,
-            options: options,
+          child: pw.SizedBox(
             width: 400,
-            height: 40,
+            height: 320,
+            child: _renderItemBody(
+              b,
+              kind: kind,
+              options: options,
+              width: 400,
+              height: 320,
+              reportImages: reportImages,
+            ),
           ),
         ),
       ];

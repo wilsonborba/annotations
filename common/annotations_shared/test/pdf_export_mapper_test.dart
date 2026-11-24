@@ -162,6 +162,13 @@ void main() {
           continueWithPlaceholders: true,
         ),
         failedChartIds: const {'secret_chart_99'},
+        reportImages: {
+          'secret_chart_99||||snapshot|snapshot_99': Uint8List.fromList([
+            1,
+            2,
+            3,
+          ]),
+        },
         baseFont: baseFont,
         thaiFont: thaiFont,
       );
@@ -171,7 +178,7 @@ void main() {
       expect(utf8.decode(mixedBytes.sublist(0, 5)), '%PDF-');
       expect(
         latin1.decode(mixedBytes, allowInvalid: true),
-        isNot(contains('/Subtype /Image')),
+        isNot(contains('/Subtype/Image')),
       );
 
       final publicText = await extractPdfText(mixedBytes, 'mixed_public');
@@ -180,6 +187,79 @@ void main() {
       expect(
         publicText.replaceAll(RegExp(r'\s+'), ''),
         isNot(contains('CONFIDENTIAL_METRIC_SHOULD_NOT_APPEAR')),
+      );
+    },
+  );
+
+  test(
+    'personal export freezes a captured Reports visual as a PDF image',
+    () async {
+      final baseFont = loadFont(
+        'lib/presentation/frontend/assets/fonts/UbuntuSans-Variable.ttf',
+      );
+      final thaiFont = loadFont(
+        'lib/presentation/frontend/assets/fonts/IBMPlexSansThai-Regular.ttf',
+      );
+      final png = base64Decode(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAAAAAA6fptVAAAACklEQVR4nGNgAAAAAgABSK+kcQAAAABJRU5ErkJggg==',
+      );
+      final doc = NoteDocument.fromJson({
+        'page': {
+          'width': 1000,
+          'background': {'kind': 'blank'},
+        },
+        'items': [
+          {
+            'id': 'chart_1',
+            'kind': 'reports_embed',
+            'report_id': 'report',
+            'project_slug': 'project',
+            'report_slug': 'report',
+            'dataset_id': 'dataset',
+            'mode': 'snapshot',
+            'source': 'link',
+            'snapshot_id': 'snapshot-1',
+            'captured_at': 1795520000,
+            'x': 20,
+            'y': 20,
+            'width': 500,
+            'height': 300,
+          },
+        ],
+      }, schema: origSchema);
+
+      final out = await PdfExportMapper().export(
+        title: 'Frozen report',
+        slug: 'frozen-report',
+        original: doc,
+        options: const PdfExportOptions(
+          mode: PdfExportMode.original,
+          audience: PdfAudience.personal,
+          continueWithPlaceholders: true,
+        ),
+        reportImages: {
+          jsonEncode([
+            'report',
+            'project',
+            'report',
+            'dataset',
+            'snapshot',
+            'snapshot-1',
+          ]): png,
+        },
+        partialChartIds: const {'report'},
+        baseFont: baseFont,
+        thaiFont: thaiFont,
+      );
+
+      expect(out.preflight.issues.map((issue) => issue.kind), [
+        'partial_chart',
+      ]);
+      expect(out.engine, 'pdf');
+      expect(out.pdfs, hasLength(1));
+      expect(
+        latin1.decode(out.pdfs.single.bytes, allowInvalid: true),
+        contains('/Subtype/Image'),
       );
     },
   );
@@ -368,7 +448,7 @@ void main() {
       expect(utf8.decode(inkRes.pdfs.first.bytes.sublist(0, 5)), '%PDF-');
       expect(
         latin1.decode(inkRes.pdfs.first.bytes, allowInvalid: true),
-        isNot(contains('/Subtype /Image')),
+        isNot(contains('/Subtype/Image')),
       );
       await extractPdfText(inkRes.pdfs.first.bytes, 'ink_only');
       // The handwriting itself is on the page: dark pixels below the title,
