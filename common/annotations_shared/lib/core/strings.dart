@@ -1,6 +1,43 @@
 import 'landing_strings.dart';
 
 const strings = <String, List<String>>{
+  // Account (annotations#38, H6 section 3 point 2).
+  'signIn': ['Sign in', 'Entrar', 'เข้าสู่ระบบ'],
+  'myNotes': ['My notes', 'Minhas anotações', 'บันทึกของฉัน'],
+  'logOut': ['Log out', 'Sair', 'ออกจากระบบ'],
+  'account': ['Account', 'Conta', 'บัญชี'],
+  'myNotesLead': [
+    'Your notes, read only in the browser. Edit them in the app.',
+    'Suas anotações, só leitura no navegador. Edite no app.',
+    'บันทึกของคุณ อ่านได้อย่างเดียวในเบราว์เซอร์ แก้ไขในแอป',
+  ],
+  'myNotesEmpty': [
+    'No synced notes yet. Sync a note from the app to see it here.',
+    'Nenhuma anotação sincronizada ainda. Sincronize pelo app para ver aqui.',
+    'ยังไม่มีบันทึกที่ซิงก์ ซิงก์บันทึกจากแอปเพื่อดูที่นี่',
+  ],
+  'myNotesSignedOut': [
+    'Sign in to see your notes.',
+    'Entre para ver suas anotações.',
+    'เข้าสู่ระบบเพื่อดูบันทึกของคุณ',
+  ],
+  'untitledNote': [
+    'Untitled note',
+    'Anotação sem título',
+    'บันทึกที่ไม่มีชื่อ',
+  ],
+  'notePublished': ['Published', 'Publicada', 'เผยแพร่แล้ว'],
+  'notePrivate': ['Private', 'Privada', 'ส่วนตัว'],
+  'signingIn': [
+    'Signing you in...',
+    'Entrando na sua conta...',
+    'กำลังเข้าสู่ระบบ...',
+  ],
+  'signInFailed': [
+    'The sign-in did not finish. Try again.',
+    'O login não terminou. Tente de novo.',
+    'การเข้าสู่ระบบไม่สำเร็จ ลองอีกครั้ง',
+  ],
   'noteSources': [
     'Notes / Sources / Reports',
     'Notas / Fontes / Reports',

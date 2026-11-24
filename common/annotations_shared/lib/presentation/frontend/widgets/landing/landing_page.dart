@@ -1,6 +1,9 @@
 import 'package:annotations_shared/core/tracking_manifest.dart';
 import 'package:annotations_shared/core/tracking.dart';
 import 'package:flutter/material.dart';
+
+import '../../../../domain/services/account_service.dart';
+import '../../components/account_menu.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../domain/models/content.dart';
@@ -74,6 +77,32 @@ class _LandingPageState extends State<LandingPage> {
                   onPressed: () => context.go('/v1/home/download'),
                 ),
               ),
+              // Sign in when signed out; My notes when signed in, so a
+              // signed-in user is never asked to sign in (Cortex #75).
+              if (AppScope.of(context).account case final account?)
+                ListenableBuilder(
+                  listenable: account,
+                  builder: (context, _) =>
+                      account.status == AccountStatus.checking
+                      ? const SizedBox.shrink()
+                      : track(
+                          'landing.account.open',
+                          AppButton(
+                            key: Key(
+                              account.signedIn
+                                  ? 'overview-my-notes'
+                                  : 'overview-sign-in',
+                            ),
+                            label: context.tr(
+                              account.signedIn ? 'myNotes' : 'signIn',
+                            ),
+                            onPressed: () => signInOrOpen(
+                              context,
+                              returnTo: AccountService.myNotesPath,
+                            ),
+                          ),
+                        ),
+                ),
               track(
                 'landing.browse.open',
                 AppButton(

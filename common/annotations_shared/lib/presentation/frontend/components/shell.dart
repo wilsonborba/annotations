@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../core/landing_settings.dart';
 import '../../../core/settings.dart';
+import 'account_menu.dart';
 import 'controls.dart';
 import 'landing_image.dart';
 import 'icons.dart';
@@ -97,6 +98,8 @@ class PageShell extends StatelessWidget {
               onPressed: () => prefs.toggle(dark),
             ),
           ),
+          const SizedBox(width: 8),
+          AccountControl(location: location),
           if (!wide)
             track(
               'shell.navigation.menu',

@@ -325,6 +325,41 @@ const annotationElements = <String, TrailElement>{
     label: 'Shell theme toggle',
     path: 'shell > theme > toggle',
   ),
+  'shell.account.sign_in': TrailElement(
+    id: 'shell.account.sign_in',
+    label: 'Shell account sign in',
+    path: 'shell > account > sign_in',
+  ),
+  'shell.account.my_notes': TrailElement(
+    id: 'shell.account.my_notes',
+    label: 'Shell account my notes',
+    path: 'shell > account > my_notes',
+  ),
+  'shell.account.log_out': TrailElement(
+    id: 'shell.account.log_out',
+    label: 'Shell account log out',
+    path: 'shell > account > log_out',
+  ),
+  'landing.account.open': TrailElement(
+    id: 'landing.account.open',
+    label: 'Landing account open',
+    path: 'landing > account > open',
+  ),
+  'account.sync.retry': TrailElement(
+    id: 'account.sync.retry',
+    label: 'Account sync retry',
+    path: 'account > sync > retry',
+  ),
+  'account.notes.retry': TrailElement(
+    id: 'account.notes.retry',
+    label: 'Account notes retry',
+    path: 'account > notes > retry',
+  ),
+  'account.notes.sign_in': TrailElement(
+    id: 'account.notes.sign_in',
+    label: 'Account notes sign in',
+    path: 'account > notes > sign_in',
+  ),
   'shell.navigation.instant': TrailElement(
     id: 'shell.navigation.instant',
     label: 'Shell navigation instant',
