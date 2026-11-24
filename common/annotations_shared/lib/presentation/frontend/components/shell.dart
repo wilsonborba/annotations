@@ -98,8 +98,7 @@ class PageShell extends StatelessWidget {
               onPressed: () => prefs.toggle(dark),
             ),
           ),
-          if (AppScope.of(context).account != null)
-            const SizedBox(width: 8),
+          if (AppScope.of(context).account != null) const SizedBox(width: 8),
           AccountControl(location: location, compact: width < 600),
           if (!wide)
             track(
