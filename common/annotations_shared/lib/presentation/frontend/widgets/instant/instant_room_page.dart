@@ -24,6 +24,7 @@ import '../../components/shell.dart';
 import '../../components/theme.dart';
 import '../../components/tokens.dart';
 import '../../handlers/instant_room_handler.dart';
+import '../../handlers/text_handler.dart';
 import '../paper/paper_screen.dart';
 
 class InstantRoomPage extends StatefulWidget {
@@ -55,6 +56,10 @@ class InstantRoomPage extends StatefulWidget {
 class _InstantRoomPageState extends State<InstantRoomPage> {
   InstantRoomHandler? handler;
 
+  /// The text flow of the editor, owned here so the room can close an open
+  /// block that a shared change replaced.
+  TextHandler? _text;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -70,6 +75,8 @@ class _InstantRoomPageState extends State<InstantRoomPage> {
 
   @override
   void dispose() {
+    handler?.text = null;
+    _text?.dispose();
     handler?.dispose();
     super.dispose();
   }
@@ -100,6 +107,10 @@ class _InstantRoomPageState extends State<InstantRoomPage> {
         Expanded(
           child: PaperScreen(
             handler: paper,
+            text: _text ??= h.text = TextHandler(
+              paper: paper,
+              preferences: AppScope.of(context).preferences,
+            ),
             typedOnly: InstantRoomPage.typedOnly(context),
             status: RoomStatus(state: h.sharing, onRetry: h.retry),
           ),

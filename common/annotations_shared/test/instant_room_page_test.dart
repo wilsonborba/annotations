@@ -5,6 +5,9 @@
 import 'package:annotations_shared/app.dart';
 import 'package:annotations_shared/dal/remote/api_adapter.dart';
 import 'package:annotations_shared/domain/services/annotations_service.dart';
+import 'package:annotations_shared/domain/models/note_document.dart';
+import 'package:annotations_shared/domain/services/instant_room_share.dart';
+import 'package:annotations_shared/presentation/frontend/handlers/instant_room_handler.dart';
 import 'package:annotations_shared/presentation/frontend/widgets/instant/instant_room_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -155,5 +158,34 @@ void main() {
     expect(uri.path, '/v1/instant/river%20lab%2F7');
     expect(uri.hasQuery && uri.query.isNotEmpty, isFalse);
     expect(uri.fragment, isEmpty);
+  });
+
+  test('a shared change to the open block closes it; other changes do not', () {
+    Map<String, Object?> t(String id, String text) => {
+      'id': id,
+      'kind': 'text',
+      'x': 96,
+      'y': 32,
+      'width': 320,
+      'height': 32,
+      'spans': [
+        {'text': text},
+      ],
+    };
+    final now = RoomShare.documentOf({
+      'page': {
+        'width': 1000,
+        'background': {'kind': 'blank'},
+      },
+      'items': [t('a', 'mine'), t('b', 'other')],
+    });
+    InstantRoomDocument withItems(List<Map<String, Object?>> items) =>
+        RoomShare.documentOf({...now.toJson(), 'items': items});
+    bool closes(InstantRoomDocument next, String? open) =>
+        InstantRoomHandler.changesOpenBlock(now, next, open);
+    expect(closes(withItems([t('a', 'mine'), t('b', 'new')]), 'a'), isFalse);
+    expect(closes(withItems([t('a', 'theirs'), t('b', 'other')]), 'a'), isTrue);
+    expect(closes(withItems([t('b', 'other')]), 'a'), isTrue);
+    expect(closes(withItems([t('a', 'theirs')]), null), isFalse);
   });
 }

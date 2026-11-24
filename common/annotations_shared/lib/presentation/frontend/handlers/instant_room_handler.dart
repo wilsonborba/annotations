@@ -17,11 +17,13 @@ import '../../../domain/services/instant_room_service.dart';
 import '../../../domain/services/instant_room_share.dart';
 import '../../../domain/services/instant_room_sync.dart';
 import 'paper_handler.dart';
+import 'text_handler.dart';
 
 /// The paper editor as the room share sees it.
 final class _PaperRoomEditor implements RoomEditor {
-  _PaperRoomEditor(this.paper);
+  _PaperRoomEditor(this.paper, this.owner);
   final PaperHandler paper;
+  final InstantRoomHandler owner;
 
   @override
   InstantRoomDocument get document => paper.document as InstantRoomDocument;
@@ -30,7 +32,20 @@ final class _PaperRoomEditor implements RoomEditor {
   bool get busy => paper.holding || paper.activeInk.value != null;
 
   @override
-  bool receive(InstantRoomDocument document) => paper.receive(document);
+  bool receive(InstantRoomDocument document) {
+    if (paper.holding || paper.activeInk.value != null) return false;
+    final text = owner.text;
+    if (InstantRoomHandler.changesOpenBlock(
+      paper.document,
+      document,
+      text?.editing,
+    )) {
+      // The open block still holds the local text; it closes so the next
+      // keystroke cannot write it over the room version (C1.5).
+      text!.end();
+    }
+    return paper.receive(document);
+  }
 }
 
 class InstantRoomHandler extends ChangeNotifier {
@@ -56,6 +71,24 @@ class InstantRoomHandler extends ChangeNotifier {
   InstantRoomService? room;
   RoomShare? share;
   PaperHandler? paper;
+
+  /// The text flow of the editor; the page sets it with the editor.
+  TextHandler? text;
+
+  /// True when [next] changes the item [openId] that is open for typing.
+  static bool changesOpenBlock(
+    NoteDocument current,
+    NoteDocument next,
+    String? openId,
+  ) {
+    if (openId == null) return false;
+    Object? item(NoteDocument d) => [
+      for (final it in (d.toJson()['items'] as List?) ?? const [])
+        if ((it as Map)['id'] == openId) it,
+    ].firstOrNull;
+    return !InstantRoomSync.same(item(current), item(next));
+  }
+
   Timer? _tick;
   bool _closed = false;
 
@@ -114,7 +147,7 @@ class InstantRoomHandler extends ChangeNotifier {
       document: RoomShare.documentOf(service.document),
       autosave: share,
     );
-    share.attach(_PaperRoomEditor(paper));
+    share.attach(_PaperRoomEditor(paper, this));
     share.sharing.addListener(_emit);
     share.conflicts.addListener(_emit);
     this.share = share;
