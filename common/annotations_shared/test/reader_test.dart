@@ -249,6 +249,32 @@ void main() {
       expect(find.byKey(const Key('active-filterTag')), findsOneWidget);
     });
 
+    testWidgets('search field follows the current route query', (tester) async {
+      final api = FakeApi();
+      await open(tester, api, '/v1/menu?q=cell');
+      expect(
+        tester
+            .widget<TextField>(find.byKey(const Key('catalog-search')))
+            .controller!
+            .text,
+        'cell',
+      );
+
+      GoRouter.of(
+        tester.element(find.byType(Navigator).last),
+      ).go('/v1/menu?q=plants');
+      await tester.pumpAndSettle();
+
+      expect(
+        tester
+            .widget<TextField>(find.byKey(const Key('catalog-search')))
+            .controller!
+            .text,
+        'plants',
+      );
+      expect(api.requests.last.queryParameters['q'], 'plants');
+    });
+
     testWidgets('a tag filters; clearing a filter removes it', (tester) async {
       final api = FakeApi();
       await open(tester, api, '/v1/menu');

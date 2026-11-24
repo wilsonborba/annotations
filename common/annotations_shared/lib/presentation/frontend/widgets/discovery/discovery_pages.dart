@@ -738,6 +738,18 @@ class _SearchFieldState extends State<_SearchField> {
   late final _controller = TextEditingController(text: widget.initial);
 
   @override
+  void didUpdateWidget(_SearchField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.initial != widget.initial &&
+        _controller.text != widget.initial) {
+      _controller.value = TextEditingValue(
+        text: widget.initial,
+        selection: TextSelection.collapsed(offset: widget.initial.length),
+      );
+    }
+  }
+
+  @override
   void dispose() {
     _controller.dispose();
     super.dispose();
