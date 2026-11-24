@@ -252,6 +252,9 @@ abstract final class AppFeatures {
     return _current ??= Features(profile);
   }
 
+  /// The detected profile, or null before [start] (tests that do not start).
+  static PlatformProfile? get profile => _current?.profile;
+
   @visibleForTesting
   static void reset() => _current = null;
 }

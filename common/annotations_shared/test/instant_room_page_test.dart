@@ -15,10 +15,14 @@ AnnotationsService serviceFor(FakeRoomServer server) => AnnotationsService(
   api: ApiAdapter(base: 'http://annotations.test', client: server.client()),
 );
 
-Future<void> openRoom(WidgetTester tester, FakeRoomServer server) async {
+Future<void> openRoom(
+  WidgetTester tester,
+  FakeRoomServer server, {
+  Size size = const Size(1280, 860),
+}) async {
   SharedPreferences.setMockInitialValues({});
   tester.view.devicePixelRatio = 1;
-  tester.view.physicalSize = const Size(1280, 860);
+  tester.view.physicalSize = size;
   addTearDown(tester.view.reset);
   await tester.pumpWidget(
     AnnotationsApp(
@@ -109,6 +113,39 @@ void main() {
     await tester.pump();
     expect(find.byKey(const Key('room-expired')), findsOneWidget);
     expect(find.byKey(const Key('paper-status')), findsNothing);
+    await closeRoom(tester);
+  });
+
+  testWidgets('a phone-sized browser gets simple typed controls; every '
+      'object stays visible', (tester) async {
+    final server = FakeRoomServer();
+    server.items['ink'] = {
+      'id': 'ink',
+      'kind': 'shape',
+      'shape': 'rectangle',
+      'color': '#DC2626FF',
+      'line_width': 2,
+      'opacity': 1,
+      'x': 100,
+      'y': 100,
+      'width': 200,
+      'height': 80,
+    };
+    server.itemRevisions['ink'] = 1;
+    await openRoom(tester, server, size: const Size(390, 844));
+    expect(tester.takeException(), isNull);
+    expect(find.byKey(const Key('mode-switch')), findsNothing);
+    expect(find.byKey(const Key('add-menu')), findsNothing);
+    expect(find.byKey(const Key('paper-button')), findsNothing);
+    expect(find.byKey(const Key('room-state-shared')), findsOneWidget);
+    await closeRoom(tester);
+  });
+
+  testWidgets('a desktop browser gets the full editor', (tester) async {
+    final server = FakeRoomServer();
+    await openRoom(tester, server);
+    expect(find.byKey(const Key('mode-switch')), findsOneWidget);
+    expect(find.byKey(const Key('paper-button')), findsOneWidget);
     await closeRoom(tester);
   });
 }

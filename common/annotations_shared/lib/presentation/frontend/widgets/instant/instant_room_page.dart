@@ -10,6 +10,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../../core/features.dart';
+import '../../../../core/platform_profile.dart';
 import '../../../../core/tracking.dart';
 import '../../../../core/tracking_manifest.dart';
 import '../../../../dal/local/read_path.dart';
@@ -27,6 +29,16 @@ import '../paper/paper_screen.dart';
 class InstantRoomPage extends StatefulWidget {
   final String code;
   const InstantRoomPage({super.key, required this.code});
+
+  /// Phones get simple typed controls; the browser gets them on a phone
+  /// sized screen and the full editor otherwise (A2 matrix, Instant rows).
+  static bool typedOnly(BuildContext context) =>
+      switch (AppFeatures.profile ?? PlatformProfile.browser) {
+        PlatformProfile.phone => true,
+        PlatformProfile.fullWriter => false,
+        PlatformProfile.browser =>
+          MediaQuery.sizeOf(context).shortestSide < androidTabletShortestSideDp,
+      };
 
   @override
   State<InstantRoomPage> createState() => _InstantRoomPageState();
@@ -80,6 +92,7 @@ class _InstantRoomPageState extends State<InstantRoomPage> {
         Expanded(
           child: PaperScreen(
             handler: paper,
+            typedOnly: InstantRoomPage.typedOnly(context),
             status: RoomStatus(state: h.sharing, onRetry: h.retry),
           ),
         ),
@@ -126,10 +139,13 @@ class RoomHeader extends StatelessWidget {
               const SizedBox(width: 4),
               AppIcon(AppIcons.peopleGroup, color: c.icon),
               const SizedBox(width: 10),
-              Text(
-                code,
-                key: const Key('room-code'),
-                style: Theme.of(context).textTheme.titleMedium,
+              Flexible(
+                child: Text(
+                  code,
+                  key: const Key('room-code'),
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
               ),
               const SizedBox(width: 12),
               track(
