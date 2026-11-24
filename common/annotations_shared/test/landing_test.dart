@@ -8,6 +8,7 @@ import 'package:annotations_shared/domain/services/annotations_service.dart';
 import 'package:annotations_shared/domain/services/preferences.dart';
 import 'package:annotations_shared/presentation/frontend/components/controls.dart';
 import 'package:annotations_shared/presentation/frontend/components/interactive_card.dart';
+import 'package:annotations_shared/presentation/frontend/components/qr_share.dart';
 import 'package:annotations_shared/presentation/frontend/components/scope.dart';
 import 'package:annotations_shared/presentation/frontend/components/shell.dart';
 import 'package:annotations_shared/presentation/frontend/components/sketch_art.dart';
@@ -408,10 +409,49 @@ void main() {
     expired = true;
     await tester.pump(const Duration(seconds: 4));
     await tester.pumpAndSettle();
+    expect(find.byKey(const Key('instant-room-qr-share')), findsNothing);
     expect(
       tester.getTopLeft(find.byKey(const Key('image-S02'))).dy,
       lessThan(tester.getTopLeft(find.byKey(const Key('room-expired'))).dy),
     );
+  });
+
+  testWidgets('active Instant shares its existing join route locally', (
+    tester,
+  ) async {
+    final requests = <Uri>[];
+    final service = fixtureService(
+      handler: (request) async {
+        requests.add(request.url);
+        return http.Response(
+          jsonEncode({
+            'code': 'transfer',
+            'revision': 0,
+            'expires_at': DateTime.now().millisecondsSinceEpoch ~/ 1000 + 900,
+            'items': [],
+          }),
+          200,
+        );
+      },
+    );
+    await open(tester, '/v1/instant/transfer', service: service);
+    final qr = tester.widget<QrShareControl>(
+      find.byKey(const Key('instant-room-qr-share')),
+    );
+    expect(qr.url, publicAppUri(pathSegments: ['v1', 'instant', 'transfer']));
+    expect(qr.caption, translate('qrInstantCaption', 'en'));
+    final requestCount = requests.length;
+    await tester.ensureVisible(find.byKey(const Key('instant-room-qr-share')));
+    await tester.tap(find.byKey(const Key('instant-room-qr-share')));
+    await tester.pumpAndSettle();
+    final codes = tester.widgetList<QrCodeView>(find.byType(QrCodeView));
+    expect(codes, hasLength(2));
+    expect(codes.last.data, qr.url.toString());
+    expect(requests.length, requestCount);
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    expect(find.byType(Dialog), findsNothing);
+    expect(requests.length, requestCount);
   });
 
   group('Overview hero', () {

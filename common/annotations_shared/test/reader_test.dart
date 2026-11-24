@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:annotations_shared/app.dart';
+import 'package:annotations_shared/core/settings.dart';
 import 'package:annotations_shared/core/strings.dart';
 import 'package:annotations_shared/domain/models/note_document.dart';
 import 'package:annotations_shared/domain/services/discovery_reader_service.dart';
@@ -9,8 +10,10 @@ import 'package:annotations_shared/domain/services/note_autosave.dart';
 import 'package:annotations_shared/domain/services/read_only_store.dart';
 import 'package:annotations_shared/presentation/frontend/handlers/attachment_handler.dart';
 import 'package:annotations_shared/presentation/frontend/handlers/paper_handler.dart';
+import 'package:annotations_shared/presentation/frontend/components/qr_share.dart';
 import 'package:annotations_shared/presentation/frontend/widgets/typed/note_screen.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:http/http.dart' as http;
@@ -323,6 +326,65 @@ void main() {
   });
 
   group('Reader', () {
+    testWidgets('QR encodes the selected canonical reader route locally', (
+      tester,
+    ) async {
+      final api = FakeApi()..views = ['original', 'typed'];
+      await open(tester, api, '/v1/notes/n1?view=typed');
+      final small = tester.widget<QrShareControl>(
+        find.byKey(const Key('reader-qr-share')),
+      );
+      final triggerNode = tester
+          .widget<TextButton>(
+            find.descendant(
+              of: find.byKey(const Key('reader-qr-share')),
+              matching: find.byType(TextButton),
+            ),
+          )
+          .focusNode;
+      expect(
+        small.url,
+        publicAppUri(
+          pathSegments: ['v1', 'notes', 'n1'],
+          queryParameters: {'view': 'typed'},
+        ),
+      );
+      final requestCount = api.requests.length;
+      await tester.ensureVisible(find.byKey(const Key('reader-qr-share')));
+      await tester.tap(find.byKey(const Key('reader-qr-share')));
+      await tester.pumpAndSettle();
+      final codes = tester.widgetList<QrCodeView>(find.byType(QrCodeView));
+      expect(codes, hasLength(2));
+      expect(codes.last.data, small.url.toString());
+      expect(api.requests.length, requestCount);
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(find.byType(Dialog), findsNothing);
+      expect(triggerNode?.hasFocus, isTrue);
+      expect(api.requests.length, requestCount);
+    });
+
+    testWidgets('production QR uses the configured public app origin', (
+      tester,
+    ) async {
+      final previousSettings = Settings.current;
+      addTearDown(() => Settings.use(previousSettings));
+      Settings.use(const Settings(development: false));
+      final api = FakeApi()..views = ['original', 'typed'];
+      await open(tester, api, '/v1/notes/n1');
+      final share = tester.widget<QrShareControl>(
+        find.byKey(const Key('reader-qr-share')),
+      );
+      expect(
+        share.url,
+        Uri.parse('https://annotations.asodya.com/v1/notes/n1?view=original'),
+      );
+      expect(
+        api.requests.map((uri) => uri.path),
+        everyElement(isNot('/posts')),
+      );
+    });
+
     testWidgets('Original keeps the paper; restricted cards keep a lock', (
       tester,
     ) async {
@@ -455,6 +517,13 @@ void main() {
       await open(tester, api, '/v1/notes/n1?view=typed', width: 390);
       expect(tester.takeException(), isNull);
       expect(find.byKey(const Key('typed-reader')), findsOneWidget);
+      await tester.ensureVisible(find.byKey(const Key('reader-qr-share')));
+      await tester.tap(find.byKey(const Key('reader-qr-share')));
+      await tester.pumpAndSettle();
+      expect(tester.getSize(find.byType(QrCodeView).last).width, 240);
+      expect(tester.takeException(), isNull);
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
     });
 
     testWidgets(

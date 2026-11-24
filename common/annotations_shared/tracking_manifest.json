@@ -520,6 +520,20 @@
       "path": "reader > view > switch",
       "description": "Switch between the Original and Typed views of a public note.",
       "source": "lib/presentation/frontend/widgets/discovery/discovery_pages.dart"
+    },
+    {
+      "id": "reader.link.copy",
+      "label": "Reader link copy",
+      "path": "reader > link > copy",
+      "description": "Copy the canonical public reader link.",
+      "source": "lib/presentation/frontend/widgets/discovery/discovery_pages.dart"
+    },
+    {
+      "id": "reader.link.open",
+      "label": "Reader link open",
+      "path": "reader > link > open",
+      "description": "Open the canonical public reader link.",
+      "source": "lib/presentation/frontend/widgets/discovery/discovery_pages.dart"
     }
   ]
 }

@@ -8,6 +8,7 @@ import '../../../../dal/remote/browser/transfers.dart' as browser;
 import '../../../../domain/models/content.dart';
 import '../../components/controls.dart';
 import '../../components/landing_image.dart';
+import '../../components/qr_share.dart';
 import '../../components/scope.dart';
 import '../../components/tokens.dart';
 import '../../components/shell.dart';
@@ -227,6 +228,7 @@ class _InstantPageState extends State<InstantPage> {
             .ceil()
             .clamp(0, 900);
     final items = records(h.room!['items']);
+    final joinUri = publicAppUri(pathSegments: ['v1', 'instant', widget.code!]);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -266,6 +268,11 @@ class _InstantPageState extends State<InstantPage> {
                     '${seconds ~/ 60}:${(seconds % 60).toString().padLeft(2, '0')}',
                   ),
                   const SizedBox(width: 20),
+                  QrShareControl(
+                    key: const Key('instant-room-qr-share'),
+                    url: joinUri,
+                    caption: context.tr('qrInstantCaption'),
+                  ),
                   track(
                     'instant.room.copy',
                     AppButton(
@@ -273,14 +280,7 @@ class _InstantPageState extends State<InstantPage> {
                       icon: AppIcons.link,
                       onPressed: () async {
                         await Clipboard.setData(
-                          ClipboardData(
-                            text: Uri.base
-                                .replace(
-                                  path: '/v1/instant/${widget.code}',
-                                  query: '',
-                                )
-                                .toString(),
-                          ),
+                          ClipboardData(text: joinUri.toString()),
                         );
                         if (mounted) {
                           showAppToast(context, context.tr('copied'));

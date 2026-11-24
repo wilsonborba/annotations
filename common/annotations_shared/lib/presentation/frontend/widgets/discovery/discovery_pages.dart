@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../../core/tracking_manifest.dart';
 import '../../../../dal/remote/api_adapter.dart';
@@ -10,6 +12,7 @@ import '../../../../domain/services/read_only_store.dart';
 import '../../components/controls.dart';
 import '../../components/icons.dart';
 import '../../components/landing_image.dart';
+import '../../components/qr_share.dart';
 import '../../components/scope.dart';
 import '../../components/shell.dart';
 import '../../components/tokens.dart';
@@ -634,6 +637,10 @@ class _ReaderPageState extends State<ReaderPage> {
         }
         final raw = note.raw;
         final typed = note.activeView == NoteViewMode.typed;
+        final readerUri = publicAppUri(
+          pathSegments: ['v1', 'notes', note.noteId],
+          queryParameters: {'view': note.activeView.name},
+        );
         final height = MediaQuery.sizeOf(context).height * .8;
         return _Page(
           children: [
@@ -641,6 +648,43 @@ class _ReaderPageState extends State<ReaderPage> {
               note.title,
               key: const Key('reader-title'),
               style: text.headlineMedium,
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                QrShareControl(
+                  key: const Key('reader-qr-share'),
+                  url: readerUri,
+                  caption: note.title,
+                ),
+                track(
+                  'reader.link.copy',
+                  AppButton(
+                    label: context.tr('copy'),
+                    onPressed: () async {
+                      await Clipboard.setData(
+                        ClipboardData(text: readerUri.toString()),
+                      );
+                      if (context.mounted) {
+                        showAppToast(context, context.tr('copied'));
+                      }
+                    },
+                  ),
+                ),
+                track(
+                  'reader.link.open',
+                  AppButton(
+                    label: context.tr('openNote'),
+                    onPressed: () => launchUrl(
+                      readerUri,
+                      mode: LaunchMode.externalApplication,
+                    ),
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 6),
             Wrap(

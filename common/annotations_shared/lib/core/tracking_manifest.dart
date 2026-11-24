@@ -40,6 +40,16 @@ const annotationScreens = <TrailScreen>[
   ),
 ];
 const annotationElements = <String, TrailElement>{
+  'reader.link.copy': TrailElement(
+    id: 'reader.link.copy',
+    label: 'Reader link copy',
+    path: 'reader > link > copy',
+  ),
+  'reader.link.open': TrailElement(
+    id: 'reader.link.open',
+    label: 'Reader link open',
+    path: 'reader > link > open',
+  ),
   'landing.card.notes': TrailElement(
     id: 'landing.card.notes',
     label: 'Landing card notes',
