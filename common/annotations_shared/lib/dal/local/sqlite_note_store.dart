@@ -75,6 +75,14 @@ const _schemaSteps = [
     PRIMARY KEY (note_id, item_id)
   ) STRICT;
   ''',
+  // annotations#63: persist server note identity and authoritative server
+  // revisions separately from local id and local save revision.
+  '''
+  ALTER TABLE notes ADD COLUMN server_note_id TEXT;
+  ALTER TABLE notes ADD COLUMN server_revision INTEGER;
+  ALTER TABLE notes ADD COLUMN server_original_revision_id TEXT;
+  ALTER TABLE notes ADD COLUMN server_typed_revision_id TEXT;
+  ''',
 ];
 
 /// A stable 64-bit hash of an item body, to find changed items: FNV-1a and
@@ -217,6 +225,10 @@ final class SqliteNoteStore implements DeletableLocalNoteStore {
       updatedAt: DateTime.fromMillisecondsSinceEpoch(row['updated_at'] as int),
       syncState: LocalSyncState.parse(row['sync_state'] as String),
       accountId: row['account_id'] as String?,
+      serverNoteId: row['server_note_id'] as String?,
+      serverRevision: row['server_revision'] as int?,
+      serverOriginalRevisionId: row['server_original_revision_id'] as String?,
+      serverTypedRevisionId: row['server_typed_revision_id'] as String?,
     );
   }
 
@@ -368,10 +380,59 @@ final class SqliteNoteStore implements DeletableLocalNoteStore {
     String id, {
     required LocalSyncState state,
     required String? accountId,
+    String? serverNoteId,
+    int? serverRevision,
+    String? serverOriginalRevisionId,
+    String? serverTypedRevisionId,
   }) async {
     _db.execute(
-      'UPDATE notes SET sync_state = ?, account_id = ? WHERE id = ?',
-      [state.code, accountId, id],
+      '''
+      UPDATE notes SET
+        sync_state = ?,
+        server_note_id = CASE
+          WHEN ? IS NULL THEN NULL
+          WHEN account_id IS NOT NULL AND account_id != ? THEN ?
+          ELSE COALESCE(?, server_note_id)
+        END,
+        server_revision = CASE
+          WHEN ? IS NULL THEN NULL
+          WHEN account_id IS NOT NULL AND account_id != ? THEN ?
+          ELSE COALESCE(?, server_revision)
+        END,
+        server_original_revision_id = CASE
+          WHEN ? IS NULL THEN NULL
+          WHEN account_id IS NOT NULL AND account_id != ? THEN ?
+          ELSE COALESCE(?, server_original_revision_id)
+        END,
+        server_typed_revision_id = CASE
+          WHEN ? IS NULL THEN NULL
+          WHEN account_id IS NOT NULL AND account_id != ? THEN ?
+          ELSE COALESCE(?, server_typed_revision_id)
+        END,
+        account_id = ?
+      WHERE id = ?
+      ''',
+      [
+        state.code,
+        accountId,
+        accountId,
+        serverNoteId,
+        serverNoteId,
+        accountId,
+        accountId,
+        serverRevision,
+        serverRevision,
+        accountId,
+        accountId,
+        serverOriginalRevisionId,
+        serverOriginalRevisionId,
+        accountId,
+        accountId,
+        serverTypedRevisionId,
+        serverTypedRevisionId,
+        accountId,
+        id,
+      ],
     );
     if (_db.updatedRows == 0) throw LocalStoreException('missing_note', id);
   }

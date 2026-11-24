@@ -75,6 +75,9 @@ class ApiAdapter {
       }
     }
     final response = await http.Response.fromStream(await client.send(request));
+    if (response.statusCode == 204 && response.body.trim().isEmpty) {
+      return const <String, dynamic>{};
+    }
     Map<String, dynamic> value;
     try {
       value = jsonDecode(response.body) as Map<String, dynamic>;
