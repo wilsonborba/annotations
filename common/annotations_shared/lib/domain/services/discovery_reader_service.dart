@@ -388,10 +388,12 @@ class DiscoveryFeedController {
   }
 }
 
-/// A public document the editor model can read: the public projection keeps
-/// only the id, kind, geometry and reference of a card plus
-/// `restricted: true`, so the fields the model needs for a Reports embed
-/// get neutral values. The reader then draws a lock in the card's space.
+/// A public document the editor model can read: the public projection strips
+/// private card payloads and leaves only id, kind, geometry, card reference, and
+/// `restricted: true`. Client [NoteDocument.fromJson] still requires `mode` and
+/// `source` on `reports_embed`, so this injects neutral `'live'` / `'reports'`
+/// placeholders while preserving `restricted: true`. Paper/typed readers draw a
+/// lock placeholder and block card open handlers on `restricted == true`.
 Map<String, dynamic> readablePublicDocument(Map<String, dynamic> document) {
   Object? fix(Object? item) {
     if (item is! Map || item['restricted'] != true) return item;

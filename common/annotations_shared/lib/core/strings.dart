@@ -11,6 +11,7 @@ const strings = <String, List<String>>{
     'ฉบับพิมพ์ใช้การแก้ไขก่อนหน้า',
   ],
   'noteBy': ['by', 'por', 'โดย'],
+  'unknownAuthor': ['Author', 'Autor', 'ผู้เขียน'],
   'projectsOf': ['Projects', 'Projetos', 'โปรเจกต์'],
   'notesOf': ['Notes', 'Anotações', 'บันทึก'],
   'noteCount': ['notes', 'anotações', 'บันทึก'],

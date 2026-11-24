@@ -310,27 +310,79 @@ class NoteResult extends StatelessWidget {
   }
 }
 
+Widget _asyncErrorView(
+  Object? error, {
+  required Key errorKey,
+  required VoidCallback retry,
+}) {
+  if (error case ApiError(status: 404)) {
+    return const NotFoundState();
+  }
+  return _Page(
+    children: [
+      Center(
+        child: LoadError(
+          key: errorKey,
+          retry: retry,
+          reference: error is ApiError ? '$error' : null,
+        ),
+      ),
+    ],
+  );
+}
+
 /// `/v1/authors/<id>`: the author, their public projects and notes.
-class AuthorPage extends StatelessWidget {
+class AuthorPage extends StatefulWidget {
   const AuthorPage({super.key, required this.authorId});
 
   final String authorId;
 
   @override
-  Widget build(BuildContext context) {
+  State<AuthorPage> createState() => _AuthorPageState();
+}
+
+class _AuthorPageState extends State<AuthorPage> {
+  Future<List<Map<String, dynamic>>>? _data;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _data ??= _fetch();
+  }
+
+  @override
+  void didUpdateWidget(AuthorPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.authorId != widget.authorId) _load();
+  }
+
+  Future<List<Map<String, dynamic>>> _fetch() {
     final adapter = _adapter(context);
+    return Future.wait([
+      adapter.getAuthor(widget.authorId),
+      adapter.getAuthorProjects(widget.authorId),
+    ]);
+  }
+
+  void _load() => setState(() {
+    _data = _fetch();
+  });
+
+  @override
+  Widget build(BuildContext context) {
     final text = Theme.of(context).textTheme;
     return FutureBuilder<List<Map<String, dynamic>>>(
-      future: Future.wait([
-        adapter.getAuthor(authorId),
-        adapter.getAuthorProjects(authorId),
-      ]),
+      future: _data,
       builder: (context, snap) {
-        if (snap.error case ApiError(status: 404)) {
-          return const NotFoundState();
+        if (snap.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
         }
         if (snap.hasError) {
-          return const _Page(children: [NotFoundState()]);
+          return _asyncErrorView(
+            snap.error,
+            errorKey: const Key('author-error'),
+            retry: _load,
+          );
         }
         if (!snap.hasData) {
           return const Center(child: CircularProgressIndicator());
@@ -362,7 +414,10 @@ class AuthorPage extends StatelessWidget {
             ],
             const SizedBox(height: 24),
             Text(context.tr('notesOf'), style: text.titleLarge),
-            NoteFeed(query: DiscoveryQuery(authorId: authorId)),
+            NoteFeed(
+              key: ValueKey('author-${widget.authorId}'),
+              query: DiscoveryQuery(authorId: widget.authorId),
+            ),
           ],
         );
       },
@@ -371,23 +426,78 @@ class AuthorPage extends StatelessWidget {
 }
 
 /// `/v1/projects/<id>`: a public project and its notes.
-class ProjectPage extends StatelessWidget {
+class ProjectPage extends StatefulWidget {
   const ProjectPage({super.key, required this.projectId});
 
   final String projectId;
 
   @override
+  State<ProjectPage> createState() => _ProjectPageState();
+}
+
+class _ProjectPageState extends State<ProjectPage> {
+  Future<({Map<String, dynamic> project, String authorName})>? _data;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _data ??= _fetch();
+  }
+
+  @override
+  void didUpdateWidget(ProjectPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.projectId != widget.projectId) _load();
+  }
+
+  Future<({Map<String, dynamic> project, String authorName})> _fetch() async {
+    final adapter = _adapter(context);
+    final project = await adapter.getProject(widget.projectId);
+    var authorName = '${project['author_name'] ?? ''}'.trim();
+    final authorId = '${project['author_id'] ?? ''}'.trim();
+    if (authorName.isEmpty && authorId.isNotEmpty) {
+      try {
+        final author = await adapter.getAuthor(authorId);
+        authorName = '${author['name'] ?? ''}'.trim();
+      } catch (_) {
+        // Keep the project page readable with the localized fallback label
+        // when the secondary author lookup cannot resolve a public name.
+      }
+    }
+    return (project: project, authorName: authorName);
+  }
+
+  void _load() => setState(() {
+    _data = _fetch();
+  });
+
+  @override
   Widget build(BuildContext context) {
     final text = Theme.of(context).textTheme;
     final c = context.colors;
-    return FutureBuilder<Map<String, dynamic>>(
-      future: _adapter(context).getProject(projectId),
+    return FutureBuilder<({Map<String, dynamic> project, String authorName})>(
+      future: _data,
       builder: (context, snap) {
-        if (snap.hasError) return const NotFoundState();
+        if (snap.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snap.hasError) {
+          return _asyncErrorView(
+            snap.error,
+            errorKey: const Key('project-error'),
+            retry: _load,
+          );
+        }
         if (!snap.hasData) {
           return const Center(child: CircularProgressIndicator());
         }
-        final p = snap.data!;
+        final data = snap.data!;
+        final p = data.project;
+        final authorId = '${p['author_id'] ?? ''}'.trim();
+        final authorDisplay = data.authorName.isNotEmpty
+            ? data.authorName
+            : context.tr('unknownAuthor');
+        final authorLabel = '${context.tr('noteBy')} $authorDisplay';
         return _Page(
           children: [
             Text(
@@ -396,17 +506,27 @@ class ProjectPage extends StatelessWidget {
               style: text.headlineMedium,
             ),
             const SizedBox(height: 8),
-            InkWell(
-              key: const Key('project-author'),
-              onTap: () => context.go('/v1/authors/${p['author_id']}'),
-              child: Text(
-                '${context.tr('noteBy')} ${p['author_name'] ?? ''}',
-                style: text.bodyLarge!.copyWith(color: c.link),
+            if (authorId.isNotEmpty)
+              InkWell(
+                key: const Key('project-author'),
+                onTap: () => context.go('/v1/authors/$authorId'),
+                child: Text(
+                  authorLabel,
+                  style: text.bodyLarge!.copyWith(color: c.link),
+                ),
+              )
+            else
+              Text(
+                authorLabel,
+                key: const Key('project-author'),
+                style: text.bodyLarge,
               ),
-            ),
             Text('${p['note_count'] ?? 0} ${context.tr('noteCount')}'),
             const SizedBox(height: 24),
-            NoteFeed(query: DiscoveryQuery(projectId: projectId)),
+            NoteFeed(
+              key: ValueKey('project-${widget.projectId}'),
+              query: DiscoveryQuery(projectId: widget.projectId),
+            ),
           ],
         );
       },
@@ -434,12 +554,32 @@ class _ReaderPageState extends State<ReaderPage> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _note ??= _adapter(
-      context,
-    ).getPublicNote(widget.noteId, view: widget.view).then(_open);
+    _note ??= _fetch();
+  }
+
+  @override
+  void didUpdateWidget(ReaderPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.noteId != widget.noteId || oldWidget.view != widget.view) {
+      _load();
+    }
+  }
+
+  Future<ReaderNoteView> _fetch() => _adapter(
+    context,
+  ).getPublicNote(widget.noteId, view: widget.view).then(_open);
+
+  void _load() {
+    _paper?.dispose();
+    _paper = null;
+    setState(() {
+      _note = _fetch();
+    });
   }
 
   ReaderNoteView _open(ReaderNoteView note) {
+    if (!mounted) return note;
+    _paper?.dispose();
     final doc = note.activeDocument;
     if (doc != null) {
       final schema = DocumentSchema(
@@ -471,7 +611,19 @@ class _ReaderPageState extends State<ReaderPage> {
     return FutureBuilder<ReaderNoteView>(
       future: _note,
       builder: (context, snap) {
-        if (snap.hasError) return const NotFoundState();
+        if (snap.connectionState == ConnectionState.waiting) {
+          return const Padding(
+            padding: EdgeInsets.all(48),
+            child: Center(child: CircularProgressIndicator()),
+          );
+        }
+        if (snap.hasError) {
+          return _asyncErrorView(
+            snap.error,
+            errorKey: const Key('reader-error'),
+            retry: _load,
+          );
+        }
         final note = snap.data;
         final paper = _paper;
         if (note == null || paper == null) {

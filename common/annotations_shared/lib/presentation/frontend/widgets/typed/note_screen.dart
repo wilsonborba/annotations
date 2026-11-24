@@ -77,6 +77,7 @@ class _NoteReaderState extends State<NoteReader> {
         (it['height'] as num).toDouble(),
       );
       if (r.contains(p)) {
+        if (it['restricted'] == true) return;
         cards.open(it['id'] as String);
         return;
       }
