@@ -32,6 +32,8 @@ const gateway = 'https://gateway.test';
 /// user info needs the session cookie; log-out needs the CSRF header.
 class FakeGateway {
   bool browserDone = false, alive = false;
+  bool offline = false;
+  String userId = 'user-1';
   final calls = <String>[];
   final opened = <Uri>[];
   final storage = InMemorySecureSessionStorage();
@@ -54,10 +56,11 @@ class FakeGateway {
           },
         });
       case ('GET', '/user/info/v1/'):
+        if (offline) throw const SocketException('offline');
         final ok = alive && (r.headers['cookie'] ?? '').contains('sid=sid-1');
         return ok
             ? json({
-                'data': {'email': 'ana@example.com'},
+                'data': {'id': userId, 'email': 'ana@example.com'},
               })
             : json({'detail': 'Missing Authentications Parameters...'}, 403);
       case ('POST', '/user/sync/v1/log-out'):
@@ -177,6 +180,60 @@ void main() {
     expect(token, reference);
   });
 
+  test(
+    'verified owner survives outage, but a replacement session has no owner',
+    () async {
+      final g = FakeGateway();
+      g.alive = true;
+      await g.storage.writeSession(
+        const NativeSession(sessionId: 'sid-1', csrfToken: 'csrf-1'),
+      );
+      await g.account.check();
+      expect(g.account.signedIn, isTrue);
+      expect(g.account.localOwnerId, 'user-1');
+
+      g.offline = true;
+      final restarted = InstalledAccount(
+        auth: NativeAuthService(
+          client: g.client,
+          storage: g.storage,
+          gatewayBaseUrl: gateway,
+        ),
+        client: g.client,
+        platform: 'linux',
+        open: (_) async {},
+        aes: aesCbcEncrypt,
+        appContextKey: key,
+      );
+      await restarted.check();
+      expect(restarted.signedIn, isFalse);
+      expect(restarted.localOwnerId, 'user-1');
+      expect(g.calls.where((path) => path.contains('/me/')), isEmpty);
+
+      await restarted.logOut();
+      expect(restarted.localOwnerId, isNull);
+      expect(await g.storage.readSession(), isNull);
+
+      await g.storage.writeSession(
+        const NativeSession(sessionId: 'sid-2', csrfToken: 'csrf-2'),
+      );
+      final replacement = InstalledAccount(
+        auth: NativeAuthService(
+          client: g.client,
+          storage: g.storage,
+          gatewayBaseUrl: gateway,
+        ),
+        client: g.client,
+        platform: 'linux',
+        open: (_) async {},
+        aes: aesCbcEncrypt,
+        appContextKey: key,
+      );
+      await replacement.check();
+      expect(replacement.localOwnerId, isNull);
+    },
+  );
+
   testWidgets('signed out: Sign in in the bar, no call without a session', (
     tester,
   ) async {
@@ -227,11 +284,16 @@ void main() {
   testWidgets('a stored but dead session signs out once', (tester) async {
     final g = FakeGateway();
     await g.storage.writeSession(
-      const NativeSession(sessionId: 'old', csrfToken: 'old'),
+      const NativeSession(
+        sessionId: 'old',
+        csrfToken: 'old',
+        verifiedUserId: 'stale-owner',
+      ),
     );
     await openApp(tester, g);
     expect(find.byKey(const Key('bar-sign-in')), findsOneWidget);
     expect(await g.storage.readSession(), isNull);
+    expect(g.account.localOwnerId, isNull);
     expect(g.calls, ['GET /user/info/v1/']);
     expect(g.opened, isEmpty);
   });

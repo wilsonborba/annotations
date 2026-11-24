@@ -74,15 +74,32 @@ class LocalWorkspace {
   }
 
   /// The notes, newest change first, filtered by project and tag.
-  Future<List<LocalNote>> notes({String? projectId, String? tag}) async {
+  Future<List<LocalNote>> notes({
+    String? accountId,
+    String? projectId,
+    String? tag,
+  }) async {
     final all = await store.notes();
     return [
       for (final note in all)
-        if ((projectId == null ||
+        if ((note.accountId == null ||
+                (accountId != null && note.accountId == accountId)) &&
+            (projectId == null ||
                 catalog.projectForNote(note.id) == projectId) &&
             (tag == null || catalog.tagsForNote(note.id).contains(tag)))
           note,
     ];
+  }
+
+  /// Loads a note only when it belongs to the active account or is still a
+  /// guest note. A deep link must obey the same boundary as the workspace list.
+  Future<LocalNote?> loadNoteForAccount(String id, String? accountId) async {
+    final note = await store.load(id);
+    if (note == null ||
+        (note.accountId != null && note.accountId != accountId)) {
+      return null;
+    }
+    return note;
   }
 }
 

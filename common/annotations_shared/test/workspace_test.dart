@@ -83,6 +83,19 @@ Future<LocalNote> saved(String id, String? title) => store.save(
   ),
 );
 
+Future<LocalNote> savedFor(String id, String? title, String? accountId) =>
+    store.save(
+      LocalNoteDraft(
+        id: id,
+        schema: DocumentSchema('note-typed', 1),
+        document: NoteDocument.fromJson({
+          'blocks': <Object>[],
+        }, schema: DocumentSchema('note-typed', 1)),
+        title: title,
+        accountId: accountId,
+      ),
+    );
+
 void main() {
   setUpAll(loadAppFonts);
   setUp(() async {
@@ -92,6 +105,36 @@ void main() {
   tearDown(() async {
     await store.close();
     await root.delete(recursive: true);
+  });
+
+  test('workspace and deep-link reads are isolated by account', () async {
+    await savedFor('a', 'Account A', 'account-a');
+    await savedFor('b', 'Account B', 'account-b');
+    await savedFor('guest', 'Guest', null);
+    final ws = workspace();
+    ws.catalog.createLocalProject('project-a', 'Private A project');
+    ws.catalog.assignNoteToProject('a', 'project-a');
+    ws.catalog.addTag('a', 'private-a-tag');
+    ws.catalog.createLocalProject('project-b', 'Private B project');
+    ws.catalog.assignNoteToProject('b', 'project-b');
+    ws.catalog.addTag('b', 'private-b-tag');
+
+    expect(
+      (await ws.notes(accountId: 'account-a')).map((note) => note.id),
+      containsAll(['a', 'guest']),
+    );
+    expect(
+      (await ws.notes(accountId: 'account-a')).map((note) => note.id),
+      isNot(contains('b')),
+    );
+    expect(await ws.loadNoteForAccount('b', 'account-a'), isNull);
+    expect(await ws.loadNoteForAccount('guest', null), isNotNull);
+    expect(await ws.loadNoteForAccount('a', null), isNull);
+    final accountA = await ws.notes(accountId: 'account-a');
+    expect(ws.catalog.projectsForNotes(accountA), {
+      'project-a': 'Private A project',
+    });
+    expect(ws.catalog.tagsForNotes(accountA), ['private-a-tag']);
   });
 
   testWidgets('first start: at most three intro screens, then Notes', (
@@ -160,9 +203,9 @@ void main() {
     await tester.runAsync(() async {
       await saved('a', 'Local');
       await saved('b', 'Synced');
-      await store.setSync('b', state: LocalSyncState.synced, accountId: 'u1');
+      await store.setSync('b', state: LocalSyncState.synced, accountId: null);
       await saved('c', 'Changed');
-      await store.setSync('c', state: LocalSyncState.synced, accountId: 'u1');
+      await store.setSync('c', state: LocalSyncState.synced, accountId: null);
       await saved('c', 'Changed');
     });
     await openApp(tester, workspace());

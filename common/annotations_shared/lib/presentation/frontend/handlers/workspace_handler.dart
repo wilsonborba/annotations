@@ -49,16 +49,66 @@ class WorkspaceHandler extends ChangeNotifier {
 
   String? projectId, tag;
   List<LocalNote>? notes;
+  List<LocalNote> _accountNotes = const [];
   Object? error;
+  int _loadGeneration = 0;
+
+  Map<String, String> get visibleProjects =>
+      workspace.catalog.projectsForNotes(_accountNotes);
+
+  List<String> get visibleTags => workspace.catalog.tagsForNotes(_accountNotes);
+
+  void accountChanged() {
+    projectId = null;
+    tag = null;
+    load();
+  }
 
   Future<void> load() async {
-    try {
-      notes = await workspace.notes(projectId: projectId, tag: tag);
-      error = null;
-    } catch (e) {
-      error = e;
-    }
+    final generation = ++_loadGeneration;
+    final accountId = account?.localOwnerId;
+    notes = null;
+    _accountNotes = const [];
+    error = null;
+    published.clear();
     notifyListeners();
+    try {
+      final accountNotes = await workspace.notes(accountId: accountId);
+      if (generation != _loadGeneration) return;
+      _accountNotes = accountNotes;
+      notes = [
+        for (final note in accountNotes)
+          if ((projectId == null ||
+                  workspace.catalog.projectForNote(note.id) == projectId) &&
+              (tag == null ||
+                  workspace.catalog.tagsForNote(note.id).contains(tag)))
+            note,
+      ];
+      error = null;
+      notifyListeners();
+      if (account?.signedIn == true && accountId != null && sync != null) {
+        for (final note in notes!) {
+          if (generation != _loadGeneration) return;
+          if (note.accountId != accountId) continue;
+          try {
+            final state = await sync!.publicationState(
+              note,
+              accountId: accountId,
+            );
+            if (generation != _loadGeneration) return;
+            if (state?.published == true) {
+              published[note.id] = state!.revision;
+            }
+          } catch (_) {
+            // The local library remains readable offline. A cloud action
+            // refreshes authoritative publication state before it mutates.
+          }
+        }
+      }
+    } catch (e) {
+      if (generation == _loadGeneration) error = e;
+    }
+    if (generation == _loadGeneration) notifyListeners();
   }
 
   void filter({String? project, String? tag}) {
@@ -77,6 +127,7 @@ class WorkspaceHandler extends ChangeNotifier {
     final package = await workspace.backup.exportPackage(
       workspace.store,
       note.id,
+      accountId: account?.localOwnerId,
     );
     await File(path).writeAsString(package, flush: true);
     return true;
@@ -96,6 +147,11 @@ class WorkspaceHandler extends ChangeNotifier {
 
   /// Removes the note from this device only (D1.4 deletion scopes).
   Future<void> removeFromDevice(LocalNote note) async {
+    final accountId = account?.localOwnerId;
+    final allowed = await workspace.loadNoteForAccount(note.id, accountId);
+    if (allowed == null) {
+      throw StateError('Note is not available to this account');
+    }
     final store = workspace.store;
     if (store is! DeletableLocalNoteStore) {
       throw StateError('This store cannot remove notes');
@@ -119,8 +175,10 @@ class WorkspaceHandler extends ChangeNotifier {
   }
 
   /// Sends the note to the private cloud (explicit, never automatic).
-  Future<void> syncNote(LocalNote note) =>
-      _cloud(note.id, () => sync!.syncNote(note, accountId: account!.userId));
+  Future<void> syncNote(LocalNote note) => _cloud(note.id, () {
+    _requireLiveAccount();
+    return sync!.syncNote(note, accountId: account!.userId);
+  });
 
   /// Restricted embeds that need the warning before publication.
   int restrictedEmbeds(LocalNote note) => countRestrictedEmbeds(note.document);
@@ -130,39 +188,51 @@ class WorkspaceHandler extends ChangeNotifier {
     PublicationRepresentation representation, {
     bool allowRestricted = false,
   }) => _cloud(note.id, () async {
+    _requireLiveAccount();
+    final publication = await sync!.publicationState(
+      note,
+      accountId: account!.userId,
+    );
     final result = await sync!.publishNote(
       note,
       accountId: account!.userId,
       representation: representation,
+      publicationRevision: publication?.revision ?? 0,
       allowRestrictedEmbeds: allowRestricted,
     );
     if (!result.published) throw StateError('restricted embeds');
     final revision = result.response?['revision'];
-    published[note.id] = revision is int ? revision : 1;
+    if (revision is! int) throw StateError('Missing publication revision');
+    published[note.id] = revision;
   });
 
   Future<void> unpublish(LocalNote note) => _cloud(note.id, () async {
+    _requireLiveAccount();
+    final publication = await sync!.publicationState(
+      note,
+      accountId: account!.userId,
+    );
+    if (publication?.published != true) {
+      throw StateError('Note is not published');
+    }
     await sync!.unpublishNote(
       note.id,
       accountId: account!.userId,
-      publicationRevision: published[note.id] ?? 1,
+      publicationRevision: publication!.revision,
     );
     published.remove(note.id);
   });
 
   /// Deletes the cloud copy; the device copy stays, unbound (D1.4).
-  Future<void> deleteEverywhere(LocalNote note) => _cloud(
-    note.id,
-    () => sync!.deleteCloudNote(
-      note.id,
-      accountId: account!.userId,
-      expectedRevision: note.revision,
-    ),
-  );
+  Future<void> deleteEverywhere(LocalNote note) => _cloud(note.id, () {
+    _requireLiveAccount();
+    return sync!.deleteCloudNote(note.id, accountId: account!.userId);
+  });
 
   /// Puts the note in a project; [newName] creates the project first.
   /// Returns false when a project with [newName] exists.
   bool setProject(LocalNote note, {String? projectId, String? newName}) {
+    _requireCurrentOwner(note);
     final catalog = workspace.catalog;
     var id = projectId;
     if (newName != null && newName.trim().isNotEmpty) {
@@ -182,7 +252,19 @@ class WorkspaceHandler extends ChangeNotifier {
   }
 
   void addTag(LocalNote note, String tag) {
+    _requireCurrentOwner(note);
     workspace.catalog.addTag(note.id, tag);
     load();
+  }
+
+  void _requireCurrentOwner(LocalNote note) {
+    final ownerId = account?.localOwnerId;
+    if (note.accountId != null && note.accountId != ownerId) {
+      throw StateError('Note is not available to this account');
+    }
+  }
+
+  void _requireLiveAccount() {
+    if (!canSync) throw StateError('A live account session is required');
   }
 }

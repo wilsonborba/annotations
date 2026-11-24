@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../core/tracking_manifest.dart';
+import '../../../../domain/services/installed_account.dart';
 import '../../../../domain/services/note_autosave.dart';
 import '../../components/controls.dart';
 import '../../components/icons.dart';
@@ -22,20 +23,41 @@ class NoteEditorPage extends StatefulWidget {
 class _NoteEditorPageState extends State<NoteEditorPage> {
   PaperHandler? _handler;
   bool _missing = false;
-  bool _started = false;
+  InstalledAccount? _installed;
+  int _openGeneration = 0;
+  bool _hasOpened = false;
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (_started) return;
-    _started = true;
+    final installed = AppScope.of(context).installed;
+    if (_hasOpened && identical(installed, _installed)) return;
+    _hasOpened = true;
+    _installed?.removeListener(_accountChanged);
+    _installed = installed;
+    _installed?.addListener(_accountChanged);
     _open();
   }
 
+  void _accountChanged() => _open();
+
   Future<void> _open() async {
-    final workspace = AppScope.of(context).workspace;
-    final note = await workspace?.store.load(widget.noteId);
-    if (!mounted) return;
+    final generation = ++_openGeneration;
+    final prior = _handler;
+    _handler = null;
+    _missing = false;
+    if (mounted) setState(() {});
+    if (prior != null) {
+      await prior.autosave.flush();
+      prior.autosave.dispose();
+      prior.dispose();
+    }
+    if (!mounted || generation != _openGeneration) return;
+    final scope = AppScope.of(context);
+    final workspace = scope.workspace;
+    final accountId = scope.installed?.localOwnerId;
+    final note = await workspace?.loadNoteForAccount(widget.noteId, accountId);
+    if (!mounted || generation != _openGeneration) return;
     if (workspace == null || note == null) {
       setState(() => _missing = true);
       return;
@@ -47,6 +69,8 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
 
   @override
   void dispose() {
+    _openGeneration++;
+    _installed?.removeListener(_accountChanged);
     final handler = _handler;
     // Keep the last edit, then release the editor.
     handler?.autosave.flush().whenComplete(handler.autosave.dispose);

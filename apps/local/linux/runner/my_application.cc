@@ -33,6 +33,7 @@ static void secure_storage_method_call_cb(FlMethodChannel* channel,
     } else {
       FlValue* sid_val = fl_value_lookup_string(args, "session_id");
       FlValue* csrf_val = fl_value_lookup_string(args, "csrf_token");
+      FlValue* owner_val = fl_value_lookup_string(args, "verified_user_id");
       if (sid_val == nullptr || csrf_val == nullptr ||
           fl_value_get_type(sid_val) != FL_VALUE_TYPE_STRING ||
           fl_value_get_type(csrf_val) != FL_VALUE_TYPE_STRING) {
@@ -41,6 +42,10 @@ static void secure_storage_method_call_cb(FlMethodChannel* channel,
       } else {
         std::string payload = std::string(fl_value_get_string(sid_val)) + "\n" +
                               std::string(fl_value_get_string(csrf_val));
+        if (owner_val != nullptr && fl_value_get_type(owner_val) == FL_VALUE_TYPE_STRING &&
+            std::string(fl_value_get_string(owner_val)).size() > 0) {
+          payload += "\n" + std::string(fl_value_get_string(owner_val));
+        }
         g_autoptr(GError) error = nullptr;
         gboolean ok = secret_password_store_sync(
             &kAnnotationsSessionSchema, SECRET_COLLECTION_DEFAULT,
@@ -76,8 +81,18 @@ static void secure_storage_method_call_cb(FlMethodChannel* channel,
         g_autoptr(FlValue) map = fl_value_new_map();
         fl_value_set_string_take(
             map, "session_id", fl_value_new_string(raw.substr(0, sep).c_str()));
-        fl_value_set_string_take(
-            map, "csrf_token", fl_value_new_string(raw.substr(sep + 1).c_str()));
+        auto second_sep = raw.find('\n', sep + 1);
+        if (second_sep != std::string::npos) {
+          fl_value_set_string_take(
+              map, "csrf_token", fl_value_new_string(raw.substr(sep + 1, second_sep - sep - 1).c_str()));
+          if (second_sep + 1 < raw.size()) {
+            fl_value_set_string_take(
+                map, "verified_user_id", fl_value_new_string(raw.substr(second_sep + 1).c_str()));
+          }
+        } else {
+          fl_value_set_string_take(
+              map, "csrf_token", fl_value_new_string(raw.substr(sep + 1).c_str()));
+        }
         response = FL_METHOD_RESPONSE(fl_method_success_response_new(map));
       }
     }

@@ -206,14 +206,18 @@ void main() {
         throwsA(isA<SecureStorageUnavailableException>()),
       );
 
-      final store = <String, String>{};
+      final store = <String, dynamic>{};
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(channel, (call) async {
             switch (call.method) {
               case 'write':
                 final args = Map<String, dynamic>.from(call.arguments as Map);
+                store.clear();
                 store['session_id'] = '${args['session_id']}';
                 store['csrf_token'] = '${args['csrf_token']}';
+                if (args['verified_user_id'] != null) {
+                  store['verified_user_id'] = args['verified_user_id'];
+                }
                 return null;
               case 'read':
                 return store.isEmpty ? null : Map<String, dynamic>.from(store);
@@ -229,11 +233,18 @@ void main() {
       );
 
       await storage.writeSession(
-        const NativeSession(sessionId: 'sid_os', csrfToken: 'csrf_os'),
+        const NativeSession(
+          sessionId: 'sid_os',
+          csrfToken: 'csrf_os',
+          verifiedUserId: 'owner_os',
+        ),
       );
       final read = await storage.readSession();
       expect(read?.sessionId, 'sid_os');
       expect(read?.csrfToken, 'csrf_os');
+      expect(read?.verifiedUserId, 'owner_os');
+      store.remove('verified_user_id');
+      expect((await storage.readSession())?.verifiedUserId, isNull);
       await storage.deleteSession();
       expect(await storage.readSession(), isNull);
     },

@@ -29,13 +29,15 @@ class MainActivity : FlutterActivity() {
             "write" -> {
               val sid = call.argument<String>("session_id")
               val csrf = call.argument<String>("csrf_token")
+              val verifiedUserId = call.argument<String>("verified_user_id")
               if (sid.isNullOrEmpty() || csrf.isNullOrEmpty()) {
                 result.error("INVALID_ARGS", "Missing session_id or csrf_token", null)
                 return@setMethodCallHandler
               }
               val cipher = Cipher.getInstance("AES/GCM/NoPadding")
               cipher.init(Cipher.ENCRYPT_MODE, getOrCreateSecretKey())
-              val encrypted = cipher.doFinal("$sid\n$csrf".toByteArray(StandardCharsets.UTF_8))
+              val payload = if (verifiedUserId.isNullOrBlank()) "$sid\n$csrf" else "$sid\n$csrf\n$verifiedUserId"
+              val encrypted = cipher.doFinal(payload.toByteArray(StandardCharsets.UTF_8))
               val iv = cipher.iv
               val combined = ByteArray(1 + iv.size + encrypted.size)
               combined[0] = iv.size.toByte()
@@ -65,9 +67,11 @@ class MainActivity : FlutterActivity() {
               val cipher = Cipher.getInstance("AES/GCM/NoPadding")
               cipher.init(Cipher.DECRYPT_MODE, getOrCreateSecretKey(), GCMParameterSpec(128, iv))
               val plain = String(cipher.doFinal(ciphertext), StandardCharsets.UTF_8)
-              val parts = plain.split("\n", limit = 2)
-              if (parts.size == 2) {
-                result.success(mapOf("session_id" to parts[0], "csrf_token" to parts[1]))
+              val parts = plain.split("\n", limit = 3)
+              if (parts.size >= 2) {
+                val session = mutableMapOf("session_id" to parts[0], "csrf_token" to parts[1])
+                if (parts.size == 3 && parts[2].isNotBlank()) session["verified_user_id"] = parts[2]
+                result.success(session)
               } else {
                 result.success(null)
               }

@@ -59,6 +59,16 @@ final class PublicationResult {
   });
 }
 
+final class ServerPublicationState {
+  const ServerPublicationState({
+    required this.published,
+    required this.revision,
+  });
+
+  final bool published;
+  final int revision;
+}
+
 /// Store extension for deleting a local note copy without affecting cloud state.
 abstract interface class DeletableLocalNoteStore implements LocalNoteStore {
   Future<void> deleteNote(String id);
@@ -603,6 +613,30 @@ class NoteSyncService {
     );
   }
 
+  /// Reads the server-owned publication state and its If-Match revision.
+  /// `null` means the note is currently unpublished; revision zero is only
+  /// used when creating its first publication.
+  Future<ServerPublicationState?> publicationState(
+    LocalNote note, {
+    required String accountId,
+  }) async {
+    if (note.accountId == null && note.serverNoteId == null) return null;
+    final identity = await _resolveBoundIdentity(note, accountId);
+    final serverNoteId = identity.serverNoteId;
+    if (serverNoteId == null) return null;
+    final response = await api.request('/me/notes/$serverNoteId/publication');
+    final revision = response['revision'];
+    if (revision is! int || revision < 0) {
+      throw CloudIdentityException(
+        'The server returned no authoritative publication revision.',
+      );
+    }
+    return ServerPublicationState(
+      published: response['published'] == true,
+      revision: revision,
+    );
+  }
+
   static String _requireRepresentationRevision(String? revisionId, String rep) {
     if (revisionId == null || revisionId.isEmpty) {
       throw CloudIdentityException(
@@ -793,9 +827,28 @@ class ProjectTagCatalog {
   /// Every project: id to display name (the workspace filter, #38).
   Map<String, String> get projects => Map.unmodifiable(_projectNamesById);
 
+  /// Project names used by the currently scoped notes only.
+  Map<String, String> projectsForNotes(Iterable<LocalNote> notes) {
+    final ids = <String>{};
+    for (final note in notes) {
+      final id = _projectByNoteId[note.id];
+      if (id != null) ids.add(id);
+    }
+    final names = <String, String>{};
+    for (final id in ids) {
+      final name = _projectNamesById[id];
+      if (name != null) names[id] = name;
+    }
+    return Map.unmodifiable(names);
+  }
+
   /// Every tag in use, sorted (the workspace filter, #38).
   List<String> get tags =>
       ({for (final t in _tagsByNoteId.values) ...t}.toList()..sort());
+
+  /// Tags used by the currently scoped notes only.
+  List<String> tagsForNotes(Iterable<LocalNote> notes) =>
+      ({for (final note in notes) ...?_tagsByNoteId[note.id]}.toList()..sort());
 
   void addTag(String noteId, String tag) {
     final clean = tag.trim().toLowerCase();

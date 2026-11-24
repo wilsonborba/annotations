@@ -21,11 +21,23 @@ final class NativeSession {
   final String csrfToken;
   final String? locationMessage;
 
+  /// Last gateway-verified owner id, stored only alongside this exact secure
+  /// session for local ownership scoping while offline.
+  final String? verifiedUserId;
+
   const NativeSession({
     required this.sessionId,
     required this.csrfToken,
     this.locationMessage,
+    this.verifiedUserId,
   });
+
+  NativeSession withVerifiedUserId(String? userId) => NativeSession(
+    sessionId: sessionId,
+    csrfToken: csrfToken,
+    locationMessage: locationMessage,
+    verifiedUserId: userId,
+  );
 
   Map<String, String> authHeaders({bool isMutation = false}) => {
     'cookie': 'sid=$sessionId; csrf=$csrfToken',
@@ -52,6 +64,8 @@ final class OsSecureSessionStorage implements SecureSessionStorage {
       await _channel.invokeMethod('write', {
         'session_id': session.sessionId,
         'csrf_token': session.csrfToken,
+        if (session.verifiedUserId != null)
+          'verified_user_id': session.verifiedUserId,
       });
     } on MissingPluginException {
       throw const SecureStorageUnavailableException();
@@ -70,7 +84,14 @@ final class OsSecureSessionStorage implements SecureSessionStorage {
       if (sid == null || sid.isEmpty || csrf == null || csrf.isEmpty) {
         return null;
       }
-      return NativeSession(sessionId: sid, csrfToken: csrf);
+      return NativeSession(
+        sessionId: sid,
+        csrfToken: csrf,
+        verifiedUserId:
+            (raw['verified_user_id'] as String?)?.trim().isNotEmpty == true
+            ? (raw['verified_user_id'] as String).trim()
+            : null,
+      );
     } on MissingPluginException {
       throw const SecureStorageUnavailableException();
     } on PlatformException {

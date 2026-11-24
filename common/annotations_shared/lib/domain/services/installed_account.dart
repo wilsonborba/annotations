@@ -46,6 +46,10 @@ class InstalledAccount extends ChangeNotifier {
   /// The account id the notes are bound to (gateway user id).
   String get userId => _userId;
 
+  /// Verified owner for local reads/edits when the gateway is offline. This
+  /// never makes the account signed in or authorizes cloud operations.
+  String? get localOwnerId => _session?.verifiedUserId;
+
   /// The match code while a login waits for Finish, else null.
   String? get matchCode => auth.pendingHandoff?.matchCode;
 
@@ -75,7 +79,17 @@ class InstalledAccount extends ChangeNotifier {
       if (res.statusCode == 200) {
         final data = (jsonDecode(utf8.decode(res.bodyBytes)) as Map)['data'];
         _email = data is Map ? '${data['email'] ?? ''}' : '';
-        _userId = data is Map ? '${data['id'] ?? data['user_id'] ?? ''}' : '';
+        final userId = data is Map
+            ? '${data['id'] ?? data['user_id'] ?? ''}'.trim()
+            : '';
+        if (userId.isEmpty || userId.contains('\n') || userId.contains('\r')) {
+          _session = _session!.withVerifiedUserId(null);
+          await auth.storage.writeSession(_session!);
+          return _set(AccountStatus.signedOut);
+        }
+        _session = _session!.withVerifiedUserId(userId);
+        await auth.storage.writeSession(_session!);
+        _userId = userId;
         return _set(AccountStatus.signedIn);
       }
       if (res.statusCode == 401 || res.statusCode == 403) return expire();
@@ -151,7 +165,14 @@ class InstalledAccount extends ChangeNotifier {
     try {
       final result = await auth.finishLogin();
       notice = LoginNotice.fromResult(result);
-      if (result.status == FinishLoginStatus.success) await check();
+      if (result.status == FinishLoginStatus.success) {
+        // The new secure session has no verified owner yet. Drop the previous
+        // account's local scope before checking the replacement session.
+        _session = result.session;
+        _userId = _email = '';
+        _set(AccountStatus.signedOut);
+        await check();
+      }
     } catch (_) {
       notice = const LoginNotice(LoginNoticeKind.failed);
     } finally {
@@ -168,6 +189,8 @@ class InstalledAccount extends ChangeNotifier {
 
   /// Ends this device session; local notes stay (F2 point 6).
   Future<void> logOut() async {
+    _session = null;
+    _set(AccountStatus.signedOut);
     await auth.signOut();
     _session = null;
     _set(AccountStatus.signedOut);

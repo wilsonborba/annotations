@@ -59,7 +59,10 @@ class _WorkspacePageState extends State<WorkspacePage> {
   InstalledAccount? _installed;
 
   void _accountChanged() {
-    if (mounted) setState(() {});
+    if (mounted) {
+      setState(() {});
+      _handler?.accountChanged();
+    }
   }
 
   @override
@@ -86,7 +89,6 @@ class _WorkspacePageState extends State<WorkspacePage> {
     final handler = _handler;
     if (handler == null) return const SizedBox.shrink();
     final text = Theme.of(context).textTheme;
-    final catalog = handler.workspace.catalog;
     return ListenableBuilder(
       listenable: handler,
       builder: (context, _) => Padding(
@@ -143,10 +145,10 @@ class _WorkspacePageState extends State<WorkspacePage> {
                       key: const Key('filter-project'),
                       label: handler.projectId == null
                           ? context.tr('allProjects')
-                          : catalog.projects[handler.projectId] ?? '',
+                          : handler.visibleProjects[handler.projectId] ?? '',
                       entries: [
                         (null, context.tr('allProjects')),
-                        for (final e in catalog.projects.entries)
+                        for (final e in handler.visibleProjects.entries)
                           (e.key, e.value),
                       ],
                       selected: handler.projectId,
@@ -158,7 +160,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
                       label: handler.tag ?? context.tr('allTags'),
                       entries: [
                         (null, context.tr('allTags')),
-                        for (final t in catalog.tags) (t, t),
+                        for (final t in handler.visibleTags) (t, t),
                       ],
                       selected: handler.tag,
                       onSelected: (v) =>
@@ -555,7 +557,7 @@ class _ProjectDialogState extends State<_ProjectDialog> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          for (final e in catalog.projects.entries)
+          for (final e in handler.visibleProjects.entries)
             ListTile(
               key: Key('choose-project-${e.key}'),
               contentPadding: EdgeInsets.zero,
