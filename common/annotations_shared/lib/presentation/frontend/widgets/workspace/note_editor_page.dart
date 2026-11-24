@@ -7,7 +7,9 @@ import '../../components/controls.dart';
 import '../../components/icons.dart';
 import '../../components/scope.dart';
 import '../../handlers/paper_handler.dart';
+import '../export/export_dialog.dart';
 import '../typed/note_screen.dart';
+import '../../handlers/export_handler.dart';
 
 /// `/v1/write/<id>`: one local note in the editor of this platform.
 class NoteEditorPage extends StatefulWidget {
@@ -65,17 +67,44 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
           children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
-              child: track(
-                'workspace.note.back',
-                AppButton.subtle(
-                  key: const Key('editor-back'),
-                  label: context.tr('workspaceTitle'),
-                  icon: AppIcons.chevronLeft,
-                  onPressed: () async {
-                    await _handler?.autosave.flush();
-                    if (context.mounted) context.go('/v1/write');
-                  },
-                ),
+              child: Row(
+                children: [
+                  track(
+                    'workspace.note.back',
+                    AppButton.subtle(
+                      key: const Key('editor-back'),
+                      label: context.tr('workspaceTitle'),
+                      icon: AppIcons.chevronLeft,
+                      onPressed: () async {
+                        await _handler?.autosave.flush();
+                        if (context.mounted) context.go('/v1/write');
+                      },
+                    ),
+                  ),
+                  const Spacer(),
+                  if (handler != null && workspace != null)
+                    track(
+                      'workspace.note.export',
+                      AppButton(
+                        key: const Key('editor-export'),
+                        label: context.tr('exportPdf'),
+                        icon: AppIcons.download,
+                        onPressed: () async {
+                          await handler.autosave.flush();
+                          final note = await workspace.store.load(
+                            widget.noteId,
+                          );
+                          if (note == null || !context.mounted) return;
+                          final export = ExportHandler(
+                            note: note,
+                            store: workspace.store,
+                          );
+                          await showExportDialog(context, export);
+                          export.dispose();
+                        },
+                      ),
+                    ),
+                ],
               ),
             ),
             Expanded(

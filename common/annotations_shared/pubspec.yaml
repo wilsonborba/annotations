@@ -13,6 +13,8 @@ dependencies:
   crypto: ^3.0.6
   # AES-128-CBC for the Fernet app context of the installed login (#38).
   pointycastle: 4.0.0
+  # ZIP of the PDF and its companion files (#42); already in the lock.
+  archive: 4.0.9
   pdf: ^3.12.0
   # image 4.11.0 needs archive 4.1 while pdf allows archive below 4.1 only.
   image: ">=4.10.2 <4.11.0"

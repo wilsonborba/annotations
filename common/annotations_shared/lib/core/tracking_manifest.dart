@@ -415,6 +415,26 @@ const annotationElements = <String, TrailElement>{
     label: 'Workspace cloud retry',
     path: 'workspace > cloud > retry',
   ),
+  'export.retry': TrailElement(
+    id: 'export.retry',
+    label: 'Export retry',
+    path: 'export > retry',
+  ),
+  'export.placeholders': TrailElement(
+    id: 'export.placeholders',
+    label: 'Export placeholders',
+    path: 'export > placeholders',
+  ),
+  'export.save': TrailElement(
+    id: 'export.save',
+    label: 'Export save',
+    path: 'export > save',
+  ),
+  'workspace.note.export': TrailElement(
+    id: 'workspace.note.export',
+    label: 'Workspace note export',
+    path: 'workspace > note > export',
+  ),
   'shell.navigation.instant': TrailElement(
     id: 'shell.navigation.instant',
     label: 'Shell navigation instant',

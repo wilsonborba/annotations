@@ -6,6 +6,43 @@ const strings = <String, List<String>>{
   'myNotes': ['My notes', 'Minhas anotações', 'บันทึกของฉัน'],
   'logOut': ['Log out', 'Sair', 'ออกจากระบบ'],
   'account': ['Account', 'Conta', 'บัญชี'],
+  // Export and print preview (annotations#42).
+  'exportPdf': ['Export PDF', 'Exportar PDF', 'ส่งออก PDF'],
+  'paperA4': ['A4', 'A4', 'A4'],
+  'paperLetter': ['Letter', 'Carta', 'Letter'],
+  'portrait': ['Portrait', 'Retrato', 'แนวตั้ง'],
+  'landscape': ['Landscape', 'Paisagem', 'แนวนอน'],
+  'previewPages': ['pages', 'páginas', 'หน้า'],
+  'preflightTitle': [
+    'Some content is not ready',
+    'Algum conteúdo não está pronto',
+    'เนื้อหาบางส่วนยังไม่พร้อม',
+  ],
+  'issueMissingFile': ['Missing file', 'Arquivo ausente', 'ไม่พบไฟล์'],
+  'issueFailedChart': ['Chart failed', 'Falha no gráfico', 'แผนภูมิผิดพลาด'],
+  'issueMissingFont': ['Font unavailable', 'Fonte indisponível', 'ไม่มีฟอนต์'],
+  'continuePlaceholders': [
+    'Continue with marked placeholders',
+    'Continuar com marcadores',
+    'ทำต่อโดยใช้ตัวแทนที่ทำเครื่องหมายไว้',
+  ],
+  'privateWarning': [
+    'This export contains private content, such as a private chart. Share the file with care.',
+    'Esta exportação tem conteúdo privado, como um gráfico privado. Compartilhe com cuidado.',
+    'การส่งออกนี้มีเนื้อหาส่วนตัว เช่น แผนภูมิส่วนตัว แชร์ไฟล์อย่างระมัดระวัง',
+  ],
+  'exportSavePdf': ['Save PDF', 'Salvar PDF', 'บันทึก PDF'],
+  'exportSaveZip': [
+    'Save ZIP with files',
+    'Salvar ZIP com arquivos',
+    'บันทึก ZIP พร้อมไฟล์',
+  ],
+  'exportSaved': ['Export saved.', 'Exportação salva.', 'บันทึกการส่งออกแล้ว'],
+  'exportFailed': [
+    'The export could not be made.',
+    'Não foi possível exportar.',
+    'ไม่สามารถส่งออกได้',
+  ],
   // Installed login messages by FINAL status (annotations#38).
   'loginUnavailable': [
     'The login cannot start on this device. Try again later.',
