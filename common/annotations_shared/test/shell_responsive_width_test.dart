@@ -20,7 +20,17 @@ void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
   final matrix = <(double, _AccountState, Brightness, double)>[
-    for (final width in [320.0, 359.0, 360.0, 375.0, 390.0, 414.0, 430.0])
+    for (final width in [
+      320.0,
+      359.0,
+      360.0,
+      375.0,
+      390.0,
+      414.0,
+      429.0,
+      430.0,
+      431.0,
+    ])
       for (final state in _AccountState.values)
         for (final brightness in Brightness.values)
           for (final scale in [1.0, 1.3]) (width, state, brightness, scale),
