@@ -78,6 +78,7 @@ class FakeCloud {
     platform: 'linux',
     open: (_) async {},
     aes: aesCbcEncrypt,
+    appContextKey: 'AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=',
   );
 }
 

@@ -264,4 +264,19 @@ void main() {
     );
     expect(t('finishLogin'), 'Finish');
   });
+
+  testWidgets('without a key the login says it cannot start', (tester) async {
+    final g = FakeGateway();
+    final account = InstalledAccount(
+      auth: g.account.auth,
+      client: g.client,
+      platform: 'linux',
+      open: (uri) async => g.opened.add(uri),
+      aes: aesCbcEncrypt,
+    );
+    await tester.runAsync(account.startLogin);
+    expect(account.message, InstalledAccount.loginUnavailable);
+    expect(account.matchCode, isNull);
+    expect(g.opened, isEmpty);
+  });
 }

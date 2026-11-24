@@ -130,9 +130,21 @@ class InstalledAccount extends ChangeNotifier {
     if (signedIn) return;
     message = null;
     final handoff = auth.prepareHandoff();
-    notifyListeners();
-    await open(await loginUri(handoff));
+    try {
+      final uri = await loginUri(handoff);
+      notifyListeners();
+      await open(uri);
+    } catch (_) {
+      // No key in this build or no browser: say so, keep no handoff.
+      auth.cancelPendingLogin();
+      message = loginUnavailable;
+      notifyListeners();
+    }
   }
+
+  /// The message when the login cannot start on this device.
+  static const loginUnavailable =
+      'The login cannot start on this device. Try again later.';
 
   /// One Finish check, on the user's click (never polled).
   Future<void> finish() async {
