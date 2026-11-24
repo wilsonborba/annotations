@@ -75,6 +75,19 @@ class InstantRoomService {
   InstantSharingState state = InstantSharingState.connecting;
 
   final Map<String, Map<String, Object?>> items = {};
+
+  /// The page settings of the room document, as the server last sent them.
+  Map<String, Object?> page = const {
+    'width': 1000,
+    'background': {'kind': 'blank'},
+  };
+
+  /// The room document as the server last accepted it: page and items in
+  /// server order (annotations#44).
+  Map<String, Object?> get document => {
+    'page': page,
+    'items': [for (final it in items.values) it],
+  };
   final Map<String, int> itemRevisions = {};
   final List<InstantConflictDraft> conflicts = [];
   final List<Map<String, Object?>> pendingEdits = [];
@@ -178,6 +191,9 @@ class InstantRoomService {
       expiresAt = DateTime.tryParse(rawExp);
     }
     final doc = resp['document'];
+    if (doc is Map && doc['page'] is Map) {
+      page = Map<String, Object?>.from(doc['page'] as Map);
+    }
     final rawItems =
         (doc is Map ? doc['items'] as List? : null) ??
         (resp['items'] as List?) ??
@@ -300,6 +316,120 @@ class InstantRoomService {
       }
       state = InstantSharingState.connectionLost;
       pendingEdits.add(item);
+      rethrow;
+    }
+  }
+
+  /// Reads the current room state (annotations#44). A 410 expires the room;
+  /// another failure marks the connection as lost and rethrows.
+  Future<void> refresh() async {
+    final code = roomCode;
+    if (code == null || state == InstantSharingState.expired) return;
+    try {
+      _applyRoomState(await api.request('/instant/$code', method: 'GET'));
+      state = InstantSharingState.shared;
+    } on ApiError catch (err) {
+      if (err.status == 410) {
+        expire();
+        return;
+      }
+      markDisconnected();
+      rethrow;
+    } on Object {
+      markDisconnected();
+      rethrow;
+    }
+  }
+
+  /// Writes one ungrouped item: `POST /items` when it is new (revision 0),
+  /// `PUT /items/{id}` otherwise. [expected] is the item revision the change
+  /// was made on, so the server refuses it when someone changed the item
+  /// since (no silent overwrite, C1.5).
+  Future<void> writeItem(Map<String, Object?> item, {required int expected}) {
+    final id = '${item['id']}';
+    return _edit(
+      expected == 0 ? '/items' : '/items/$id',
+      expected == 0 ? 'POST' : 'PUT',
+      itemId: id,
+      body: {
+        'expected_revision': expected,
+        'item': normalizeIntegerFields(item),
+      },
+    );
+  }
+
+  /// Deletes one ungrouped item made on item revision [expected] (If-Match).
+  Future<void> deleteItem(String id, {required int expected}) => _edit(
+    '/items/$id',
+    'DELETE',
+    itemId: id,
+    headers: {'if-match': '"$expected"'},
+  );
+
+  /// Applies one room operation (`PATCH /instant/{code}`) made on room
+  /// revision [expected]: needed for groups, their members and the page.
+  Future<void> patchRoom(
+    Map<String, Object?> operation, {
+    required int expected,
+  }) => _edit(
+    '',
+    'PATCH',
+    body: {'expected_revision': expected, 'operation': operation},
+  );
+
+  /// A stale item write (409) updates the mirror with the server's current
+  /// item, or removes it when the server says it was deleted.
+  Future<void> _edit(
+    String path,
+    String method, {
+    String? itemId,
+    Map<String, Object?>? body,
+    Map<String, String>? headers,
+  }) async {
+    final code = roomCode;
+    if (code == null || !canEdit) {
+      throw StateError('Cannot edit while room is $state');
+    }
+    state = InstantSharingState.sharing;
+    try {
+      _applyRoomState(
+        await api.request(
+          '/instant/$code$path',
+          method: method,
+          body: body,
+          headers: headers,
+        ),
+      );
+      state = InstantSharingState.shared;
+    } on ApiError catch (err) {
+      if (err.status == 410) {
+        expire();
+        rethrow;
+      }
+      if (err.status == 409) {
+        final details = err.details ?? const {};
+        if (itemId != null && details.containsKey('item_revision')) {
+          if (details['current_item'] case final Map current) {
+            items[itemId] = Map<String, Object?>.from(current);
+          } else {
+            items.remove(itemId);
+          }
+          if (details['item_revision'] case final num rev) {
+            itemRevisions[itemId] = rev.toInt();
+          }
+          if (details['revision'] case final num rev) revision = rev.toInt();
+        }
+        state = InstantSharingState.shared;
+        rethrow;
+      }
+      if (err.status == 400 || err.status == 422) {
+        state = InstantSharingState.shared;
+        rethrow;
+      }
+      markDisconnected();
+      rethrow;
+    } on Object {
+      markDisconnected();
       rethrow;
     }
   }
