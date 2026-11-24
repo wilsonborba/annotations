@@ -177,12 +177,6 @@ class _MissingFileStore implements LocalNoteStore {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
-class _MemoryAttachmentStore extends _MissingFileStore {
-  @override
-  Future<Uint8List?> readAttachment(String id) async =>
-      id == 'companion-file' ? Uint8List.fromList([1, 2, 3, 4]) : null;
-}
-
 LocalNote _pairedCandidate({
   required String id,
   required DocumentSchema schema,
@@ -404,10 +398,13 @@ void main() {
         expect(handler.stage, ExportStage.ready);
         expect(handler.output!.pdfs, hasLength(2));
         expect(handler.needsZip, isTrue);
-        expect(
-          previewInputs,
-          orderedEquals(handler.output!.pdfs.map((pdf) => pdf.bytes)),
-        );
+        expect(previewInputs, hasLength(2));
+        for (var index = 0; index < handler.output!.pdfs.length; index++) {
+          expect(
+            previewInputs[index],
+            orderedEquals(handler.output!.pdfs[index].bytes),
+          );
+        }
         expect(handler.previewPdfs, hasLength(2));
         final previewImage = handler.previewPdfs.first.pages.first;
         final previewPixels = await tester.runAsync(() async {
@@ -481,69 +478,55 @@ void main() {
             Platform.environment['ANNOTATIONS_PDF_EVIDENCE_DIR'];
         if (evidencePath != null && evidencePath.isNotEmpty) {
           final evidence = Directory(evidencePath);
-          await evidence.create(recursive: true);
+          await tester.runAsync(() => evidence.create(recursive: true));
           final outputPdf = handler.output!.pdfs.first.bytes;
           final typedPdf = handler.output!.pdfs.last.bytes;
-          final preview = handler.previewPdfs.first.pages.first;
-          final typedPreview = handler.previewPdfs.last.pages.first;
-          final previewPng = await tester.runAsync(() async {
-            final png = await preview.toByteData(
-              format: ui.ImageByteFormat.png,
+          Future<void> writeArtifact(String name, List<int> bytes) async {
+            await tester.runAsync(
+              () => File(
+                '${evidence.path}/$name',
+              ).writeAsBytes(bytes, flush: true),
             );
-            return png!.buffer.asUint8List();
-          });
-          await File(
-            '${evidence.path}/reports-chart.png',
-          ).writeAsBytes(selectedPng, flush: true);
-          await File(
-            '${evidence.path}/reports-preview.png',
-          ).writeAsBytes(previewPng!, flush: true);
-          final typedPreviewPng = await tester.runAsync(() async {
-            final png = await typedPreview.toByteData(
-              format: ui.ImageByteFormat.png,
-            );
-            return png!.buffer.asUint8List();
-          });
-          await File(
-            '${evidence.path}/reports-typed-preview.png',
-          ).writeAsBytes(typedPreviewPng!, flush: true);
-          await File(
-            '${evidence.path}/reports-chart.pdf',
-          ).writeAsBytes(outputPdf, flush: true);
-          await File(
-            '${evidence.path}/reports-typed.pdf',
-          ).writeAsBytes(typedPdf, flush: true);
-          await File(
-            '${evidence.path}/reports-chart.zip',
-          ).writeAsBytes(updatedZip, flush: true);
-          final rasterized = await Process.run('pdftoppm', [
-            '-png',
-            '-r',
-            '96',
-            '-f',
-            '1',
-            '-l',
-            '1',
-            '-singlefile',
-            '${evidence.path}/reports-chart.pdf',
-            '${evidence.path}/reports-raster',
-          ]);
-          if (rasterized.exitCode != 0) {
+          }
+
+          await writeArtifact('reports-chart.png', selectedPng);
+          await writeArtifact('reports-original.pdf', outputPdf);
+          await writeArtifact('reports-preview-original.pdf', previewInputs[2]);
+          await writeArtifact('reports-typed.pdf', typedPdf);
+          await writeArtifact('reports-preview-typed.pdf', previewInputs[3]);
+          await writeArtifact('reports-chart.zip', updatedZip);
+          final rasterized = await tester.runAsync(
+            () => Process.run('pdftoppm', [
+              '-png',
+              '-r',
+              '96',
+              '-f',
+              '1',
+              '-l',
+              '1',
+              '-singlefile',
+              '${evidence.path}/reports-original.pdf',
+              '${evidence.path}/reports-raster',
+            ]),
+          );
+          if (rasterized == null || rasterized.exitCode != 0) {
             throw StateError('pdftoppm could not rasterize the saved PDF.');
           }
-          final typedRasterized = await Process.run('pdftoppm', [
-            '-png',
-            '-r',
-            '96',
-            '-f',
-            '1',
-            '-l',
-            '1',
-            '-singlefile',
-            '${evidence.path}/reports-typed.pdf',
-            '${evidence.path}/reports-typed-raster',
-          ]);
-          if (typedRasterized.exitCode != 0) {
+          final typedRasterized = await tester.runAsync(
+            () => Process.run('pdftoppm', [
+              '-png',
+              '-r',
+              '96',
+              '-f',
+              '1',
+              '-l',
+              '1',
+              '-singlefile',
+              '${evidence.path}/reports-typed.pdf',
+              '${evidence.path}/reports-typed-raster',
+            ]),
+          );
+          if (typedRasterized == null || typedRasterized.exitCode != 0) {
             throw StateError('pdftoppm could not rasterize typed saved PDF.');
           }
         }
