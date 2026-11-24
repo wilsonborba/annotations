@@ -16,8 +16,8 @@ Future<void> showExportDialog(BuildContext context, ExportHandler handler) =>
       builder: (_) => ExportDialog(handler: handler),
     );
 
-/// Paper and orientation, the preflight list, the print preview drawn from
-/// the generated PDF, and Save.
+/// Representation, paper and orientation, the preflight list, the print
+/// preview drawn from the generated PDF(s), and Save.
 class ExportDialog extends StatefulWidget {
   const ExportDialog({super.key, required this.handler});
 
@@ -40,21 +40,32 @@ class _ExportDialogState extends State<ExportDialog> {
     _ => context.tr('issueMissingFont'),
   };
 
+  String _modeLabel(BuildContext context, PdfExportMode mode) => switch (mode) {
+    PdfExportMode.original => context.tr('exportOriginal'),
+    PdfExportMode.typed => context.tr('exportTyped'),
+    PdfExportMode.both => context.tr('exportBoth'),
+  };
+
   @override
   Widget build(BuildContext context) {
     final h = widget.handler;
     final text = Theme.of(context).textTheme;
     final c = context.colors;
+    final phone = isPhone(context);
     return Dialog(
       key: const Key('export-dialog'),
-      insetPadding: EdgeInsets.all(isPhone(context) ? 8 : 32),
+      insetPadding: EdgeInsets.all(phone ? 8 : 32),
       child: ListenableBuilder(
         listenable: h,
         builder: (context, _) {
           final pre = h.preflight;
-          final zip = h.output?.companions.isNotEmpty ?? false;
+          final zip = h.needsZip;
+          final modes = h.modes;
+          final previewPdfs = h.previewPdfs;
+          final multiPdf = previewPdfs.length > 1;
+          var flatIndex = 0;
           return Padding(
-            padding: const EdgeInsets.all(20),
+            padding: EdgeInsets.all(phone ? 16 : 20),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -64,6 +75,20 @@ class _ExportDialogState extends State<ExportDialog> {
                   spacing: 12,
                   runSpacing: 8,
                   children: [
+                    if (modes.length > 1)
+                      SegmentedButton<PdfExportMode>(
+                        key: const Key('export-mode'),
+                        showSelectedIcon: false,
+                        segments: [
+                          for (final m in modes)
+                            ButtonSegment(
+                              value: m,
+                              label: Text(_modeLabel(context, m)),
+                            ),
+                        ],
+                        selected: {h.mode},
+                        onSelectionChanged: (v) => h.choose(mode: v.first),
+                      ),
                     SegmentedButton<PdfPaperSize>(
                       key: const Key('export-paper'),
                       showSelectedIcon: false,
@@ -117,12 +142,24 @@ class _ExportDialogState extends State<ExportDialog> {
                     key: const Key('export-preflight'),
                     style: text.titleMedium,
                   ),
-                  for (final issue in pre.issues)
-                    Padding(
-                      key: Key('issue-${issue.refId}'),
-                      padding: const EdgeInsets.symmetric(vertical: 4),
-                      child: Text('${_issue(issue)}: ${issue.refId}'),
+                  const SizedBox(height: 4),
+                  ConstrainedBox(
+                    constraints: BoxConstraints(maxHeight: phone ? 132 : 180),
+                    child: SingleChildScrollView(
+                      key: const Key('export-preflight-list'),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          for (final issue in pre.issues)
+                            Padding(
+                              key: Key('issue-${issue.refId}'),
+                              padding: const EdgeInsets.symmetric(vertical: 4),
+                              child: Text('${_issue(issue)}: ${issue.refId}'),
+                            ),
+                        ],
+                      ),
                     ),
+                  ),
                   const SizedBox(height: 8),
                   Wrap(
                     spacing: 12,
@@ -133,7 +170,7 @@ class _ExportDialogState extends State<ExportDialog> {
                         AppButton(
                           key: const Key('export-retry'),
                           label: context.tr('retry'),
-                          onPressed: h.build,
+                          onPressed: () => h.build(placeholders: false),
                         ),
                       ),
                       track(
@@ -147,77 +184,151 @@ class _ExportDialogState extends State<ExportDialog> {
                     ],
                   ),
                 ],
-                if (h.stage == ExportStage.failed)
-                  Text(
-                    context.tr('exportFailed'),
-                    key: const Key('export-failed'),
-                  ),
                 const SizedBox(height: 12),
                 Expanded(
                   child: h.stage == ExportStage.working
                       ? const Center(child: CircularProgressIndicator())
+                      : h.stage == ExportStage.failed
+                      ? Center(
+                          child: SingleChildScrollView(
+                            padding: const EdgeInsets.all(16),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                AppIcon(
+                                  AppIcons.cloudDisconnected,
+                                  size: 36,
+                                  color: c.danger,
+                                ),
+                                const SizedBox(height: 12),
+                                Text(
+                                  context.tr('exportFailed'),
+                                  key: const Key('export-failed'),
+                                  style: text.titleMedium,
+                                  textAlign: TextAlign.center,
+                                ),
+                                const SizedBox(height: 12),
+                                track(
+                                  'export.retry',
+                                  AppButton(
+                                    key: const Key('export-failed-retry'),
+                                    label: context.tr('retry'),
+                                    onPressed: h.build,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        )
                       : ColoredBox(
                           color: c.subtle,
                           child: ListView(
                             key: const Key('export-preview'),
                             padding: const EdgeInsets.all(16),
                             children: [
-                              for (final (i, page) in h.pages.indexed)
-                                Padding(
-                                  padding: const EdgeInsets.only(bottom: 16),
-                                  child: Center(
-                                    child: DecoratedBox(
-                                      decoration: BoxDecoration(
-                                        border: Border.all(color: c.border),
+                              for (final group in previewPdfs) ...[
+                                if (multiPdf)
+                                  Padding(
+                                    padding: const EdgeInsets.only(bottom: 8),
+                                    child: Text(
+                                      group.filename,
+                                      key: Key(
+                                        'preview-file-${group.filename}',
                                       ),
-                                      child: RawImage(
-                                        key: Key('preview-page-$i'),
-                                        image: page,
-                                        width: page.width / 1.5,
+                                      style: text.labelLarge,
+                                      textAlign: TextAlign.center,
+                                    ),
+                                  ),
+                                for (final page in group.pages)
+                                  Padding(
+                                    padding: const EdgeInsets.only(bottom: 16),
+                                    child: Center(
+                                      child: DecoratedBox(
+                                        decoration: BoxDecoration(
+                                          border: Border.all(color: c.border),
+                                        ),
+                                        child: RawImage(
+                                          key: Key(
+                                            'preview-page-${flatIndex++}',
+                                          ),
+                                          image: page,
+                                          width: page.width / 1.5,
+                                        ),
                                       ),
                                     ),
                                   ),
-                                ),
+                              ],
                             ],
                           ),
                         ),
                 ),
+                if (h.saveError) ...[
+                  const SizedBox(height: 8),
+                  Container(
+                    key: const Key('export-save-error'),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: c.subtle,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: c.danger),
+                    ),
+                    child: Text(
+                      context.tr('exportSaveFailed'),
+                      style: text.bodyMedium!.copyWith(color: c.danger),
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 12),
-                Row(
+                Wrap(
+                  alignment: WrapAlignment.spaceBetween,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 12,
+                  runSpacing: 8,
                   children: [
                     if (h.pages.isNotEmpty)
                       Text(
                         '${h.pages.length} ${context.tr('previewPages')}',
                         key: const Key('export-count'),
                       ),
-                    const Spacer(),
-                    AppButton.subtle(
-                      key: const Key('export-close'),
-                      label: context.tr('cancel'),
-                      onPressed: () => Navigator.pop(context),
-                    ),
-                    const SizedBox(width: 8),
-                    track(
-                      'export.save',
-                      AppButton.primary(
-                        key: const Key('export-save'),
-                        label: context.tr(
-                          zip ? 'exportSaveZip' : 'exportSavePdf',
+                    Wrap(
+                      alignment: WrapAlignment.end,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        AppButton.subtle(
+                          key: const Key('export-close'),
+                          label: context.tr('cancel'),
+                          onPressed: () => Navigator.pop(context),
                         ),
-                        icon: AppIcons.download,
-                        onPressed: h.stage == ExportStage.ready
-                            ? () async {
-                                final messenger = ScaffoldMessenger.of(context);
-                                final done = context.tr('exportSaved');
-                                final saved = await h.save();
-                                if (!saved || !context.mounted) return;
-                                Navigator.pop(context);
-                                messenger.showSnackBar(
-                                  SnackBar(content: Text(done)),
-                                );
-                              }
-                            : null,
-                      ),
+                        track(
+                          'export.save',
+                          AppButton.primary(
+                            key: const Key('export-save'),
+                            label: context.tr(
+                              zip ? 'exportSaveZip' : 'exportSavePdf',
+                            ),
+                            icon: AppIcons.download,
+                            onPressed: h.stage == ExportStage.ready
+                                ? () async {
+                                    final messenger = ScaffoldMessenger.of(
+                                      context,
+                                    );
+                                    final done = context.tr('exportSaved');
+                                    final saved = await h.save();
+                                    if (!saved || !context.mounted) return;
+                                    Navigator.pop(context);
+                                    messenger.showSnackBar(
+                                      SnackBar(content: Text(done)),
+                                    );
+                                  }
+                                : null,
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),

@@ -4,6 +4,8 @@ import 'dart:ui' as ui;
 import 'package:archive/archive.dart';
 import 'package:file_selector/file_selector.dart' as fs;
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart' show rootBundle;
+import 'package:pdf/widgets.dart' as pw;
 import 'package:pdfrx/pdfrx.dart';
 
 import '../../../domain/models/local_note.dart';
@@ -11,28 +13,51 @@ import '../../../domain/models/note_document.dart';
 import '../../../domain/services/local_note_store.dart';
 import '../../../domain/services/pdf_export_mapper.dart';
 
-/// Draws every page of a PDF for the print preview, or returns no pages.
+/// Draws every page of a PDF for the print preview; throws on failure.
 typedef PdfPagesRenderer =
     Future<List<ui.Image>> Function(Uint8List bytes, int maxPixels);
+
+/// Rendered preview pages grouped by their exported PDF filename.
+final class ExportPreviewPdf {
+  const ExportPreviewPdf({required this.filename, required this.pages});
+
+  final String filename;
+  final List<ui.Image> pages;
+}
 
 /// Where the export flow stands.
 enum ExportStage { idle, working, preflight, ready, saved, failed }
 
+const _typedSuffix = '__typed';
+
+/// Returns the paired note id when one representation links to another
+/// (e.g. `<id>` <-> `<id>__typed`), without triggering transcription.
+String pairedRepresentationId(String noteId) => noteId.endsWith(_typedSuffix)
+    ? noteId.substring(0, noteId.length - _typedSuffix.length)
+    : '$noteId$_typedSuffix';
+
 /// The export of one local note (annotations#42, B13 points 1, 2, 5, 6, 9):
-/// choose the view, paper and orientation; preflight; a preview drawn from
-/// the generated PDF itself, so the preview pages are the PDF pages; then
-/// save the PDF, or a ZIP with the PDF and its companion files. Export
-/// never changes the saved note.
+/// choose Original, Typed, or Both when both reviewed representations exist;
+/// choose paper and orientation; preflight; a preview drawn from the generated
+/// PDF pages; then save the PDF or a ZIP containing multiple PDFs and/or
+/// companion files. Export never changes the saved note or starts
+/// transcription.
 class ExportHandler extends ChangeNotifier {
   ExportHandler({
     required this.note,
     required this.store,
+    LocalNote? pairedNote,
     PdfExportMapper? mapper,
     PdfPagesRenderer? renderPages,
     Future<String?> Function(String name)? saveLocation,
   }) : _mapper = mapper ?? PdfExportMapper(),
        _render = renderPages ?? renderPdfPages,
-       _saveLocation = saveLocation ?? _pickSave;
+       _saveLocation = saveLocation ?? _pickSave {
+    if (pairedNote != null && pairedNote.schema.family != note.schema.family) {
+      _pairedNote = pairedNote;
+      _pairedLoaded = true;
+    }
+  }
 
   final LocalNote note;
   final LocalNoteStore store;
@@ -43,87 +68,239 @@ class ExportHandler extends ChangeNotifier {
   static Future<String?> _pickSave(String name) async =>
       (await fs.getSaveLocation(suggestedName: name))?.path;
 
+  LocalNote? _pairedNote;
+  bool _pairedLoaded = false;
+
   bool get typed => note.schema.family == DocumentFamily.typed;
 
-  /// The views this note has: one local note holds one representation.
-  List<PdfExportMode> get modes =>
-      typed ? const [PdfExportMode.typed] : const [PdfExportMode.original];
+  LocalNote? get originalNote => typed ? _pairedNote : note;
+  LocalNote? get typedNote => typed ? note : _pairedNote;
+
+  /// Available export modes based on saved representations (never auto-transcribes).
+  List<PdfExportMode> get modes {
+    if (originalNote != null && typedNote != null) {
+      return const [
+        PdfExportMode.original,
+        PdfExportMode.typed,
+        PdfExportMode.both,
+      ];
+    }
+    return typed ? const [PdfExportMode.typed] : const [PdfExportMode.original];
+  }
 
   late PdfExportMode mode = modes.first;
   PdfPaperSize paper = PdfPaperSize.a4;
   PdfOrientation orientation = PdfOrientation.portrait;
 
   ExportStage stage = ExportStage.idle;
+  bool saveError = false;
   PdfPreflightResult? preflight;
   PdfExportOutput? output;
-  List<ui.Image> pages = const [];
+  List<ExportPreviewPdf> previewPdfs = const [];
+  List<ui.Image> get pages => [for (final g in previewPdfs) ...g.pages];
 
-  void choose({PdfPaperSize? paper, PdfOrientation? orientation}) {
+  int _buildSeq = 0;
+  bool _disposed = false;
+  bool _placeholders = false;
+  static pw.Font? _bundledLatin;
+  static pw.Font? _bundledThai;
+  static bool _fontsChecked = false;
+
+  Future<void> choose({
+    PdfExportMode? mode,
+    PdfPaperSize? paper,
+    PdfOrientation? orientation,
+  }) {
+    if (mode != null && modes.contains(mode)) {
+      this.mode = mode;
+    }
     this.paper = paper ?? this.paper;
     this.orientation = orientation ?? this.orientation;
-    build();
+    saveError = false;
+    return build();
   }
 
   String get _slug {
     final base = (note.title ?? 'note').trim().toLowerCase();
-    final slug = base.replaceAll(RegExp(r'[^a-z0-9฀-๿]+'), '-');
-    return slug.replaceAll(RegExp(r'^-+|-+$'), '').isEmpty
-        ? 'note'
-        : slug.replaceAll(RegExp(r'^-+|-+$'), '');
+    final slug = base.replaceAll(RegExp(r'[^a-z0-9\u0E00-\u0E7F]+'), '-');
+    final trimmed = slug.replaceAll(RegExp(r'^-+|-+$'), '');
+    return trimmed.isEmpty ? 'note' : trimmed;
   }
 
-  /// Runs the preflight and builds the PDF and its preview.
+  Future<void> _ensurePairedLoaded() async {
+    if (_pairedLoaded) return;
+    _pairedLoaded = true;
+    final candidateId = pairedRepresentationId(note.id);
+    if (candidateId.isEmpty || candidateId == note.id) return;
+    final loaded = await store.load(candidateId);
+    if (loaded != null && loaded.schema.family != note.schema.family) {
+      _pairedNote = loaded;
+    }
+  }
+
+  static Future<void> _ensureBundledFonts() async {
+    if (_fontsChecked) return;
+    _fontsChecked = true;
+    Future<pw.Font?> load(String fileName) async {
+      for (final path in [
+        'packages/annotations_shared/lib/presentation/frontend/assets/fonts/$fileName',
+        'lib/presentation/frontend/assets/fonts/$fileName',
+      ]) {
+        try {
+          final data = await rootBundle.load(path);
+          return pw.Font.ttf(data);
+        } on Object {
+          // Asset bundle may be absent in pure unit tests.
+        }
+      }
+      return null;
+    }
+
+    _bundledLatin = await load('UbuntuSans-Variable.ttf');
+    _bundledThai = await load('IBMPlexSansThai-Regular.ttf');
+  }
+
+  static void _disposeImages(List<ui.Image> images) {
+    for (final img in images) {
+      img.dispose();
+    }
+  }
+
+  static void _disposePreviewGroups(List<ExportPreviewPdf> groups) {
+    for (final g in groups) {
+      _disposeImages(g.pages);
+    }
+  }
+
+  void _replacePreview(List<ExportPreviewPdf> next) {
+    final old = previewPdfs;
+    previewPdfs = next;
+    _disposePreviewGroups(old);
+  }
+
+  /// Runs the preflight and builds the PDF(s) and their preview.
   /// [placeholders] continues with marked placeholders after a preflight
-  /// problem (B13 point 9: never a silent omission).
-  Future<void> build({bool placeholders = false}) async {
+  /// problem (B13 point 9: never a silent omission); omitting [placeholders]
+  /// preserves the most recent user choice on retry or paper/orientation change.
+  Future<void> build({bool? placeholders}) async {
+    if (_disposed) return;
+    if (placeholders != null) _placeholders = placeholders;
+    final seq = ++_buildSeq;
+    saveError = false;
     stage = ExportStage.working;
     notifyListeners();
+
     try {
-      final ids = referencedFiles(note.document);
+      await _ensurePairedLoaded();
+      if (_disposed || seq != _buildSeq) return;
+      if (!modes.contains(mode)) mode = modes.first;
+
+      await _ensureBundledFonts();
+      if (_disposed || seq != _buildSeq) return;
+
+      final includeOriginal =
+          mode != PdfExportMode.typed && originalNote != null;
+      final includeTyped = mode != PdfExportMode.original && typedNote != null;
+      final ids = <String>{
+        if (includeOriginal) ...referencedFiles(originalNote!.document),
+        if (includeTyped) ...referencedFiles(typedNote!.document),
+      };
       final attachments = <String, Uint8List>{};
       for (final id in ids) {
-        final bytes = await store.readAttachment(id);
-        if (bytes != null) attachments[id] = bytes;
+        final fileBytes = await store.readAttachment(id);
+        if (_disposed || seq != _buildSeq) return;
+        if (fileBytes != null) attachments[id] = fileBytes;
       }
+
       final out = await _mapper.export(
-        title: note.title ?? 'Untitled note',
+        title: note.title ?? originalNote?.title ?? 'Untitled note',
         slug: _slug,
-        original: typed ? null : note.document,
-        typed: typed ? note.document : null,
+        original: originalNote?.document,
+        typed: typedNote?.document,
         options: PdfExportOptions(
           mode: mode,
           paperSize: paper,
           orientation: orientation,
-          continueWithPlaceholders: placeholders,
+          continueWithPlaceholders: _placeholders,
         ),
         availableFileIds: attachments.keys.toSet(),
         attachments: attachments,
+        baseFont: _bundledLatin,
+        thaiFont: _bundledThai,
       );
+      if (_disposed || seq != _buildSeq) return;
+
+      if (out.pdfs.isEmpty) {
+        _replacePreview(const []);
+        output = out;
+        preflight = out.preflight;
+        stage = out.preflight.ok ? ExportStage.failed : ExportStage.preflight;
+        notifyListeners();
+        return;
+      }
+
+      final renderedGroups = <ExportPreviewPdf>[];
+      try {
+        for (final pdf in out.pdfs) {
+          final rendered = await _render(pdf.bytes, 900);
+          if (_disposed || seq != _buildSeq) {
+            _disposeImages(rendered);
+            _disposePreviewGroups(renderedGroups);
+            return;
+          }
+          if (rendered.isEmpty) {
+            _disposeImages(rendered);
+            throw StateError('No preview pages rendered for ${pdf.filename}');
+          }
+          renderedGroups.add(
+            ExportPreviewPdf(filename: pdf.filename, pages: rendered),
+          );
+        }
+      } on Object {
+        _disposePreviewGroups(renderedGroups);
+        if (_disposed || seq != _buildSeq) return;
+        _replacePreview(const []);
+        output = out;
+        preflight = out.preflight;
+        stage = ExportStage.failed;
+        notifyListeners();
+        return;
+      }
+
+      _replacePreview(renderedGroups);
       output = out;
       preflight = out.preflight;
-      if (out.pdfs.isEmpty) {
-        pages = const [];
-        stage = ExportStage.preflight;
-      } else {
-        pages = await _render(out.pdfs.first.bytes, 900);
-        stage = ExportStage.ready;
-      }
-    } catch (_) {
+      stage = ExportStage.ready;
+      notifyListeners();
+    } on Object {
+      if (_disposed || seq != _buildSeq) return;
+      _replacePreview(const []);
       stage = ExportStage.failed;
+      notifyListeners();
     }
-    notifyListeners();
   }
 
-  /// The file name of the saved export: a ZIP when there are companion
-  /// files, else the PDF.
-  String get fileName => (output?.companions.isNotEmpty ?? false)
-      ? '$_slug.zip'
-      : output?.pdfs.first.filename ?? '$_slug.pdf';
+  /// True when the export packages more than one PDF or companion files.
+  bool get needsZip =>
+      (output?.companions.isNotEmpty ?? false) ||
+      ((output?.pdfs.length ?? 0) > 1);
 
-  /// The bytes to save: the PDF, or the ZIP of every PDF and companion.
+  /// The file name of the saved export: a ZIP when there are multiple PDFs
+  /// or companion files, else the single PDF's filename.
+  String get fileName {
+    final out = output;
+    if (needsZip) return '$_slug.zip';
+    if (out != null && out.pdfs.isNotEmpty) return out.pdfs.first.filename;
+    return '$_slug.pdf';
+  }
+
+  /// The bytes to save: the single PDF, or the ZIP of every PDF and companion.
   Uint8List bytes() {
     final out = output!;
-    if (out.companions.isEmpty) return out.pdfs.first.bytes;
+    if (out.pdfs.isEmpty) {
+      throw StateError('No exported PDFs available.');
+    }
+    if (!needsZip) return out.pdfs.first.bytes;
     final zip = Archive();
     for (final pdf in out.pdfs) {
       zip.addFile(ArchiveFile(pdf.filename, pdf.bytes.length, pdf.bytes));
@@ -134,11 +311,21 @@ class ExportHandler extends ChangeNotifier {
     return Uint8List.fromList(ZipEncoder().encode(zip));
   }
 
-  /// Saves the export where the user chooses. False when cancelled.
+  /// Saves the export where the user chooses. False on cancel or write failure.
   Future<bool> save() async {
+    if (_disposed || stage != ExportStage.ready) return false;
+    saveError = false;
     final path = await _saveLocation(fileName);
-    if (path == null) return false;
-    await File(path).writeAsBytes(bytes(), flush: true);
+    if (_disposed || path == null) return false;
+    try {
+      await File(path).writeAsBytes(bytes(), flush: true);
+    } on Object {
+      if (_disposed) return false;
+      saveError = true;
+      notifyListeners();
+      return false;
+    }
+    if (_disposed) return false;
     stage = ExportStage.saved;
     notifyListeners();
     return true;
@@ -146,20 +333,25 @@ class ExportHandler extends ChangeNotifier {
 
   @override
   void dispose() {
-    for (final page in pages) {
-      page.dispose();
-    }
+    _disposed = true;
+    _buildSeq++;
+    _replacePreview(const []);
     super.dispose();
   }
 }
 
 /// Every page of [bytes] drawn with its longest side at most [maxPixels].
+/// Fails instead of returning empty or omitting pages so the preview matches
+/// the PDF one-to-one.
 Future<List<ui.Image>> renderPdfPages(Uint8List bytes, int maxPixels) async {
   PdfDocument? document;
   final images = <ui.Image>[];
   try {
     await pdfrxFlutterInitialize();
     document = await PdfDocument.openData(bytes);
+    if (document.pages.isEmpty) {
+      throw StateError('PDF document has no pages.');
+    }
     for (final page in document.pages) {
       final scale =
           maxPixels / (page.width > page.height ? page.width : page.height);
@@ -172,17 +364,22 @@ Future<List<ui.Image>> renderPdfPages(Uint8List bytes, int maxPixels) async {
         fullHeight: height.toDouble(),
         backgroundColor: 0xFFFFFFFF,
       );
-      if (image == null) continue;
+      if (image == null) {
+        throw StateError('PDF page render returned null.');
+      }
       try {
         images.add(await image.createImage());
       } finally {
         image.dispose();
       }
     }
+    return images;
   } on Object {
-    // The preview stays empty; saving still works.
+    for (final img in images) {
+      img.dispose();
+    }
+    rethrow;
   } finally {
     await document?.dispose();
   }
-  return images;
 }

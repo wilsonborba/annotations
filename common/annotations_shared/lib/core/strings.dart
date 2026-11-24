@@ -37,11 +37,19 @@ const strings = <String, List<String>>{
     'Salvar ZIP com arquivos',
     'บันทึก ZIP พร้อมไฟล์',
   ],
+  'exportBoth': ['Both', 'Ambos', 'ทั้งสองแบบ'],
+  'exportOriginal': ['Original', 'Original', 'ต้นฉบับ'],
+  'exportTyped': ['Typed', 'Digitado', 'แบบพิมพ์'],
   'exportSaved': ['Export saved.', 'Exportação salva.', 'บันทึกการส่งออกแล้ว'],
   'exportFailed': [
     'The export could not be made.',
     'Não foi possível exportar.',
     'ไม่สามารถส่งออกได้',
+  ],
+  'exportSaveFailed': [
+    'Could not save the file. Try again.',
+    'Não foi possível salvar o arquivo. Tente novamente.',
+    'ไม่สามารถบันทึกไฟล์ได้ ลองใหม่อีกครั้ง',
   ],
   // Installed login messages by FINAL status (annotations#38).
   'loginUnavailable': [
