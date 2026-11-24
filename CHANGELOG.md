@@ -36,6 +36,8 @@
 
 ### 🐛 Bug Fixes
 
+- *(66)* Retain typed body focus across rebuilds
+
 - Enforce Reports reference and cache identity
 
 - *(sync)* Persist server note identity and revisions for cloud calls (#63)
