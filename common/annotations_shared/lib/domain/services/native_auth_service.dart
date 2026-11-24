@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 
 import '../../core/log_redactor.dart' as redactor;
+import '../../dal/local/reports_private_cache.dart';
 
 class SecureStorageUnavailableException implements Exception {
   final String message;
@@ -369,6 +370,7 @@ class NativeAuthService {
   Future<void> signOut() async {
     final existing = await storage.readSession();
     await storage.deleteSession();
+    await PreferencesReportsPrivateCache().clear();
     sessionPaused = false;
     if (existing == null) return;
     try {

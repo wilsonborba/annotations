@@ -236,10 +236,36 @@ final class _Ctx {
           _fail('kind_not_allowed', item.at('source'));
         }
         _reference(item, 'report_id');
+        const tupleKeys = ['project_slug', 'report_slug', 'dataset_id'];
+        final tupleFields = tupleKeys
+            .where((key) => item.opt(key) != null)
+            .length;
+        if (tupleFields != 0 && tupleFields != tupleKeys.length) {
+          _fail(
+            'missing_field',
+            item.at(tupleKeys.firstWhere((key) => item.opt(key) == null)),
+          );
+        }
+        if (tupleFields == tupleKeys.length) {
+          for (final key in tupleKeys) {
+            if (!ReportsCardReference.isValidSlug(item.str(key))) {
+              _fail('invalid_reference', item.at(key));
+            }
+          }
+          if (source == 'link' &&
+              item.str('report_id') != item.str('report_slug')) {
+            _fail('invalid_reference', item.at('report_id'));
+          }
+          if (source == 'upload' &&
+              !ReportsCardReference.isValidOwnerItemId(item.str('report_id'))) {
+            _fail('invalid_reference', item.at('report_id'));
+          }
+        }
         if (item.variant('mode', ['live', 'snapshot']) == 'snapshot') {
           item.allow([
             ...base,
             'report_id',
+            ...tupleKeys,
             'mode',
             'source',
             'snapshot_id',
@@ -250,7 +276,7 @@ final class _Ctx {
             _fail('out_of_range', item.at('captured_at'));
           }
         } else {
-          item.allow([...base, 'report_id', 'mode', 'source']);
+          item.allow([...base, 'report_id', ...tupleKeys, 'mode', 'source']);
         }
       case 'task_card':
         item.allow([...base, 'task_id']);

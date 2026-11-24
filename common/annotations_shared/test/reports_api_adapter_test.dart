@@ -218,7 +218,10 @@ void main() {
           posted = true;
           return http.Response(
             jsonEncode({
-              'id': 'snapshot-1',
+              'id': '00000000-0000-4000-8000-000000000001',
+              'project': 'annotations',
+              'report': 'r',
+              'dataset_id': 'primary',
               'captured_at': '2026-11-24T10:00:00Z',
             }),
             201,
@@ -242,7 +245,7 @@ void main() {
           language: 'th',
         );
         expect(posted, isTrue);
-        expect(meta['id'], 'snapshot-1');
+        expect(meta['id'], '00000000-0000-4000-8000-000000000001');
       },
     );
   });
@@ -289,15 +292,19 @@ void main() {
           ),
         );
 
-        final result = await source.loadDocument(const {
-          'kind': 'reports_embed',
-          'report_id': 'report-1',
-          'project_slug': 'private',
-          'report_slug': 'report-1',
-          'dataset_id': 'card-1',
-          'mode': 'live',
-          'source': 'link',
-        }, publicProjection: true);
+        final result = await source.loadDocument(
+          const {
+            'kind': 'reports_embed',
+            'report_id': 'report-1',
+            'project_slug': 'private',
+            'report_slug': 'report-1',
+            'dataset_id': 'card-1',
+            'mode': 'live',
+            'source': 'link',
+          },
+          publicProjection: true,
+          trustedAccountId: 'reader',
+        );
 
         expect(requestCount, 0);
         expect(result.state, ReportsEmbedState.restricted);
@@ -305,13 +312,64 @@ void main() {
         final projected = await source.loadDocument(const {
           'kind': 'reports_embed',
           'restricted': true,
-          'report_id': 'report-1',
-          'mode': 'live',
-          'source': 'link',
-        });
+        }, trustedAccountId: 'reader');
         expect(requestCount, 0);
         expect(projected.state, ReportsEmbedState.restricted);
         expect(projected.page, isNull);
+        final anonymousProjection = await source.loadDocument(
+          const {'kind': 'reports_embed', 'restricted': true},
+          publicProjection: true,
+          trustedAccountId: 'reader',
+        );
+        expect(anonymousProjection.state, ReportsEmbedState.restricted);
+        expect(anonymousProjection.page, isNull);
+        expect(requestCount, 0);
+      },
+    );
+
+    test(
+      'legacy or inconsistent note identities fail closed before fetch',
+      () async {
+        var requestCount = 0;
+        final source = ReportsEmbedSource(
+          api: ReportsApiAdapter(
+            client: MockClient((_) async {
+              requestCount++;
+              return http.Response('{}', 500);
+            }),
+            headersProvider: ({required mutation}) async => const {},
+          ),
+        );
+        for (final item in [
+          const {
+            'kind': 'reports_embed',
+            'report_id': 'legacy-report',
+            'mode': 'live',
+            'source': 'link',
+          },
+          const {
+            'kind': 'reports_embed',
+            'report_id': 'different-report',
+            'project_slug': 'public',
+            'report_slug': 'sales',
+            'dataset_id': 'monthly',
+            'mode': 'live',
+            'source': 'link',
+          },
+          const {
+            'kind': 'reports_embed',
+            'report_id': 'not-a-uuid',
+            'project_slug': 'public',
+            'report_slug': 'sales',
+            'dataset_id': 'monthly',
+            'mode': 'live',
+            'source': 'upload',
+          },
+        ]) {
+          final result = await source.loadDocument(item);
+          expect(result.state, ReportsEmbedState.unavailable);
+          expect(result.page, isNull);
+        }
         expect(requestCount, 0);
       },
     );
@@ -408,6 +466,76 @@ void main() {
     });
 
     test(
+      'live data stays on one bounded page and marks partial data',
+      () async {
+        SharedPreferences.setMockInitialValues({});
+        var datasetCalls = 0;
+        final source = ReportsEmbedSource(
+          api: ReportsApiAdapter(
+            client: MockClient((request) async {
+              if (request.url.path.endsWith('/me')) {
+                return http.Response(jsonEncode({'user_id': 'reader'}), 200);
+              }
+              if (request.url.path.endsWith('/reports/sales')) {
+                return http.Response(
+                  jsonEncode({
+                    'project': 'public',
+                    'report': 'sales',
+                    'title': 'Sales',
+                    'datasets': [
+                      {
+                        'dataset_id': 'monthly',
+                        'title': 'Monthly',
+                        'can_view': true,
+                      },
+                    ],
+                  }),
+                  200,
+                );
+              }
+              datasetCalls++;
+              expect(request.url.queryParameters['offset'], '0');
+              expect(request.url.queryParameters['limit'], '5000');
+              return http.Response(
+                jsonEncode({
+                  'dataset_id': 'monthly',
+                  'title': 'Monthly',
+                  'can_view': true,
+                  'rows': [
+                    {'sales': 11},
+                  ],
+                  'offset': 0,
+                  'limit': 5000,
+                  'total_rows': 5001,
+                }),
+                200,
+              );
+            }),
+            headersProvider: ({required mutation}) async => const {},
+          ),
+        );
+
+        final result = await source.loadDocument(const {
+          'kind': 'reports_embed',
+          'report_id': 'sales',
+          'project_slug': 'public',
+          'report_slug': 'sales',
+          'dataset_id': 'monthly',
+          'mode': 'live',
+          'source': 'link',
+        }, trustedAccountId: 'reader');
+
+        expect(result.canRender, isTrue);
+        expect(result.complete, isFalse);
+        expect(result.page?.totalRows, 5001);
+        expect(result.page?.rows, [
+          {'sales': 11},
+        ]);
+        expect(datasetCalls, 1);
+      },
+    );
+
+    test(
       'snapshot uses captured rows without requesting live report data',
       () async {
         final paths = <String>[];
@@ -424,6 +552,9 @@ void main() {
             return http.Response(
               jsonEncode({
                 'id': 'snap-1',
+                'project': 'public',
+                'report': 'sales',
+                'dataset_id': 'monthly',
                 'captured_at': '2026-11-01T00:00:00Z',
                 'total_rows': 2,
                 'descriptor': {
@@ -478,6 +609,58 @@ void main() {
         ]);
       },
     );
+
+    test('snapshot response identity must match the saved reference', () async {
+      SharedPreferences.setMockInitialValues({});
+      final paths = <String>[];
+      final source = ReportsEmbedSource(
+        api: ReportsApiAdapter(
+          client: MockClient((request) async {
+            paths.add(request.url.path);
+            if (request.url.path.endsWith('/me')) {
+              return http.Response(jsonEncode({'user_id': 'reader'}), 200);
+            }
+            return http.Response(
+              jsonEncode({
+                'id': 'snap-1',
+                'project': 'different-project',
+                'report': 'sales',
+                'dataset_id': 'monthly',
+                'captured_at': '2026-11-01T00:00:00Z',
+                'total_rows': 0,
+                'descriptor': {
+                  'dataset_id': 'monthly',
+                  'title': 'Other',
+                  'can_view': true,
+                  'fields': [],
+                },
+                'rows': [],
+              }),
+              200,
+            );
+          }),
+          headersProvider: ({required mutation}) async => const {},
+        ),
+      );
+
+      final result = await source.loadDocument(const {
+        'kind': 'reports_embed',
+        'report_id': 'sales',
+        'project_slug': 'public',
+        'report_slug': 'sales',
+        'dataset_id': 'monthly',
+        'mode': 'snapshot',
+        'source': 'link',
+        'snapshot_id': 'snap-1',
+      }, trustedAccountId: 'reader');
+
+      expect(result.state, ReportsEmbedState.unavailable);
+      expect(result.page, isNull);
+      expect(paths, [
+        '/apps/reports/v1/me',
+        '/apps/reports/v1/projects/public/reports/sales/cards/monthly/snapshots/snap-1/content',
+      ]);
+    });
 
     test('uploaded chart stores only the Reports owner item id', () async {
       SharedPreferences.setMockInitialValues({});
@@ -542,6 +725,51 @@ void main() {
         '/apps/reports/v1/me',
       ]);
     });
+
+    test(
+      'upload rejects an owner embed URL that disagrees with identity fields',
+      () async {
+        final source = ReportsEmbedSource(
+          api: ReportsApiAdapter(
+            client: MockClient((request) async {
+              if (request.url.path.endsWith('/me')) {
+                return http.Response(jsonEncode({'user_id': 'reader'}), 200);
+              }
+              return http.Response(
+                jsonEncode({
+                  'item': {
+                    'id': '00000000-0000-4000-8000-000000000001',
+                    'project': 'public',
+                    'report_slug': 'upload-1',
+                    'dataset_id': 'primary',
+                    'embed_url':
+                        '/projects/public/showcase/other-report/cards/primary/embed',
+                  },
+                }),
+                201,
+              );
+            }),
+            headersProvider: ({required mutation}) async => const {},
+          ),
+        );
+
+        await expectLater(
+          source.uploadRows(
+            project: 'public',
+            title: 'Uploaded table',
+            templateId: 'bar',
+            templateVersion: 2,
+            mapping: const {'label': 'name'},
+            config: const {},
+            rows: const [
+              {'name': 'Jan'},
+            ],
+            idempotencyKey: 'upload-request',
+          ),
+          throwsA(isA<FormatException>()),
+        );
+      },
+    );
 
     test(
       'live cache is shown offline only for the signed-in Reports account',
@@ -621,6 +849,94 @@ void main() {
           {'sales': 11},
         ]);
         expect(cached.cachedAt, isNotNull);
+      },
+    );
+
+    test(
+      'offline cache is scoped to the trusted account after restart',
+      () async {
+        SharedPreferences.setMockInitialValues({});
+        final cache = PreferencesReportsPrivateCache(
+          preferences: SharedPreferences.getInstance,
+        );
+        const item = {
+          'kind': 'reports_embed',
+          'report_id': 'sales',
+          'project_slug': 'public',
+          'report_slug': 'sales',
+          'dataset_id': 'monthly',
+          'mode': 'live',
+          'source': 'link',
+        };
+        final onlineSource = ReportsEmbedSource(
+          api: ReportsApiAdapter(
+            client: MockClient((request) async {
+              if (request.url.path.endsWith('/me')) {
+                return http.Response(jsonEncode({'user_id': 'reader-a'}), 200);
+              }
+              if (request.url.path.endsWith('/reports/sales')) {
+                return http.Response(
+                  jsonEncode({
+                    'project': 'public',
+                    'report': 'sales',
+                    'title': 'Sales',
+                    'datasets': [
+                      {
+                        'dataset_id': 'monthly',
+                        'title': 'Monthly',
+                        'can_view': true,
+                      },
+                    ],
+                  }),
+                  200,
+                );
+              }
+              return http.Response(
+                jsonEncode({
+                  'dataset_id': 'monthly',
+                  'title': 'Monthly',
+                  'can_view': true,
+                  'rows': [
+                    {'sales': 11},
+                  ],
+                  'offset': 0,
+                  'limit': 5000,
+                  'total_rows': 1,
+                }),
+                200,
+              );
+            }),
+            headersProvider: ({required mutation}) async => const {},
+          ),
+          cache: cache,
+        );
+        expect(
+          (await onlineSource.loadDocument(
+            item,
+            trustedAccountId: 'reader-a',
+          )).state,
+          ReportsEmbedState.readable,
+        );
+
+        final offlineSource = ReportsEmbedSource(
+          api: ReportsApiAdapter(
+            client: MockClient((_) async => http.Response('{}', 503)),
+            headersProvider: ({required mutation}) async => const {},
+          ),
+          cache: cache,
+          hasStoredViewerSession: () async => true,
+        );
+        final sameAccount = await offlineSource.loadDocument(
+          item,
+          trustedAccountId: 'reader-a',
+        );
+        final otherAccount = await offlineSource.loadDocument(
+          item,
+          trustedAccountId: 'reader-b',
+        );
+        expect(sameAccount.state, ReportsEmbedState.offline);
+        expect(otherAccount.state, ReportsEmbedState.unavailable);
+        expect(otherAccount.page, isNull);
       },
     );
 
