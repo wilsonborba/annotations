@@ -42,6 +42,7 @@
 
 ### 🐛 Bug Fixes
 
+- *(web)* Keep native device store out of bundle (#69)
 - *(ui)* The installed login says when it cannot start (#38)
 - *(ui)* Installed login messages in the interface language (#38)
 - Retry publication for local notes
