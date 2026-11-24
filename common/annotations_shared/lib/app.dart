@@ -19,7 +19,6 @@ import 'presentation/frontend/widgets/landing/how_it_works_page.dart';
 import 'presentation/frontend/widgets/landing/landing_page.dart';
 import 'domain/services/discovery_reader_service.dart';
 import 'presentation/frontend/widgets/discovery/discovery_pages.dart';
-import 'presentation/frontend/widgets/article/article_page.dart';
 import 'presentation/frontend/widgets/instant/instant_page.dart';
 
 class AnnotationsApp extends StatefulWidget {
@@ -140,13 +139,9 @@ class _AnnotationsAppState extends State<AnnotationsApp> {
             ),
             GoRoute(
               path: '/v1/menu/:channel/:slug',
-              builder: (_, state) => ShellPage(
-                child: ArticlePage(
-                  channel: state.pathParameters['channel']!,
-                  slug: state.pathParameters['slug']!,
-                  language: state.uri.queryParameters['lang'] ?? '',
-                ),
-              ),
+              // Historical post URLs have no authorized mapping to a public
+              // note ID. Keep a local not-found state without fetching /posts.
+              builder: (_, _) => const ShellPage(child: NotFoundState()),
             ),
             GoRoute(
               path: '/v1/instant',

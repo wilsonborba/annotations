@@ -3,13 +3,12 @@ import 'package:annotations_shared/core/tracking.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../../../domain/models/content.dart';
+import '../../../../domain/services/discovery_reader_service.dart';
 import '../../components/controls.dart';
 import '../../components/icons.dart';
 import '../../components/post_card.dart';
 import '../../components/scope.dart';
 import '../../components/shell.dart';
-import '../../handlers/content_handler.dart';
 import '../../../../core/landing_settings.dart';
 import '../../components/interactive_card.dart';
 import '../../components/sketch_art.dart';
@@ -29,12 +28,22 @@ class LandingPage extends StatefulWidget {
 }
 
 class _LandingPageState extends State<LandingPage> {
-  Future<Data>? latest;
+  Future<DiscoveryPage>? latest;
+
+  Future<DiscoveryPage> _recent() => DiscoveryReaderAdapter(
+    AppScope.of(context).service.api,
+  ).listPublicNotes(const DiscoveryQuery(limit: 6));
+
+  void _retryRecent() {
+    setState(() {
+      latest = _recent();
+    });
+  }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    latest ??= ContentHandler(AppScope.of(context).service).articles();
+    latest ??= _recent();
   }
 
   @override
@@ -215,17 +224,13 @@ class _LandingPageState extends State<LandingPage> {
               ),
             ],
           ),
-          FutureBuilder<Data>(
+          FutureBuilder<DiscoveryPage>(
             future: latest,
             builder: (context, s) {
               if (s.hasError) {
                 return LoadError(
                   reference: ClientErrors.referenceOf(s.error),
-                  retry: () => setState(
-                    () => latest = ContentHandler(
-                      AppScope.of(context).service,
-                    ).articles(),
-                  ),
+                  retry: _retryRecent,
                 );
               }
               if (!s.hasData) {
@@ -234,13 +239,13 @@ class _LandingPageState extends State<LandingPage> {
                   child: Center(child: CircularProgressIndicator()),
                 );
               }
-              final items = records(s.data!['items']);
+              final items = s.data!.items;
               return items.isEmpty
                   ? Padding(
                       padding: const EdgeInsets.symmetric(vertical: 30),
                       child: Text(context.tr('empty')),
                     )
-                  : PostGrid(items: items.take(6).toList());
+                  : PublicNoteGrid(items: items.take(6).toList());
             },
           ),
         ],

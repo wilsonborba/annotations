@@ -112,6 +112,157 @@ int primaryButtons(WidgetTester tester) => tester
 void main() {
   setUpAll(loadAppFonts);
 
+  testWidgets(
+    'recent public notes use strict v2 discovery and canonical views',
+    (tester) async {
+      final requests = <http.Request>[];
+      final service = fixtureService(
+        handler: (request) async {
+          requests.add(request);
+          if (request.url.path == '/notes' && request.method == 'GET') {
+            expect(request.url.queryParameters, {'limit': '6'});
+            return http.Response(
+              jsonEncode({
+                'items': [
+                  {
+                    'note_id': 'note_1',
+                    'author_id': 'author_1',
+                    'author_name': 'Public author',
+                    'title': 'Published note',
+                    'summary': 'A public summary',
+                    'language': 'en',
+                    'tags': ['biology'],
+                    'views': ['original', 'typed'],
+                    'default_view': 'original',
+                    'published_at': 1700000000,
+                  },
+                ],
+                'next_cursor': null,
+                'browse_token': null,
+              }),
+              200,
+              headers: {'content-type': 'application/json'},
+            );
+          }
+          final requestedView = request.url.queryParameters['view'];
+          if (request.url.path == '/notes/note_1' &&
+              request.method == 'GET' &&
+              (requestedView == 'original' || requestedView == 'typed')) {
+            return http.Response(
+              jsonEncode({
+                'note_id': 'note_1',
+                'author_id': 'author_1',
+                'author_name': 'Public author',
+                'title': 'Published note',
+                'language': 'en',
+                'tags': ['biology'],
+                'views': ['original', 'typed'],
+                'default_view': requestedView,
+                'can_switch_view': true,
+                'typed_uses_earlier_revision': false,
+                'representations': [
+                  {
+                    'representation': requestedView,
+                    'schema_version': 1,
+                    'document': requestedView == 'typed'
+                        ? {
+                            'blocks': [
+                              {
+                                'id': 'block_1',
+                                'kind': 'paragraph',
+                                'spans': [
+                                  {'text': 'Typed reader content'},
+                                ],
+                              },
+                            ],
+                          }
+                        : {
+                            'page': {'width': 1000, 'height': 1400},
+                            'items': [],
+                          },
+                  },
+                ],
+              }),
+              200,
+              headers: {'content-type': 'application/json'},
+            );
+          }
+          fail('Unexpected request ${request.method} ${request.url.path}');
+        },
+      );
+
+      await open(tester, '/v1/home', service: service);
+      await tester.ensureVisible(find.byKey(const Key('recent-note-note_1')));
+      expect(find.text('Published note'), findsOneWidget);
+      expect(find.text('A public summary'), findsOneWidget);
+      expect(requests.map((r) => r.url.path), ['/notes']);
+
+      await tester.ensureVisible(find.byKey(const Key('recent-note_1-typed')));
+      await tester.tap(find.byKey(const Key('recent-note_1-typed')));
+      await tester.pumpAndSettle();
+
+      expect(requests.map((r) => r.url.path), ['/notes', '/notes/note_1']);
+      expect(requests.last.url.queryParameters['view'], 'typed');
+      expect(find.text('Typed reader content'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('brand-home')));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(const Key('recent-note_1-original')),
+      );
+      await tester.tap(find.byKey(const Key('recent-note_1-original')));
+      await tester.pumpAndSettle();
+      expect(requests.last.url.path, '/notes/note_1');
+      expect(requests.last.url.queryParameters['view'], 'original');
+      expect(requests.any((r) => r.url.path.startsWith('/posts')), isFalse);
+    },
+  );
+
+  testWidgets('legacy article URLs show not found without making API calls', (
+    tester,
+  ) async {
+    final paths = <String>[];
+    final service = fixtureService(
+      handler: (request) async {
+        paths.add(request.url.path);
+        return http.Response('{}', 404);
+      },
+    );
+    await open(
+      tester,
+      '/v1/menu/old-channel/old-slug?lang=th',
+      service: service,
+    );
+    expect(find.byKey(const Key('not-found')), findsOneWidget);
+    expect(paths, isEmpty);
+  });
+
+  testWidgets('landing keeps empty and retry states for public discovery', (
+    tester,
+  ) async {
+    var attempts = 0;
+    final service = fixtureService(
+      handler: (request) async {
+        expect(request.method, 'GET');
+        expect(request.url.path, '/notes');
+        attempts++;
+        if (attempts == 1) return http.Response('{}', 503);
+        return http.Response(
+          jsonEncode({'items': [], 'next_cursor': null}),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      },
+    );
+    await open(tester, '/v1/home', service: service);
+    await tester.ensureVisible(find.text('Try again'));
+    expect(find.text('Try again'), findsOneWidget);
+    await tester.tap(find.text('Try again'));
+    await tester.pumpAndSettle();
+    expect(attempts, 2);
+    expect(find.text(translate('empty', 'en')), findsOneWidget);
+  });
+
   testWidgets('/ redirects to the Overview and every tab opens its own page', (
     tester,
   ) async {
