@@ -417,6 +417,8 @@ void main() {
         representation: PublicationRepresentation.both,
         publicationRevision: 4,
         allowRestrictedEmbeds: true,
+        originalRevisionId: 'rev_orig_1',
+        typedRevisionId: 'rev_typed_1',
       );
       expect(ok.published, isTrue);
       expect(calls.last.method, 'PUT');

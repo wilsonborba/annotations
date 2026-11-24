@@ -271,8 +271,10 @@ class NoteSyncService {
     LocalNote note,
     String accountId, {
     bool requireRevision = false,
+    bool allowRepresentationHydration = false,
+    Set<String> requiredRepresentationRevisions = const {},
   }) async {
-    final current = (await store.load(note.id)) ?? note;
+    var current = (await store.load(note.id)) ?? note;
     _requireOwner(current, accountId);
     if (current.isConflictCopy) {
       throw CloudIdentityException(
@@ -285,32 +287,90 @@ class NoteSyncService {
       );
     }
     if (current.serverNoteId == null) {
-      return _recoverMappingByClientId(current, accountId);
+      current = await _recoverMappingByClientId(current, accountId);
     }
-    if (!requireRevision || current.serverRevision != null) {
+    bool hasRequiredRepresentationRevisions(LocalNote candidate) {
+      for (final representation in requiredRepresentationRevisions) {
+        if (representation == 'original' &&
+            (candidate.serverOriginalRevisionId == null ||
+                candidate.serverOriginalRevisionId!.isEmpty)) {
+          return false;
+        }
+        if (representation == 'typed' &&
+            (candidate.serverTypedRevisionId == null ||
+                candidate.serverTypedRevisionId!.isEmpty)) {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    final hasRevision = current.serverRevision != null;
+    final hasRepresentationRevisions = hasRequiredRepresentationRevisions(
+      current,
+    );
+    if ((!requireRevision || hasRevision) && hasRepresentationRevisions) {
       return current;
+    }
+    if (!hasRepresentationRevisions &&
+        requiredRepresentationRevisions.isNotEmpty &&
+        !allowRepresentationHydration) {
+      throw CloudIdentityException(
+        'Server detail for ${current.serverNoteId} is missing representation revision metadata.',
+      );
     }
     final detail = await api.request(
       '/me/notes/${current.serverNoteId}',
       method: 'GET',
     );
     final rev = (detail['revision'] as num?)?.toInt();
-    if (rev == null) {
+    final serverRevision = rev ?? current.serverRevision;
+    if (requireRevision && serverRevision == null) {
       throw CloudIdentityException(
         'Server detail for ${current.serverNoteId} is missing revision.',
       );
     }
     final (origRevId, typedRevId) = _parseRevisions(detail);
+    final serverOriginalRevisionId = origRevId;
+    final serverTypedRevisionId = typedRevId;
+    for (final representation in requiredRepresentationRevisions) {
+      final revisionId = switch (representation) {
+        'original' => serverOriginalRevisionId,
+        'typed' => serverTypedRevisionId,
+        _ => null,
+      };
+      if (revisionId == null || revisionId.isEmpty) {
+        throw CloudIdentityException(
+          'Server detail for ${current.serverNoteId} is missing the $representation representation revision.',
+        );
+      }
+    }
     await store.setSync(
       current.id,
       state: current.syncState,
       accountId: accountId,
       serverNoteId: current.serverNoteId,
-      serverRevision: rev,
-      serverOriginalRevisionId: origRevId,
-      serverTypedRevisionId: typedRevId,
+      serverRevision: serverRevision,
+      serverOriginalRevisionId: serverOriginalRevisionId,
+      serverTypedRevisionId: serverTypedRevisionId,
     );
-    return (await store.load(current.id)) ?? current;
+    return (await store.load(current.id)) ??
+        LocalNote(
+          id: current.id,
+          schema: current.schema,
+          document: current.document,
+          title: current.title,
+          revision: current.revision,
+          createdAt: current.createdAt,
+          updatedAt: current.updatedAt,
+          syncState: current.syncState,
+          accountId: accountId,
+          serverNoteId: current.serverNoteId,
+          serverRevision: serverRevision,
+          serverOriginalRevisionId: serverOriginalRevisionId,
+          serverTypedRevisionId: serverTypedRevisionId,
+          isConflictCopy: current.isConflictCopy,
+        );
   }
 
   /// Explicitly syncs [note] for [accountId].
@@ -475,7 +535,34 @@ class NoteSyncService {
       );
     }
 
-    final identity = await _resolveBoundIdentity(note, accountId);
+    var noteToPublish = note;
+    var syncedLocalNote = false;
+    if (note.accountId == null && note.serverNoteId == null) {
+      final synced = await syncNote(note, accountId: accountId);
+      if (synced.isConflict) {
+        throw CloudIdentityException(
+          'The note changed on the server and cannot be published until the conflict is resolved.',
+        );
+      }
+      noteToPublish = synced.localNote;
+      syncedLocalNote = true;
+    }
+    final requiredRepresentationRevisions = <String>{
+      if ((representation == PublicationRepresentation.original ||
+              representation == PublicationRepresentation.both) &&
+          originalRevisionId == null)
+        'original',
+      if ((representation == PublicationRepresentation.typed ||
+              representation == PublicationRepresentation.both) &&
+          typedRevisionId == null)
+        'typed',
+    };
+    final identity = await _resolveBoundIdentity(
+      noteToPublish,
+      accountId,
+      allowRepresentationHydration: syncedLocalNote,
+      requiredRepresentationRevisions: requiredRepresentationRevisions,
+    );
     final serverNoteId = identity.serverNoteId!;
     final reps = <String, String>{};
     if (representation == PublicationRepresentation.original ||
