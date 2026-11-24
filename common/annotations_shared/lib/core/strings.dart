@@ -6,6 +6,29 @@ const strings = <String, List<String>>{
   'myNotes': ['My notes', 'Minhas anotações', 'บันทึกของฉัน'],
   'logOut': ['Log out', 'Sair', 'ออกจากระบบ'],
   'account': ['Account', 'Conta', 'บัญชี'],
+  'installedSignInText': [
+    'Sign in to sync and publish your notes. The login opens in your browser.',
+    'Entre para sincronizar e publicar suas anotações. O login abre no navegador.',
+    'เข้าสู่ระบบเพื่อซิงก์และเผยแพร่บันทึก การเข้าสู่ระบบจะเปิดในเบราว์เซอร์',
+  ],
+  'openBrowserLogin': [
+    'Sign in in the browser',
+    'Entrar pelo navegador',
+    'เข้าสู่ระบบในเบราว์เซอร์',
+  ],
+  'openBrowserAgain': [
+    'Open the browser again',
+    'Abrir o navegador de novo',
+    'เปิดเบราว์เซอร์อีกครั้ง',
+  ],
+  'matchCodeText': [
+    'Check that the browser shows this code. Finish the login there, then press Finish.',
+    'Confira se o navegador mostra este código. Termine o login lá e toque em Concluir.',
+    'ตรวจว่าเบราว์เซอร์แสดงรหัสนี้ เข้าสู่ระบบให้เสร็จที่นั่น แล้วกดเสร็จสิ้น',
+  ],
+  'finishLogin': ['Finish', 'Concluir', 'เสร็จสิ้น'],
+  'signedInAs': ['Signed in as', 'Conectado como', 'เข้าสู่ระบบในชื่อ'],
+  'backToNotes': ['Back to Notes', 'Voltar às anotações', 'กลับไปที่บันทึก'],
   // Installed workspace and intro (annotations#38 scope 3, 5, 6, 8).
   'introSkip': ['Skip', 'Pular', 'ข้าม'],
   'introNext': ['Next', 'Próximo', 'ถัดไป'],

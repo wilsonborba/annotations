@@ -15,6 +15,7 @@ Future<void> main() async {
     AnnotationsApp(
       workspace: await openDeviceWorkspace(features.profile),
       introSeen: await introWasSeen(),
+      installed: openInstalledAccount(features.profile),
     ),
   );
 }

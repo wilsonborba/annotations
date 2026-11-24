@@ -385,6 +385,31 @@ const annotationElements = <String, TrailElement>{
     label: 'Workspace note back',
     path: 'workspace > note > back',
   ),
+  'account.installed.start': TrailElement(
+    id: 'account.installed.start',
+    label: 'Account installed start',
+    path: 'account > installed > start',
+  ),
+  'account.installed.finish': TrailElement(
+    id: 'account.installed.finish',
+    label: 'Account installed finish',
+    path: 'account > installed > finish',
+  ),
+  'account.installed.reopen': TrailElement(
+    id: 'account.installed.reopen',
+    label: 'Account installed reopen',
+    path: 'account > installed > reopen',
+  ),
+  'account.installed.cancel': TrailElement(
+    id: 'account.installed.cancel',
+    label: 'Account installed cancel',
+    path: 'account > installed > cancel',
+  ),
+  'account.installed.back': TrailElement(
+    id: 'account.installed.back',
+    label: 'Account installed back',
+    path: 'account > installed > back',
+  ),
   'shell.navigation.instant': TrailElement(
     id: 'shell.navigation.instant',
     label: 'Shell navigation instant',

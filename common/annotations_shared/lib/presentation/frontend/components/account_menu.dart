@@ -155,7 +155,7 @@ class _AccountMenu extends StatelessWidget {
         child: Semantics(
           button: true,
           label: '${context.tr('account')}: $label',
-          child: _Avatar(
+          child: AccountAvatar(
             key: const Key('account-avatar'),
             letter: label.isEmpty ? '?' : label.characters.first.toUpperCase(),
             open: controller.isOpen,
@@ -170,8 +170,8 @@ class _AccountMenu extends StatelessWidget {
 
 /// The round account avatar with hover, focus and pressed states: purple
 /// fill with white text, the H7 main-action pair.
-class _Avatar extends StatefulWidget {
-  const _Avatar({
+class AccountAvatar extends StatefulWidget {
+  const AccountAvatar({
     super.key,
     required this.letter,
     required this.open,
@@ -183,10 +183,10 @@ class _Avatar extends StatefulWidget {
   final VoidCallback onTap;
 
   @override
-  State<_Avatar> createState() => _AvatarState();
+  State<AccountAvatar> createState() => _AvatarState();
 }
 
-class _AvatarState extends State<_Avatar> {
+class _AvatarState extends State<AccountAvatar> {
   bool _hover = false, _focus = false, _pressed = false;
 
   @override

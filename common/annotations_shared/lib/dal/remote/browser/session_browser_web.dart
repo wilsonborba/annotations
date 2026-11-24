@@ -1,7 +1,3 @@
-import 'dart:js_interop';
-import 'dart:js_interop_unsafe';
-import 'dart:typed_data';
-
 import 'package:http/browser_client.dart';
 import 'package:http/http.dart' as http;
 import 'package:web/web.dart' as web;
@@ -44,19 +40,3 @@ void replaceAddress(String path) =>
 
 http.Client createCredentialsClient() =>
     BrowserClient()..withCredentials = true;
-
-Future<Uint8List> aesCbcEncrypt(
-  Uint8List key,
-  Uint8List iv,
-  Uint8List data,
-) async {
-  final subtle = web.window.crypto.subtle;
-  final cryptoKey = await subtle
-      .importKey('raw', key.toJS, 'AES-CBC'.toJS, false, ['encrypt'.toJS].toJS)
-      .toDart;
-  final algorithm = JSObject()
-    ..setProperty('name'.toJS, 'AES-CBC'.toJS)
-    ..setProperty('iv'.toJS, iv.toJS);
-  final out = await subtle.encrypt(algorithm, cryptoKey, data.toJS).toDart;
-  return (out as JSArrayBuffer).toDart.asUint8List();
-}

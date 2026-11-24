@@ -12,4 +12,9 @@ const settings = Settings(
     defaultValue: 'development',
   ),
   development: bool.fromEnvironment('DEVELOPMENT_MODE', defaultValue: true),
+  authBase: String.fromEnvironment(
+    'AUTH_BASE_URL',
+    defaultValue: 'https://auth.asodya.com',
+  ),
+  appContextKey: String.fromEnvironment('APP_CONTEXT_KEY'),
 );

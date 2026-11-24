@@ -1,5 +1,6 @@
 import 'core/tracking_manifest.dart';
 import 'core/tracking.dart';
+import 'dal/remote/aes_cbc.dart';
 import 'dal/remote/api_adapter.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -10,12 +11,14 @@ import 'package:http/http.dart' as http;
 import 'core/settings.dart';
 import 'dal/remote/browser/session_browser.dart' as browser;
 import 'domain/services/account_service.dart';
+import 'domain/services/installed_account.dart';
 import 'domain/services/local_workspace.dart';
 import 'domain/services/my_notes_service.dart';
 import 'domain/services/preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'presentation/frontend/widgets/account/my_notes_page.dart';
 import 'presentation/frontend/widgets/account/sync_page.dart';
+import 'presentation/frontend/widgets/workspace/installed_sign_in_page.dart';
 import 'presentation/frontend/widgets/workspace/intro_page.dart';
 import 'presentation/frontend/widgets/workspace/note_editor_page.dart';
 import 'presentation/frontend/widgets/workspace/workspace_page.dart';
@@ -51,8 +54,12 @@ class AnnotationsApp extends StatefulWidget {
 
   /// True when the intro was seen (installed apps).
   final bool introSeen;
+
+  /// The installed-app account (native handoff); null in the browser.
+  final InstalledAccount? installed;
   const AnnotationsApp({
     super.key,
+    this.installed,
     this.workspace,
     this.introSeen = true,
     this.account,
@@ -93,7 +100,7 @@ class _AnnotationsAppState extends State<AnnotationsApp> {
                 deleteCookie: browser.deleteCookie,
                 origin: browser.currentOrigin,
                 open: (uri) => launchUrl(uri, webOnlyWindowName: '_self'),
-                aes: browser.aesCbcEncrypt,
+                aes: aesCbcEncrypt,
               ),
             )
           : null);
@@ -110,6 +117,7 @@ class _AnnotationsAppState extends State<AnnotationsApp> {
     preferences.load();
     // The live session check on load (never a stored flag).
     account?.check();
+    widget.installed?.check();
     if (widget.trackingEnabled) errors.install();
     service.api.onError = (error, stack, operation) => errors.report(
       error,
@@ -131,6 +139,10 @@ class _AnnotationsAppState extends State<AnnotationsApp> {
         GoRoute(path: '/', redirect: (_, _) => '/v1/home'),
         if (widget.workspace != null) ...[
           GoRoute(path: '/v1/welcome', builder: (_, _) => const IntroPage()),
+          GoRoute(
+            path: '/v1/sign-in',
+            builder: (_, _) => const WriterShell(child: InstalledSignInPage()),
+          ),
           GoRoute(
             path: '/v1/write',
             builder: (_, _) => const WriterShell(child: WorkspacePage()),
@@ -244,6 +256,7 @@ class _AnnotationsAppState extends State<AnnotationsApp> {
       account: account,
       myNotes: myNotes,
       workspace: widget.workspace,
+      installed: widget.installed,
       child: MaterialApp.router(
         title: 'Annotations',
         debugShowCheckedModeBanner: false,

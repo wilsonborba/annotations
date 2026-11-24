@@ -4,7 +4,15 @@ import 'dart:math';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
+import 'package:url_launcher/url_launcher.dart';
+
+import '../../core/settings.dart';
 import '../../dal/local/device_note_store.dart';
+import '../../dal/remote/aes_cbc.dart';
+import 'installed_account.dart';
+import 'native_auth_service.dart';
 
 import '../../core/platform_profile.dart';
 import '../models/local_note.dart';
@@ -101,4 +109,25 @@ Future<bool> introWasSeen() async {
   } catch (_) {
     return false;
   }
+}
+
+/// The installed-app account with the OS secure storage (annotations#36).
+InstalledAccount openInstalledAccount(PlatformProfile profile) {
+  final client = http.Client();
+  return InstalledAccount(
+    auth: NativeAuthService(
+      client: client,
+      storage: OsSecureSessionStorage(),
+      gatewayBaseUrl: Uri.parse(Settings.current.apiBase).origin,
+    ),
+    client: client,
+    platform: handoffPlatform(
+      defaultTargetPlatform,
+      fullWriter: profile == PlatformProfile.fullWriter,
+    ),
+    open: (uri) => launchUrl(uri, mode: LaunchMode.externalApplication),
+    aes: aesCbcEncrypt,
+    appContextKey: Settings.current.appContextKey,
+    authBase: Settings.current.authBase,
+  );
 }

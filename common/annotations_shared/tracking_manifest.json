@@ -590,6 +590,41 @@
       "path": "workspace > note > back",
       "description": "Back from the editor to the writer workspace.",
       "source": "lib/presentation/frontend/widgets/workspace/note_editor_page.dart"
+    },
+    {
+      "id": "account.installed.start",
+      "label": "Account installed start",
+      "path": "account > installed > start",
+      "description": "Opens the browser login of the installed app.",
+      "source": "lib/presentation/frontend/widgets/workspace/installed_sign_in_page.dart"
+    },
+    {
+      "id": "account.installed.finish",
+      "label": "Account installed finish",
+      "path": "account > installed > finish",
+      "description": "Finish of the installed login after the browser step.",
+      "source": "lib/presentation/frontend/widgets/workspace/installed_sign_in_page.dart"
+    },
+    {
+      "id": "account.installed.reopen",
+      "label": "Account installed reopen",
+      "path": "account > installed > reopen",
+      "description": "Opens the browser login again while a login waits.",
+      "source": "lib/presentation/frontend/widgets/workspace/installed_sign_in_page.dart"
+    },
+    {
+      "id": "account.installed.cancel",
+      "label": "Account installed cancel",
+      "path": "account > installed > cancel",
+      "description": "Cancels the waiting installed login.",
+      "source": "lib/presentation/frontend/widgets/workspace/installed_sign_in_page.dart"
+    },
+    {
+      "id": "account.installed.back",
+      "label": "Account installed back",
+      "path": "account > installed > back",
+      "description": "Back from the installed sign-in to Notes.",
+      "source": "lib/presentation/frontend/widgets/workspace/installed_sign_in_page.dart"
     }
   ]
 }
