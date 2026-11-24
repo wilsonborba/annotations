@@ -53,7 +53,8 @@ abstract interface class LocalNoteStore {
   /// Saves the complete note in one commit and returns the saved state. A
   /// synced note becomes [LocalSyncState.changed]. Throws
   /// [LocalStoreException] `missing_attachment` when the document references
-  /// a file that the store does not hold; the previous state stays.
+  /// a file that the store does not hold; the previous state stays. A new
+  /// draft may bind an owner-only copy to an account in the same commit.
   Future<LocalNote> save(LocalNoteDraft draft);
 
   /// Records the sync state, bound account, and optional server note identity

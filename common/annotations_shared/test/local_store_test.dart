@@ -405,7 +405,7 @@ void main() {
   test('schema steps run once and a newer store is not opened', () async {
     await store.close();
     final db = sqlite3.open('${root.path}/notes.sqlite3');
-    expect(db.userVersion, 3);
+    expect(db.userVersion, 4);
     expect(db.select('PRAGMA journal_mode').first.values.first, 'wal');
     db.userVersion = 99;
     db.close();
@@ -414,7 +414,7 @@ void main() {
       storeError('newer_store'),
     );
     final again = sqlite3.open('${root.path}/notes.sqlite3')
-      ..userVersion = 3
+      ..userVersion = 4
       ..close();
     expect(again, isNotNull);
     store = await SqliteNoteStore.open(root.path);

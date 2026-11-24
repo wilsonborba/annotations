@@ -34,6 +34,8 @@ final class LocalNoteDraft {
     required this.schema,
     required this.document,
     this.title,
+    this.accountId,
+    this.isConflictCopy = false,
   });
 
   final String id;
@@ -42,6 +44,14 @@ final class LocalNoteDraft {
 
   /// Null until the user names the note (D1.1: the page shows Untitled note).
   final String? title;
+
+  /// Optional owner binding for a new local copy, such as a server conflict
+  /// copy. Existing-note saves preserve the binding already stored.
+  final String? accountId;
+
+  /// Marks a server conflict copy that has no cloud identity and cannot use
+  /// client-id recovery as a later sync target.
+  final bool isConflictCopy;
 }
 
 /// A saved note: the last complete state in the store.
@@ -60,6 +70,7 @@ final class LocalNote {
     this.serverRevision,
     this.serverOriginalRevisionId,
     this.serverTypedRevisionId,
+    this.isConflictCopy = false,
   });
 
   final String id;
@@ -89,6 +100,9 @@ final class LocalNote {
   /// and used for `PUT /me/notes/{id}/publication`.
   final String? serverOriginalRevisionId;
   final String? serverTypedRevisionId;
+
+  /// True when this is an owner-bound local copy of a server conflict.
+  final bool isConflictCopy;
 }
 
 /// A managed copy of an attachment in the app support folder. The note uses
