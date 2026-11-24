@@ -128,6 +128,9 @@ final class ThaiShapingEvidence {
 /// Never starts transcription, never mutates the note, and never renders from screenshots.
 class PdfExportMapper {
   static const double marginPt = 36.0;
+
+  /// The editor's text size in page units (`annotationsTextStyle`).
+  static const double editorTextSize = 16;
   static final _thaiRegex = RegExp(r'[\u0E00-\u0E7F]');
   static final _thaiCombiningRegex = RegExp(
     r'[\u0E31\u0E34-\u0E3A\u0E47-\u0E4E]',
@@ -702,6 +705,29 @@ class PdfExportMapper {
             });
           }
 
+          if (kind == 'text') {
+            // The editor draws text at 16 page units (or the span size) from
+            // the box corner, without an inset; print it at the same scale.
+            final spans = [
+              for (final sp in (item['spans'] as List?) ?? const [])
+                if (sp is Map) sp,
+            ];
+            final size =
+                ((spans.firstOrNull?['size'] as num?)?.toDouble() ??
+                    editorTextSize) *
+                scale;
+            runs.add({
+              'text': spans.map((sp) => '${sp['text'] ?? ''}').join(),
+              'x': x,
+              'y': y + size * 0.95,
+              'max_width': math.max(20.0, w),
+              'font_size': size,
+              'line_height': size * 1.25,
+              'bold':
+                  spans.isNotEmpty && spans.every((sp) => sp['bold'] == true),
+            });
+            continue;
+          }
           {
             final summary = _itemTextSummary(
               item,
@@ -711,7 +737,7 @@ class PdfExportMapper {
             final isRestricted =
                 kind == 'reports_embed' &&
                 options.audience == PdfAudience.public;
-            final fontSize = kind == 'text' ? 10.0 : 9.0;
+            const fontSize = 9.0;
             runs.add({
               'text': summary,
               'x': x + 4.0,
@@ -1029,6 +1055,14 @@ class PdfExportMapper {
     );
     final kind = '${item['kind'] ?? 'text'}';
 
+    if (kind == 'text') {
+      return pw.Positioned(
+        left: math.max(0, x),
+        top: math.max(0, y),
+        child: pw.SizedBox(width: w, child: _editorText(item, scale)),
+      );
+    }
+
     return pw.Positioned(
       left: math.max(0, x),
       top: math.max(0, y),
@@ -1036,9 +1070,9 @@ class PdfExportMapper {
         width: w,
         height: h,
         padding: const pw.EdgeInsets.all(4),
-        decoration: kind == 'text'
-            ? null
-            : pw.BoxDecoration(border: pw.Border.all(color: PdfColors.grey400)),
+        decoration: pw.BoxDecoration(
+          border: pw.Border.all(color: PdfColors.grey400),
+        ),
         child: _renderItemBody(
           item,
           kind: kind,
@@ -1046,6 +1080,40 @@ class PdfExportMapper {
           width: w,
           height: h,
         ),
+      ),
+    );
+  }
+
+  /// A free text item as the editor draws it (paper_layers.dart): 16 page
+  /// units by default, with each span's size, bold, italic, strikethrough
+  /// and color, scaled to the printed page.
+  pw.Widget _editorText(Map<String, dynamic> item, double scale) {
+    final spans = [
+      for (final sp in (item['spans'] as List?) ?? const [])
+        if (sp is Map) sp,
+    ];
+    return pw.RichText(
+      text: pw.TextSpan(
+        style: pw.TextStyle(fontSize: editorTextSize * scale),
+        children: [
+          for (final sp in spans)
+            pw.TextSpan(
+              text: '${sp['text'] ?? ''}',
+              style: pw.TextStyle(
+                fontSize: (sp['size'] as num?) == null
+                    ? null
+                    : (sp['size'] as num).toDouble() * scale,
+                fontWeight: sp['bold'] == true ? pw.FontWeight.bold : null,
+                fontStyle: sp['italic'] == true ? pw.FontStyle.italic : null,
+                decoration: sp['strikethrough'] == true
+                    ? pw.TextDecoration.lineThrough
+                    : null,
+                color: sp['color'] is String
+                    ? PdfColor.fromInt(colorArgb(sp['color'] as String, 1))
+                    : null,
+              ),
+            ),
+        ],
       ),
     );
   }

@@ -471,6 +471,30 @@ void main() {
       expect(second!.$2, inInclusiveRange(PdfExportMapper.marginPt, 80));
     });
 
+    test('free text prints at the editor scale, span size and color', () async {
+      Future<(int, int, int, int)> red(num size) async => (await render([
+        {
+          'id': 't1',
+          'kind': 'text',
+          'x': 96,
+          'y': 96,
+          'width': 640,
+          'height': 64,
+          'spans': [
+            {'text': 'HHHH', 'size': size, 'color': '#DC2626FF'},
+          ],
+        },
+      ])).box(isRed)!;
+      final big = await red(48);
+      final small = await red(24);
+      // No inset: the glyphs start at the box corner (H has a small bearing).
+      expect(big.$1, closeTo(PdfExportMapper.marginPt + 96 * scale, 3));
+      // Cap height follows the span size: twice the size, twice the height.
+      final hBig = big.$4 - big.$2, hSmall = small.$4 - small.$2;
+      expect(hBig, closeTo(48 * scale * 0.69, 2.5));
+      expect(hBig / hSmall, closeTo(2, 0.3));
+    });
+
     test('a shape keeps its fill and its line, not a gray box', () async {
       final raster = await render([
         {
