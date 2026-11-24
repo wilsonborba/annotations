@@ -14,12 +14,15 @@ typedef FakeJson = Map<String, Object?>;
 
 final class FakeRoomServer {
   /// A room that expires 15 minutes from now unless [expiresAt] is given.
-  FakeRoomServer({this.code = 'ROOM12', int? expiresAt})
+  FakeRoomServer({this.code = 'ROOM12', int? expiresAt, this.exists = true})
     : expiresAt =
           expiresAt ?? DateTime.now().millisecondsSinceEpoch ~/ 1000 + 900;
 
   final String code;
   final int expiresAt;
+
+  /// False until a `PUT /instant/{code}` creates the room.
+  bool exists;
   FakeJson page = {
     'width': 1000,
     'background': {'kind': 'blank'},
@@ -109,6 +112,19 @@ final class FakeRoomServer {
         ? const <String, Object?>{}
         : Map<String, Object?>.from(jsonDecode(req.body) as Map);
 
+    if (rest.isEmpty && req.method == 'PUT') {
+      if (exists) return _err(409, 'room_exists');
+      final b = Map<String, Object?>.from(jsonDecode(req.body) as Map);
+      if (_unknown(b, {'schema_version', 'document'})) {
+        return _err(422, 'unknown_field');
+      }
+      exists = true;
+      revision = 0;
+      final doc = Map<String, Object?>.from(b['document'] as Map);
+      page = Map<String, Object?>.from(doc['page'] as Map);
+      return _ok();
+    }
+    if (!exists) return _err(404, 'room_not_found');
     if (rest.isEmpty && req.method == 'GET') return _ok();
     if (rest.isEmpty && req.method == 'PATCH') {
       if (_unknown(body, {'expected_revision', 'operation'})) {

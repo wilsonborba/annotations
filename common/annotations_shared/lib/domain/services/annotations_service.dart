@@ -37,23 +37,4 @@ class AnnotationsService {
     method: 'POST',
     body: {'email': email, 'message': message},
   );
-  Future<Data> room(String code, {bool create = false}) => api.request(
-    '/instant/${Uri.encodeComponent(code)}',
-    method: create ? 'PUT' : 'GET',
-  );
-  Future<Data> remove(String code, String id) => api.request(
-    '/instant/${Uri.encodeComponent(code)}/items/${Uri.encodeComponent(id)}',
-    method: 'DELETE',
-  );
-  Future<Data> edit(
-    String code,
-    String text, {
-    String? id,
-    int? revision,
-    String kind = 'text',
-  }) => api.request(
-    '/instant/${Uri.encodeComponent(code)}/items',
-    method: 'POST',
-    body: {'kind': kind, 'text': text, 'id': ?id, 'revision': ?revision},
-  );
 }

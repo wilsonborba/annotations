@@ -20,6 +20,7 @@ import 'presentation/frontend/widgets/landing/landing_page.dart';
 import 'presentation/frontend/widgets/catalog/catalog_page.dart';
 import 'presentation/frontend/widgets/article/article_page.dart';
 import 'presentation/frontend/widgets/instant/instant_page.dart';
+import 'presentation/frontend/widgets/instant/instant_room_page.dart';
 
 class AnnotationsApp extends StatefulWidget {
   final AnnotationsService? service;
@@ -70,6 +71,16 @@ class _AnnotationsAppState extends State<AnnotationsApp> {
       observers: [ScreenTrailObserver(tracker)],
       routes: [
         GoRoute(path: '/', redirect: (_, _) => '/v1/home'),
+        // The shared editor takes the whole window, like the note editor
+        // (annotations#44); the site navigation stays on /v1/instant.
+        GoRoute(
+          path: '/v1/instant/:code',
+          builder: (_, state) => Scaffold(
+            body: SafeArea(
+              child: InstantRoomPage(code: state.pathParameters['code']!),
+            ),
+          ),
+        ),
         ShellRoute(
           builder: (_, state, child) =>
               PageShell(location: state.uri.path, child: child),
@@ -118,12 +129,7 @@ class _AnnotationsAppState extends State<AnnotationsApp> {
               path: '/v1/instant',
               builder: (_, _) => const ShellPage(child: InstantPage()),
             ),
-            GoRoute(
-              path: '/v1/instant/:code',
-              builder: (_, state) => ShellPage(
-                child: InstantPage(code: state.pathParameters['code']!),
-              ),
-            ),
+
             // Design review only: release builds have no gallery route.
             if (kDebugMode)
               GoRoute(

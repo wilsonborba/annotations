@@ -65,6 +65,10 @@ class PaperScreen extends StatefulWidget {
 
   /// Link previews from the server for cloud notes; local notes have none.
   final LinkPreviewSource? linkPreview;
+
+  /// Replaces the save state in the status panel: an Instant room shows its
+  /// sharing state there (annotations#44).
+  final Widget? status;
   const PaperScreen({
     super.key,
     required this.handler,
@@ -76,6 +80,7 @@ class PaperScreen extends StatefulWidget {
     this.onFocusChanged,
     this.attachments,
     this.linkPreview,
+    this.status,
   });
 
   @override
@@ -337,6 +342,7 @@ class _PaperScreenState extends State<PaperScreen> {
             child: PaperStatusPanel(
               handler: widget.handler,
               onFocus: () => _setFocus(true),
+              status: widget.status,
             ),
           ),
         ),
@@ -364,7 +370,15 @@ class PaperStatusPanel extends StatelessWidget {
 
   /// Starts Focus; the Focus button shows when it is set.
   final VoidCallback? onFocus;
-  const PaperStatusPanel({super.key, required this.handler, this.onFocus});
+
+  /// Shown instead of the save state (an Instant room's sharing state).
+  final Widget? status;
+  const PaperStatusPanel({
+    super.key,
+    required this.handler,
+    this.onFocus,
+    this.status,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -387,10 +401,11 @@ class PaperStatusPanel extends StatelessWidget {
         alignment: WrapAlignment.end,
         crossAxisAlignment: WrapCrossAlignment.center,
         children: [
-          SaveStateIndicator(
-            state: handler.saveState,
-            onRetry: handler.retrySave,
-          ),
+          status ??
+              SaveStateIndicator(
+                state: handler.saveState,
+                onRetry: handler.retrySave,
+              ),
           divider(),
           ListenableBuilder(
             listenable: Listenable.merge([handler, handler.preview]),
