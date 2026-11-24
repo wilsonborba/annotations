@@ -94,7 +94,7 @@ class PageShell extends StatelessWidget {
             )
           else
             LanguageSwitch(selected: prefs.locale, onChanged: prefs.language),
-          const SizedBox(width: 6),
+          SizedBox(width: width < 360 ? 2 : 6),
           track(
             'shell.theme.toggle',
             AppIconButton.navigation(
@@ -104,7 +104,8 @@ class PageShell extends StatelessWidget {
               onPressed: () => prefs.toggle(dark),
             ),
           ),
-          if (AppScope.of(context).account != null) const SizedBox(width: 8),
+          if (AppScope.of(context).account != null)
+            SizedBox(width: width < 360 ? 2 : 8),
           AccountControl(location: location, compact: width < 600),
           if (!wide)
             track(
@@ -136,7 +137,7 @@ class PageShell extends StatelessWidget {
                 ),
               ),
             ),
-          const SizedBox(width: 12),
+          SizedBox(width: width < 360 ? 6 : 12),
         ],
       ),
       // The router's navigator fills the body; each page scrolls on its
@@ -333,19 +334,26 @@ class _CompactLanguageSwitch extends StatelessWidget {
           PopupMenuItem<String>(
             key: Key('compact-language-$code'),
             value: code,
-            child: Semantics(
-              label: name,
-              selected: code == selected,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  SizedBox(width: 34, child: Text(shortName)),
-                  Text(name),
-                  if (code == selected) ...[
-                    const SizedBox(width: 12),
-                    const AppIcon(AppIcons.checkmarkCircle, size: 16),
+            child: track(
+              code == 'en'
+                  ? 'shell.language.english'
+                  : code == 'th'
+                  ? 'shell.language.thai'
+                  : 'shell.language.portuguese',
+              Semantics(
+                label: name,
+                selected: code == selected,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox(width: 34, child: Text(shortName)),
+                    Text(name),
+                    if (code == selected) ...[
+                      const SizedBox(width: 12),
+                      const AppIcon(AppIcons.checkmarkCircle, size: 16),
+                    ],
                   ],
-                ],
+                ),
               ),
             ),
           ),

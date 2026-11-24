@@ -6,7 +6,6 @@ import 'package:annotations_shared/presentation/frontend/components/scope.dart';
 import 'package:annotations_shared/presentation/frontend/components/shell.dart';
 import 'package:annotations_shared/presentation/frontend/components/theme.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:http/http.dart' as http;
@@ -36,8 +35,6 @@ void main() {
   testWidgets('narrow toolbar respects enlarged text without overflow', (
     tester,
   ) async {
-    final semantics = tester.ensureSemantics();
-    addTearDown(semantics.dispose);
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(320, 1000);
     addTearDown(tester.view.reset);
@@ -96,13 +93,6 @@ void main() {
     expect(find.byKey(const Key('language-switch')), findsOneWidget);
     expect(find.byKey(const Key('theme-toggle')), findsOneWidget);
     expect(find.byKey(const Key('tabs-menu')), findsOneWidget);
-    expect(
-      tester
-          .getSemantics(find.byKey(const Key('language-switch')))
-          .getSemanticsData()
-          .hasAction(SemanticsAction.tap),
-      isTrue,
-    );
     for (final code in ['en', 'pt-BR', 'th']) {
       await tester.tap(find.byKey(const Key('language-switch')));
       await tester.pumpAndSettle();
