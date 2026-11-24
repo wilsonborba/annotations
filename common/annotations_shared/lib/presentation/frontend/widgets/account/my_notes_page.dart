@@ -119,6 +119,7 @@ class _MyNotesPageState extends State<MyNotesPage> {
                 _SignedOut()
               else
                 FutureBuilder<List<MyNoteSummary>>(
+                  key: ObjectKey(account),
                   future: _notes,
                   builder: (context, snap) {
                     if (snap.hasError) {
