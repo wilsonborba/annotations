@@ -63,18 +63,22 @@ class BrowsePage extends StatelessWidget {
 
   final DiscoveryQuery query;
 
-  void _go(BuildContext context, DiscoveryQuery q) => context.go(
-    Uri(
-      path: '/v1/menu',
-      queryParameters: {
-        if (q.q.isNotEmpty) 'q': q.q,
-        if (q.tag != null) 'tag': q.tag!,
-        if (q.authorId != null) 'author': q.authorId!,
-        if (q.language != null) 'language': q.language!,
-        if (q.projectId != null) 'project': q.projectId!,
-      },
-    ).toString(),
-  );
+  void _go(BuildContext context, DiscoveryQuery q) {
+    final params = {
+      if (q.q.isNotEmpty) 'q': q.q,
+      if (q.tag != null) 'tag': q.tag!,
+      if (q.authorId != null) 'author': q.authorId!,
+      if (q.language != null) 'language': q.language!,
+      if (q.projectId != null) 'project': q.projectId!,
+    };
+    // No filter: the plain address, without an empty "?".
+    context.go(
+      Uri(
+        path: '/v1/menu',
+        queryParameters: params.isEmpty ? null : params,
+      ).toString(),
+    );
+  }
 
   DiscoveryQuery _with({
     String? q,
