@@ -16,6 +16,12 @@ MODE="${1:-all}"
 
 build_linux() {
   cargo build --manifest-path "$CRATE_DIR/Cargo.toml" --locked --release --lib
+  local default_out="$CRATE_DIR/target/release/libpdf_krilla.so"
+  local built_out="$TARGET_DIR/release/libpdf_krilla.so"
+  if [ "$built_out" != "$default_out" ] && [ -f "$built_out" ]; then
+    mkdir -p "$(dirname "$default_out")"
+    cp "$built_out" "$default_out"
+  fi
 }
 
 build_wasm() {

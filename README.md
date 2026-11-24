@@ -53,9 +53,11 @@ API_BASE_URL=http://127.0.0.1:18111 apps/cloud/scripts/build_cloudflare.sh
 
 PDF export uses `krilla 0.7.0` and `icu_segmenter 2.4.0` from `native/pdf_krilla`
 via `dart:ffi` on native platforms and `wasm32` in the browser. Compiled outputs
-are gitignored and built on demand by `scripts/build_pdf_krilla.sh`:
+are gitignored; on a fresh checkout `flutter analyze` and `flutter test` pass
+(krilla native/wasm tests skip cleanly when unbuilt). Build the renderer on
+demand with `scripts/build_pdf_krilla.sh`:
 
-- Linux & Web (`pdf_krilla.wasm`): `./scripts/build_pdf_krilla.sh all` (also run automatically by `apps/local/linux/CMakeLists.txt` and `apps/cloud/scripts/build_cloudflare.sh`).
+- Linux & Web (`pdf_krilla.wasm`): `./scripts/build_pdf_krilla.sh all` (builds both outputs so `krilla_pdf_ffi_test.dart` executes in full; also run automatically by `apps/local/linux/CMakeLists.txt` and `apps/cloud/scripts/build_cloudflare.sh`).
 - Android: built automatically by `apps/local/android/app/build.gradle.kts` (`./scripts/build_pdf_krilla.sh android`).
 - macOS & iOS (run on a Mac with Xcode + `aarch64-apple-darwin`, `x86_64-apple-darwin`, `aarch64-apple-ios`, `aarch64-apple-ios-sim` Rust targets installed):
   `cd apps/local && flutter build macos --debug && flutter build ios --no-codesign --debug` (their Xcode `Run Script` phases invoke `scripts/build_pdf_krilla.sh macos` / `ios` and link the static library via `-force_load`).
