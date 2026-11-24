@@ -567,7 +567,7 @@ void main() {
       final paper = PaperHandler(
         noteId: 'n1',
         document: doc,
-        autosave: NoteAutosave(const ReadOnlyNoteStore()),
+        autosave: NoteAutosave(ReadOnlyNoteStore()),
       );
       final handler = AttachmentHandler(
         paper: paper,

@@ -582,6 +582,7 @@ class _ReaderPageState extends State<ReaderPage> {
     _paper?.dispose();
     final doc = note.activeDocument;
     if (doc != null) {
+      final api = AppScope.of(context).service.api;
       final schema = DocumentSchema(
         note.activeView == NoteViewMode.typed ? 'note-typed' : 'note-original',
         1,
@@ -592,7 +593,14 @@ class _ReaderPageState extends State<ReaderPage> {
           readablePublicDocument(doc),
           schema: schema,
         ),
-        autosave: NoteAutosave(const ReadOnlyNoteStore()),
+        autosave: NoteAutosave(
+          ReadOnlyNoteStore(
+            noteId: note.noteId,
+            view: note.activeView.name,
+            apiBase: api.base,
+            client: api.client,
+          ),
+        ),
       );
     }
     return note;
