@@ -92,7 +92,12 @@ class FakeGateway {
         });
         final heldResponse = holdNextNotesResponse;
         holdNextNotesResponse = null;
-        return heldResponse == null ? response : heldResponse.future;
+        return heldResponse == null
+            ? response
+            : heldResponse.future.then((result) {
+                calls.add('NOTES_RESPONSE_RELEASED');
+                return result;
+              });
     }
     return json({'detail': 'Not Found'}, 404);
   }
@@ -566,10 +571,19 @@ void main() {
       final delayed = Completer<http.Response>();
       g.holdNextNotesResponse = delayed;
       await openApp(tester, g, '/v1/me/notes', settle: false);
-      await tester.pumpAndSettle();
-      expect(find.byKey(const Key('my-notes-loading')), findsOneWidget);
+      await tester.pump();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 10)),
+      );
+      await tester.pump();
+      expect(g.count('GET /user/info/v1/'), 1);
+      expect(g.count('GET /apps/annotations/v1/me/notes'), 1);
+      expect(g.holdNextNotesResponse, isNull, reason: 'the A request is held');
+      expect(find.text('A private note'), findsNothing);
+      final oldGuard = g.account.captureSessionGuard();
 
       g.cookies['csrf'] = 'csrf-b';
+      expect(g.account.isCurrentSession(oldGuard), isFalse);
       g.email = 'bea@example.com';
       g.notes = [
         {
@@ -593,9 +607,15 @@ void main() {
           'sync_cursor': 'old-a',
         }),
       );
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 10)),
+      );
       await tester.pump();
       expect(find.text('A private note'), findsNothing);
       await tester.pumpAndSettle();
+      expect(g.calls, contains('NOTES_RESPONSE_RELEASED'));
+      expect(g.calls, contains('GET /user/info/v1/'));
+      expect(g.account.email, 'bea@example.com');
       expect(find.text('B private note'), findsOneWidget);
       expect(find.text('A private note'), findsNothing);
     });
