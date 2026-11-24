@@ -317,7 +317,11 @@ void main() {
       );
 
       final backup = NoteBackupService();
-      final package = await backup.exportPackage(store, conflictCopy.id);
+      final package = await backup.exportPackage(
+        store,
+        conflictCopy.id,
+        accountId: 'acc_1',
+      );
       final restored = await backup.restorePackage(
         store,
         package,
@@ -417,6 +421,8 @@ void main() {
         representation: PublicationRepresentation.both,
         publicationRevision: 4,
         allowRestrictedEmbeds: true,
+        originalRevisionId: 'rev_orig_1',
+        typedRevisionId: 'rev_typed_1',
       );
       expect(ok.published, isTrue);
       expect(calls.last.method, 'PUT');
@@ -687,7 +693,11 @@ void main() {
       expect(await service.notesForAccount('acc_2'), isEmpty);
 
       final backup = NoteBackupService();
-      final pkg = await backup.exportPackage(store, 'n_acc1');
+      final pkg = await backup.exportPackage(
+        store,
+        'n_acc1',
+        accountId: 'acc_1',
+      );
       final restored = await backup.restorePackage(
         store,
         pkg,
@@ -1129,6 +1139,7 @@ void main() {
       final pkg = await NoteBackupService().exportPackage(
         store,
         'local_only_1',
+        accountId: 'acc_2',
       );
       final restored = await NoteBackupService().restorePackage(
         store,
