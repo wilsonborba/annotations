@@ -10,11 +10,16 @@ import 'package:http/http.dart' as http;
 import 'core/settings.dart';
 import 'dal/remote/browser/session_browser.dart' as browser;
 import 'domain/services/account_service.dart';
+import 'domain/services/local_workspace.dart';
 import 'domain/services/my_notes_service.dart';
 import 'domain/services/preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'presentation/frontend/widgets/account/my_notes_page.dart';
 import 'presentation/frontend/widgets/account/sync_page.dart';
+import 'presentation/frontend/widgets/workspace/intro_page.dart';
+import 'presentation/frontend/widgets/workspace/note_editor_page.dart';
+import 'presentation/frontend/widgets/workspace/workspace_page.dart';
+import 'presentation/frontend/widgets/workspace/writer_shell.dart';
 import 'domain/services/annotations_service.dart';
 import 'presentation/frontend/components/scope.dart';
 import 'presentation/frontend/components/shell.dart';
@@ -39,8 +44,17 @@ class AnnotationsApp extends StatefulWidget {
   /// the installed apps (annotations#38).
   final AccountService? account;
   final MyNotesService? myNotes;
+
+  /// The notes on this device. Installed apps give it and open the writer
+  /// workspace (first start: the intro); the browser has none.
+  final LocalWorkspace? workspace;
+
+  /// True when the intro was seen (installed apps).
+  final bool introSeen;
   const AnnotationsApp({
     super.key,
+    this.workspace,
+    this.introSeen = true,
     this.account,
     this.myNotes,
     this.service,
@@ -105,10 +119,28 @@ class _AnnotationsAppState extends State<AnnotationsApp> {
       httpStatus: error is ApiError ? error.status : null,
     );
     router = GoRouter(
-      initialLocation: widget.initialLocation,
+      initialLocation:
+          widget.initialLocation ??
+          (widget.workspace == null
+              ? null
+              : widget.introSeen
+              ? '/v1/write'
+              : '/v1/welcome'),
       observers: [ScreenTrailObserver(tracker)],
       routes: [
         GoRoute(path: '/', redirect: (_, _) => '/v1/home'),
+        if (widget.workspace != null) ...[
+          GoRoute(path: '/v1/welcome', builder: (_, _) => const IntroPage()),
+          GoRoute(
+            path: '/v1/write',
+            builder: (_, _) => const WriterShell(child: WorkspacePage()),
+          ),
+          GoRoute(
+            path: '/v1/write/:id',
+            builder: (_, state) =>
+                NoteEditorPage(noteId: state.pathParameters['id']!),
+          ),
+        ],
         GoRoute(
           path: AccountService.syncPath,
           builder: (_, state) => Scaffold(
@@ -211,6 +243,7 @@ class _AnnotationsAppState extends State<AnnotationsApp> {
       service: service,
       account: account,
       myNotes: myNotes,
+      workspace: widget.workspace,
       child: MaterialApp.router(
         title: 'Annotations',
         debugShowCheckedModeBanner: false,

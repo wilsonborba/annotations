@@ -555,6 +555,41 @@
       "path": "account > notes > sign_in",
       "description": "Sign in button on My notes when signed out.",
       "source": "lib/presentation/frontend/widgets/account/my_notes_page.dart"
+    },
+    {
+      "id": "intro.skip",
+      "label": "Intro skip",
+      "path": "intro > skip",
+      "description": "Skip on the installed first-start screens.",
+      "source": "lib/presentation/frontend/widgets/workspace/intro_page.dart"
+    },
+    {
+      "id": "intro.next",
+      "label": "Intro next",
+      "path": "intro > next",
+      "description": "Next or Start writing on the installed first-start screens.",
+      "source": "lib/presentation/frontend/widgets/workspace/intro_page.dart"
+    },
+    {
+      "id": "workspace.note.new",
+      "label": "Workspace note new",
+      "path": "workspace > note > new",
+      "description": "New note in the writer workspace.",
+      "source": "lib/presentation/frontend/widgets/workspace/workspace_page.dart"
+    },
+    {
+      "id": "workspace.backup.restore",
+      "label": "Workspace backup restore",
+      "path": "workspace > backup > restore",
+      "description": "Restore a note backup file in the writer workspace.",
+      "source": "lib/presentation/frontend/widgets/workspace/workspace_page.dart"
+    },
+    {
+      "id": "workspace.note.back",
+      "label": "Workspace note back",
+      "path": "workspace > note > back",
+      "description": "Back from the editor to the writer workspace.",
+      "source": "lib/presentation/frontend/widgets/workspace/note_editor_page.dart"
     }
   ]
 }

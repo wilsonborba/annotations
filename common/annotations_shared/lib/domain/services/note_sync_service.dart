@@ -448,6 +448,13 @@ class ProjectTagCatalog {
 
   String? projectForNote(String noteId) => _projectByNoteId[noteId];
 
+  /// Every project: id to display name (the workspace filter, #38).
+  Map<String, String> get projects => Map.unmodifiable(_projectNamesById);
+
+  /// Every tag in use, sorted (the workspace filter, #38).
+  List<String> get tags =>
+      ({for (final t in _tagsByNoteId.values) ...t}.toList()..sort());
+
   void addTag(String noteId, String tag) {
     final clean = tag.trim().toLowerCase();
     if (clean.isEmpty) return;

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../domain/services/account_service.dart';
+import '../../../domain/services/local_workspace.dart';
 import '../../../domain/services/my_notes_service.dart';
 import '../../../domain/services/preferences.dart';
 import '../../../domain/services/annotations_service.dart';
@@ -15,12 +16,16 @@ class AppScope extends InheritedWidget {
 
   /// The signed-in user's notes in the browser (read only).
   final MyNotesService? myNotes;
+
+  /// The writer workspace of an installed app; null in the browser.
+  final LocalWorkspace? workspace;
   const AppScope({
     super.key,
     required this.preferences,
     required this.service,
     this.account,
     this.myNotes,
+    this.workspace,
     required super.child,
   });
   static AppScope of(BuildContext context) =>

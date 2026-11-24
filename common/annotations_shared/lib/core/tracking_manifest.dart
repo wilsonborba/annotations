@@ -360,6 +360,31 @@ const annotationElements = <String, TrailElement>{
     label: 'Account notes sign in',
     path: 'account > notes > sign_in',
   ),
+  'intro.skip': TrailElement(
+    id: 'intro.skip',
+    label: 'Intro skip',
+    path: 'intro > skip',
+  ),
+  'intro.next': TrailElement(
+    id: 'intro.next',
+    label: 'Intro next',
+    path: 'intro > next',
+  ),
+  'workspace.note.new': TrailElement(
+    id: 'workspace.note.new',
+    label: 'Workspace note new',
+    path: 'workspace > note > new',
+  ),
+  'workspace.backup.restore': TrailElement(
+    id: 'workspace.backup.restore',
+    label: 'Workspace backup restore',
+    path: 'workspace > backup > restore',
+  ),
+  'workspace.note.back': TrailElement(
+    id: 'workspace.note.back',
+    label: 'Workspace note back',
+    path: 'workspace > note > back',
+  ),
   'shell.navigation.instant': TrailElement(
     id: 'shell.navigation.instant',
     label: 'Shell navigation instant',
