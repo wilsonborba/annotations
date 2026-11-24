@@ -43,19 +43,25 @@ class _MyNotesPageState extends State<MyNotesPage> {
   void _changed() {
     if (_account?.signedIn == true && _notes == null) _load();
     if (_account?.signedIn != true && _notes != null) {
-      setState(() => _notes = null);
+      setState(() {
+        _notes = null;
+      });
     }
   }
 
   void _load() {
     final service = AppScope.of(context).myNotes;
     if (service == null) return;
-    setState(() {
-      _notes = service.list().catchError((Object e) {
-        // A refused call: the session is dead. Signed out once, no loop.
+    final notes = service.list();
+    // A refused call: the session is dead. Signed out once, no loop.
+    notes.then(
+      (_) {},
+      onError: (Object e) {
         if (e is MyNotesError && e.refused) _account?.expire();
-        throw e;
-      });
+      },
+    );
+    setState(() {
+      _notes = notes;
     });
   }
 

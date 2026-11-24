@@ -48,10 +48,18 @@ void signInOrOpen(BuildContext context, {String? returnTo}) {
 /// in. While the live check runs it keeps its place and shows nothing, so
 /// a signed-in user never sees Sign in flash.
 class AccountControl extends StatelessWidget {
-  const AccountControl({super.key, required this.location});
+  const AccountControl({
+    super.key,
+    required this.location,
+    this.compact = false,
+  });
 
   /// The current page, to come back to after the login.
   final String location;
+
+  /// On a phone the bar has no room for the Sign in button: it is the
+  /// first row of the bar menu instead ([accountMenuEntries]).
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
@@ -65,6 +73,7 @@ class AccountControl extends StatelessWidget {
           width: 36,
           height: 36,
         ),
+        AccountStatus.signedOut when compact => const SizedBox.shrink(),
         AccountStatus.signedOut => track(
           'shell.account.sign_in',
           AppButton.subtle(
@@ -230,4 +239,25 @@ class _AvatarState extends State<_Avatar> {
       ),
     );
   }
+}
+
+/// The Sign in row of the bar menu on a phone, when signed out.
+List<AppMenuEntry> accountMenuEntries(BuildContext context, String location) {
+  final account = AppScope.of(context).account;
+  if (account == null || account.status != AccountStatus.signedOut) {
+    return const [];
+  }
+  return [
+    AppMenuEntry(
+      key: const Key('menu-sign-in'),
+      label: context.tr('signIn'),
+      onSelected: () {
+        trackChoice(context, 'shell.account.sign_in', 'menu');
+        signInOrOpen(
+          context,
+          returnTo: location.startsWith('/v1/') ? location : null,
+        );
+      },
+    ),
+  ];
 }
