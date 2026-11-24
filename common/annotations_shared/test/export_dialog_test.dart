@@ -125,6 +125,30 @@ class _MissingFileStore implements LocalNoteStore {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+LocalNote _pairedCandidate({
+  required String id,
+  required DocumentSchema schema,
+  String? title = 'Biology Notes',
+  String? accountId,
+  String? serverNoteId,
+}) {
+  final now = DateTime.utc(2026);
+  return LocalNote(
+    id: id,
+    schema: schema,
+    document: schema.family == DocumentFamily.typed
+        ? _typedDoc()
+        : _originalDoc(),
+    title: title,
+    revision: 1,
+    createdAt: now,
+    updatedAt: now,
+    syncState: LocalSyncState.local,
+    accountId: accountId,
+    serverNoteId: serverNoteId,
+  );
+}
+
 void main() {
   late Directory cache;
   late Directory root;
@@ -147,6 +171,60 @@ void main() {
   });
 
   group('ExportHandler & B13 coverage', () {
+    test('Both is limited to the saved transcription pair', () {
+      final original = _pairedCandidate(
+        id: 'n1',
+        schema: _origSchema,
+        accountId: 'account-a',
+        serverNoteId: 'server-note-a',
+      );
+      final validTyped = _pairedCandidate(
+        id: 'n1__typed',
+        schema: _typedSchema,
+        accountId: null,
+      );
+      final valid = ExportHandler(
+        note: original,
+        pairedNote: validTyped,
+        store: _MissingFileStore(),
+      );
+      expect(valid.modes, contains(PdfExportMode.both));
+      valid.dispose();
+
+      for (final unrelated in [
+        _pairedCandidate(
+          id: 'n1__typed',
+          schema: _typedSchema,
+          title: 'Different note',
+        ),
+        _pairedCandidate(
+          id: 'n1__typed',
+          schema: _typedSchema,
+          accountId: 'account-b',
+        ),
+        _pairedCandidate(
+          id: 'n1__typed',
+          schema: _typedSchema,
+          serverNoteId: 'different-cloud-note',
+        ),
+        _pairedCandidate(id: 'custom-typed-id', schema: _typedSchema),
+      ]) {
+        final handler = ExportHandler(
+          note: original,
+          pairedNote: unrelated,
+          store: _MissingFileStore(),
+        );
+        expect(
+          handler.modes,
+          isNot(contains(PdfExportMode.both)),
+          reason:
+              'unrelated ${unrelated.id}, ${unrelated.title}, '
+              '${unrelated.accountId}, ${unrelated.serverNoteId}',
+        );
+        handler.dispose();
+      }
+    });
+
     testWidgets(
       'paired representation enables Original/Typed/Both, builds two PDFs, previews both, and zips both without companions',
       (tester) async {
@@ -523,13 +601,14 @@ void main() {
                 },
               {
                 'id': 'rep_priv',
-                'kind': 'report_embed',
+                'kind': 'reports_embed',
                 'x': 20,
                 'y': 700,
                 'width': 300,
                 'height': 80,
-                'ref_id': 'chart_secret',
-                'visibility': 'private',
+                'report_id': 'chart_secret',
+                'mode': 'live',
+                'source': 'upload',
               },
             ],
           ),

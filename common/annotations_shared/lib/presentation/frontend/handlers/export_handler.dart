@@ -30,11 +30,14 @@ enum ExportStage { idle, working, preflight, ready, saved, failed }
 
 const _typedSuffix = '__typed';
 
-/// Returns the paired note id when one representation links to another
-/// (e.g. `<id>` <-> `<id>__typed`), without triggering transcription.
-String pairedRepresentationId(String noteId) => noteId.endsWith(_typedSuffix)
-    ? noteId.substring(0, noteId.length - _typedSuffix.length)
-    : '$noteId$_typedSuffix';
+/// Returns the paired note id used by the existing local typed-copy creation
+/// contract without triggering transcription. A custom typed id has no
+/// persisted source link, so it cannot be discovered here.
+String pairedRepresentationId(String noteId, {required bool noteIsTyped}) {
+  if (!noteIsTyped) return '$noteId$_typedSuffix';
+  if (!noteId.endsWith(_typedSuffix)) return '';
+  return noteId.substring(0, noteId.length - _typedSuffix.length);
+}
 
 /// The export of one local note (annotations#42, B13 points 1, 2, 5, 6, 9):
 /// choose Original, Typed, or Both when both reviewed representations exist;
@@ -53,7 +56,7 @@ class ExportHandler extends ChangeNotifier {
   }) : _mapper = mapper ?? PdfExportMapper(),
        _render = renderPages ?? renderPdfPages,
        _saveLocation = saveLocation ?? _pickSave {
-    if (pairedNote != null && pairedNote.schema.family != note.schema.family) {
+    if (_isPairedRepresentation(pairedNote)) {
       _pairedNote = pairedNote;
       _pairedLoaded = true;
     }
@@ -70,6 +73,31 @@ class ExportHandler extends ChangeNotifier {
 
   LocalNote? _pairedNote;
   bool _pairedLoaded = false;
+  Future<void>? _pairedLoad;
+
+  bool _isPairedRepresentation(LocalNote? candidate) {
+    if (candidate == null || candidate.schema.family == note.schema.family) {
+      return false;
+    }
+    // acceptToTypedNote uses the original id plus this suffix and copies its
+    // title. Reject a same-suffix record if its title or known cloud identity
+    // says that it belongs to another note/account.
+    if (candidate.id != pairedRepresentationId(note.id, noteIsTyped: typed) ||
+        candidate.title != note.title) {
+      return false;
+    }
+    if (note.accountId != null &&
+        candidate.accountId != null &&
+        note.accountId != candidate.accountId) {
+      return false;
+    }
+    if (note.serverNoteId != null &&
+        candidate.serverNoteId != null &&
+        note.serverNoteId != candidate.serverNoteId) {
+      return false;
+    }
+    return true;
+  }
 
   bool get typed => note.schema.family == DocumentFamily.typed;
 
@@ -104,7 +132,7 @@ class ExportHandler extends ChangeNotifier {
   bool _placeholders = false;
   static pw.Font? _bundledLatin;
   static pw.Font? _bundledThai;
-  static bool _fontsChecked = false;
+  static Future<void>? _fontLoad;
 
   Future<void> choose({
     PdfExportMode? mode,
@@ -127,20 +155,32 @@ class ExportHandler extends ChangeNotifier {
     return trimmed.isEmpty ? 'note' : trimmed;
   }
 
-  Future<void> _ensurePairedLoaded() async {
-    if (_pairedLoaded) return;
-    _pairedLoaded = true;
-    final candidateId = pairedRepresentationId(note.id);
-    if (candidateId.isEmpty || candidateId == note.id) return;
-    final loaded = await store.load(candidateId);
-    if (loaded != null && loaded.schema.family != note.schema.family) {
-      _pairedNote = loaded;
+  Future<void> _ensurePairedLoaded() {
+    if (_pairedLoaded) return Future<void>.value();
+    return _pairedLoad ??= _loadPairedNote();
+  }
+
+  Future<void> _loadPairedNote() async {
+    try {
+      final candidateId = pairedRepresentationId(note.id, noteIsTyped: typed);
+      if (candidateId.isEmpty || candidateId == note.id) {
+        _pairedLoaded = true;
+        return;
+      }
+      final loaded = await store.load(candidateId);
+      if (_isPairedRepresentation(loaded)) {
+        _pairedNote = loaded;
+      }
+      _pairedLoaded = true;
+    } finally {
+      _pairedLoad = null;
     }
   }
 
-  static Future<void> _ensureBundledFonts() async {
-    if (_fontsChecked) return;
-    _fontsChecked = true;
+  static Future<void> _ensureBundledFonts() =>
+      _fontLoad ??= _loadBundledFonts();
+
+  static Future<void> _loadBundledFonts() async {
     Future<pw.Font?> load(String fileName) async {
       for (final path in [
         'packages/annotations_shared/lib/presentation/frontend/assets/fonts/$fileName',
@@ -176,6 +216,30 @@ class ExportHandler extends ChangeNotifier {
     final old = previewPdfs;
     previewPdfs = next;
     _disposePreviewGroups(old);
+  }
+
+  static Set<String> _reportIds(Iterable<NoteDocument?> documents) {
+    final ids = <String>{};
+    void scan(Object? value) {
+      if (value is Map) {
+        if (value['kind'] == 'reports_embed') {
+          final id = value['report_id'];
+          if (id is String && id.isNotEmpty) ids.add(id);
+        }
+        for (final nested in value.values) {
+          scan(nested);
+        }
+      } else if (value is List) {
+        for (final nested in value) {
+          scan(nested);
+        }
+      }
+    }
+
+    for (final document in documents) {
+      if (document != null) scan(document.toJson());
+    }
+    return ids;
   }
 
   /// Runs the preflight and builds the PDF(s) and their preview.
@@ -224,6 +288,12 @@ class ExportHandler extends ChangeNotifier {
           continueWithPlaceholders: _placeholders,
         ),
         availableFileIds: attachments.keys.toSet(),
+        // The note stores report IDs, not frozen chart data, and this
+        // frontend currently has no Reports snapshot renderer.
+        failedChartIds: _reportIds([
+          if (includeOriginal) originalNote!.document,
+          if (includeTyped) typedNote!.document,
+        ]),
         attachments: attachments,
         baseFont: _bundledLatin,
         thaiFont: _bundledThai,
@@ -315,9 +385,9 @@ class ExportHandler extends ChangeNotifier {
   Future<bool> save() async {
     if (_disposed || stage != ExportStage.ready) return false;
     saveError = false;
-    final path = await _saveLocation(fileName);
-    if (_disposed || path == null) return false;
     try {
+      final path = await _saveLocation(fileName);
+      if (_disposed || path == null) return false;
       await File(path).writeAsBytes(bytes(), flush: true);
     } on Object {
       if (_disposed) return false;

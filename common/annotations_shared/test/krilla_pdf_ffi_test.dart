@@ -120,10 +120,12 @@ void main() {
         },
         {
           'id': 'chart_pub',
-          'kind': 'report_embed',
-          'ref_id': 'rep_1',
-          'visibility': 'public',
-          'title': 'Public Metrics',
+          'kind': 'reports_embed',
+          'report_id': 'rep_1',
+          'mode': 'snapshot',
+          'source': 'link',
+          'snapshot_id': 'snap_1',
+          'captured_at': 1795520000,
           'x': 20,
           'y': 100,
           'width': 400,
@@ -131,10 +133,12 @@ void main() {
         },
         {
           'id': 'chart_priv',
-          'kind': 'report_embed',
-          'ref_id': 'rep_2',
-          'visibility': 'private',
-          'title': 'Secret Revenue Chart',
+          'kind': 'reports_embed',
+          'report_id': 'rep_2',
+          'mode': 'snapshot',
+          'source': 'upload',
+          'snapshot_id': 'snap_2',
+          'captured_at': 1795520000,
           'x': 20,
           'y': 240,
           'width': 400,
@@ -150,7 +154,9 @@ void main() {
       options: const PdfExportOptions(
         mode: PdfExportMode.original,
         audience: PdfAudience.public,
+        continueWithPlaceholders: true,
       ),
+      failedChartIds: const {'rep_1', 'rep_2'},
       regularFontBytes: regularFont,
       boldFontBytes: boldFont,
     );
@@ -167,13 +173,19 @@ void main() {
       options: const PdfExportOptions(
         mode: PdfExportMode.original,
         audience: PdfAudience.personal,
+        continueWithPlaceholders: true,
       ),
+      failedChartIds: const {'rep_1', 'rep_2'},
       regularFontBytes: regularFont,
       boldFontBytes: boldFont,
     );
     expect(persOut.engine, 'krilla');
     final persText = extractAndMaybeDump(persOut.pdfs.first.bytes, 'mixed_personal');
-    expect(persText, contains('Secret Revenue Chart'));
+    expect(persOut.preflight.hasPrivateChartWarning, isTrue);
+    expect(
+      persText.replaceAll(RegExp(r'\s+'), ''),
+      contains('Reportsnapshotunavailable(markedplaceholder)'),
+    );
 
     // 3. Oversized item
     final oversizedDoc = NoteDocument.fromJson({

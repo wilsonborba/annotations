@@ -170,18 +170,20 @@ class PdfExportMapper {
             ),
           );
         }
-        if (kind == 'report_embed') {
-          final refId = '${node['ref_id'] ?? node['id'] ?? ''}';
+        if (kind == 'reports_embed') {
+          final refId = '${node['report_id'] ?? ''}';
           if (failedChartIds.contains(refId)) {
             issues.add(
               PdfPreflightIssue(
                 kind: 'failed_chart',
                 refId: refId,
-                message: 'Chart $refId failed to load.',
+                message: 'Report snapshot $refId is unavailable.',
               ),
             );
           }
-          if ('${node['visibility'] ?? 'public'}' != 'public') {
+          // Access visibility is owned by Reports, not the note document.
+          // Warn for every personal export; public output uses a lock notice.
+          if (options.audience == PdfAudience.personal) {
             hasPrivateChartWarning = true;
           }
         }
@@ -272,28 +274,28 @@ class PdfExportMapper {
     Uint8List? regularFontBytes,
     Uint8List? boldFontBytes,
   }) async {
+    final krillaReady = await KrillaPdfBackend.isAvailable();
+    final resolvedRegular = krillaReady
+        ? (regularFontBytes ??
+              await _tryLoadBundledFont('IBMPlexSansThai-Regular.ttf'))
+        : null;
+    final resolvedBold = krillaReady
+        ? (boldFontBytes ??
+              await _tryLoadBundledFont('IBMPlexSansThai-Bold.ttf'))
+        : null;
+    final useKrilla = krillaReady && resolvedRegular != null;
     final pre = preflight(
       original: original,
       typed: typed,
       options: options,
       availableFileIds: availableFileIds,
       failedChartIds: failedChartIds,
+      fontsAvailable: useKrilla || (baseFont != null && thaiFont != null),
     );
 
     if (!pre.ok && !options.continueWithPlaceholders) {
       return PdfExportOutput(preflight: pre, pdfs: const []);
     }
-
-    final krillaReady = await KrillaPdfBackend.isAvailable();
-    final resolvedRegular = krillaReady
-        ? (regularFontBytes ??
-            await _tryLoadBundledFont('IBMPlexSansThai-Regular.ttf'))
-        : null;
-    final resolvedBold = krillaReady
-        ? (boldFontBytes ??
-            await _tryLoadBundledFont('IBMPlexSansThai-Bold.ttf'))
-        : null;
-    final useKrilla = krillaReady && resolvedRegular != null;
 
     final pdfs = <PdfNamedFile>[];
     final companions = <PdfCompanionFile>[];
@@ -359,12 +361,11 @@ class PdfExportMapper {
     required String kind,
     required PdfExportOptions options,
   }) {
-    if (kind == 'report_embed') {
-      final visibility = '${item['visibility'] ?? 'public'}';
-      if (options.audience == PdfAudience.public && visibility != 'public') {
+    if (kind == 'reports_embed') {
+      if (options.audience == PdfAudience.public) {
         return 'Restricted content (lock notice)';
       }
-      return 'Report snapshot: ${item['title'] ?? item['ref_id'] ?? 'chart'}';
+      return 'Report snapshot unavailable (marked placeholder)';
     }
     if (kind == 'task') {
       final taskTitle = '${item['title'] ?? 'Task'}';
@@ -561,11 +562,14 @@ class PdfExportMapper {
               strokes.add({'points': poly, 'width': 1.2});
             }
           } else {
-            final summary = _itemTextSummary(item, kind: kind, options: options);
+            final summary = _itemTextSummary(
+              item,
+              kind: kind,
+              options: options,
+            );
             final isRestricted =
-                kind == 'report_embed' &&
-                options.audience == PdfAudience.public &&
-                '${item['visibility'] ?? 'public'}' != 'public';
+                kind == 'reports_embed' &&
+                options.audience == PdfAudience.public;
             final fontSize = kind == 'text' ? 10.0 : 9.0;
             runs.add({
               'text': summary,
@@ -630,11 +634,9 @@ class PdfExportMapper {
           'keep_with_next': true,
           'space_after': 6.0,
         });
-      } else if (kind == 'report_embed' || kind == 'task' || kind == 'quiz') {
+      } else if (kind == 'reports_embed' || kind == 'task' || kind == 'quiz') {
         final isRestricted =
-            kind == 'report_embed' &&
-            options.audience == PdfAudience.public &&
-            '${b['visibility'] ?? 'public'}' != 'public';
+            kind == 'reports_embed' && options.audience == PdfAudience.public;
         blocksOut.add({
           'kind': kind,
           'text': _itemTextSummary(b, kind: kind, options: options),
@@ -883,16 +885,15 @@ class PdfExportMapper {
     required double width,
     required double height,
   }) {
-    if (kind == 'report_embed') {
-      final visibility = '${item['visibility'] ?? 'public'}';
-      if (options.audience == PdfAudience.public && visibility != 'public') {
+    if (kind == 'reports_embed') {
+      if (options.audience == PdfAudience.public) {
         return pw.Text(
           'Restricted content (lock notice)',
           style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700),
         );
       }
       return pw.Text(
-        'Report snapshot: ${item['title'] ?? item['ref_id'] ?? 'chart'}',
+        'Report snapshot unavailable (marked placeholder)',
         style: const pw.TextStyle(fontSize: 9),
       );
     }
@@ -1033,7 +1034,7 @@ class PdfExportMapper {
         ),
       ];
     }
-    if (kind == 'report_embed' || kind == 'task' || kind == 'quiz') {
+    if (kind == 'reports_embed' || kind == 'task' || kind == 'quiz') {
       return [
         pw.Padding(
           padding: const pw.EdgeInsets.symmetric(vertical: 4),

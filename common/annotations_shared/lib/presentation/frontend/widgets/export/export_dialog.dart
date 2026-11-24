@@ -242,19 +242,37 @@ class _ExportDialogState extends State<ExportDialog> {
                                 for (final page in group.pages)
                                   Padding(
                                     padding: const EdgeInsets.only(bottom: 16),
-                                    child: Center(
-                                      child: DecoratedBox(
-                                        decoration: BoxDecoration(
-                                          border: Border.all(color: c.border),
-                                        ),
-                                        child: RawImage(
-                                          key: Key(
-                                            'preview-page-${flatIndex++}',
+                                    child: LayoutBuilder(
+                                      builder: (context, constraints) {
+                                        final naturalWidth = page.width / 1.5;
+                                        final availableWidth =
+                                            (constraints.maxWidth - 32)
+                                                .clamp(
+                                                  1.0,
+                                                  constraints.maxWidth,
+                                                )
+                                                .toDouble();
+                                        final previewWidth =
+                                            naturalWidth > availableWidth
+                                            ? availableWidth
+                                            : naturalWidth;
+                                        return Center(
+                                          child: DecoratedBox(
+                                            decoration: BoxDecoration(
+                                              border: Border.all(
+                                                color: c.border,
+                                              ),
+                                            ),
+                                            child: RawImage(
+                                              key: Key(
+                                                'preview-page-${flatIndex++}',
+                                              ),
+                                              image: page,
+                                              width: previewWidth,
+                                            ),
                                           ),
-                                          image: page,
-                                          width: page.width / 1.5,
-                                        ),
-                                      ),
+                                        );
+                                      },
                                     ),
                                   ),
                               ],

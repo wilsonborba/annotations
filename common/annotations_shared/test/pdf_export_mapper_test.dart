@@ -88,19 +88,21 @@ void main() {
           },
           {
             'id': 'chart_priv',
-            'kind': 'report_embed',
+            'kind': 'reports_embed',
             'x': 20,
             'y': 220,
             'width': 300,
             'height': 80,
-            'ref_id': 'secret_chart_99',
-            'title': 'CONFIDENTIAL_METRIC_SHOULD_NOT_APPEAR',
-            'visibility': 'restricted',
+            'report_id': 'secret_chart_99',
+            'mode': 'snapshot',
+            'source': 'upload',
+            'snapshot_id': 'snapshot_99',
+            'captured_at': 1795520000,
           },
         ],
       }, schema: origSchema);
 
-      // Control: personal audience includes the chart title in extracted text.
+      // Personal export reports the unavailable chart as a marked placeholder.
       final personalRes = await mapper.export(
         title: 'Mixed Note',
         slug: 'mixed-note',
@@ -108,7 +110,9 @@ void main() {
         options: const PdfExportOptions(
           mode: PdfExportMode.original,
           audience: PdfAudience.personal,
+          continueWithPlaceholders: true,
         ),
+        failedChartIds: const {'secret_chart_99'},
         baseFont: baseFont,
         thaiFont: thaiFont,
       );
@@ -118,8 +122,10 @@ void main() {
       );
       expect(
         personalText.replaceAll(RegExp(r'\s+'), ''),
-        contains('CONFIDENTIAL_METRIC_SHOULD_NOT_APPEAR'),
+        contains('Reportsnapshotunavailable(markedplaceholder)'),
       );
+      expect(personalRes.preflight.hasPrivateChartWarning, isTrue);
+      expect(personalRes.preflight.issues, hasLength(1));
 
       // Public audience must redact the private chart and contain no raster image XObjects.
       final publicRes = await mapper.export(
@@ -129,11 +135,13 @@ void main() {
         options: const PdfExportOptions(
           mode: PdfExportMode.original,
           audience: PdfAudience.public,
+          continueWithPlaceholders: true,
         ),
+        failedChartIds: const {'secret_chart_99'},
         baseFont: baseFont,
         thaiFont: thaiFont,
       );
-      expect(publicRes.preflight.hasPrivateChartWarning, isTrue);
+      expect(publicRes.preflight.hasPrivateChartWarning, isFalse);
       expect(publicRes.pdfs.length, 1);
       final mixedBytes = publicRes.pdfs.first.bytes;
       expect(utf8.decode(mixedBytes.sublist(0, 5)), '%PDF-');
@@ -144,6 +152,7 @@ void main() {
 
       final publicText = await extractPdfText(mixedBytes, 'mixed_public');
       expect(publicText, contains('Mixed note heading'));
+      expect(publicText, contains('Restricted content (lock notice)'));
       expect(
         publicText.replaceAll(RegExp(r'\s+'), ''),
         isNot(contains('CONFIDENTIAL_METRIC_SHOULD_NOT_APPEAR')),

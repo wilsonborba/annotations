@@ -95,13 +95,8 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
                             widget.noteId,
                           );
                           if (note == null || !context.mounted) return;
-                          final paired = await workspace.store.load(
-                            pairedRepresentationId(note.id),
-                          );
-                          if (!context.mounted) return;
                           final export = ExportHandler(
                             note: note,
-                            pairedNote: paired,
                             store: workspace.store,
                           );
                           await showExportDialog(context, export);
