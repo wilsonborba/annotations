@@ -306,7 +306,7 @@ void main() {
 
         final changedCapture = captureReportsPdfChart(
           editorContext,
-          _chartData(visits: 50),
+          _chartData(visits: 50, complete: false),
           language: 'pt-BR',
         );
         await tester.pump();
@@ -338,17 +338,31 @@ void main() {
                 'snapshot_id': 'snapshot-1',
                 'captured_at': 1795520000,
               },
+            ],
+          ),
+          title: 'Captured chart',
+          revision: 1,
+          createdAt: DateTime.utc(2026),
+          updatedAt: DateTime.utc(2026),
+          syncState: LocalSyncState.local,
+          accountId: null,
+        );
+        final typedNote = LocalNote(
+          id: 'captured-chart-note__typed',
+          schema: _typedSchema,
+          document: _typedDoc(
+            blocks: [
               {
-                'id': 'large-companion',
-                'kind': 'file',
-                'x': 20,
-                'y': 2000,
-                'width': 300,
-                'height': 5000,
-                'name': 'evidence.json',
-                'file_id': 'companion-file',
-                'type': 'application/json',
-                'size': 4,
+                'id': 'report-card',
+                'kind': 'reports_embed',
+                'report_id': 'report',
+                'project_slug': 'project',
+                'report_slug': 'report',
+                'dataset_id': 'dataset',
+                'mode': 'snapshot',
+                'source': 'link',
+                'snapshot_id': 'snapshot-1',
+                'captured_at': 1795520000,
               },
             ],
           ),
@@ -365,7 +379,8 @@ void main() {
         var selectedPng = png;
         final handler = ExportHandler(
           note: note,
-          store: _MemoryAttachmentStore(),
+          pairedNote: typedNote,
+          store: _MissingFileStore(),
           loadReportsEmbed: (_) async => selectedData,
           renderReportsChart: (_, {required partial}) async {
             expect(partial, isTrue);
@@ -377,6 +392,7 @@ void main() {
           },
           saveLocation: (_) async => savePath,
         );
+        handler.mode = PdfExportMode.both;
         addTearDown(handler.dispose);
         await tester.runAsync(() => handler.build());
         expect(handler.stage, ExportStage.preflight);
@@ -386,13 +402,14 @@ void main() {
         );
         await tester.runAsync(() => handler.build(placeholders: true));
         expect(handler.stage, ExportStage.ready);
-        expect(handler.output!.pdfs, hasLength(1));
+        expect(handler.output!.pdfs, hasLength(2));
         expect(handler.needsZip, isTrue);
         expect(
-          previewInputs.single,
-          orderedEquals(handler.output!.pdfs.single.bytes),
+          previewInputs,
+          orderedEquals(handler.output!.pdfs.map((pdf) => pdf.bytes)),
         );
-        final previewImage = handler.previewPdfs.single.pages.first;
+        expect(handler.previewPdfs, hasLength(2));
+        final previewImage = handler.previewPdfs.first.pages.first;
         final previewPixels = await tester.runAsync(() async {
           final rgba = await previewImage.toByteData(
             format: ui.ImageByteFormat.rawRgba,
@@ -409,55 +426,127 @@ void main() {
         }
         expect(previewOrangePixels, greaterThan(20));
         final zipBytes = handler.bytes();
-        final firstPdfBytes = Uint8List.fromList(
-          handler.output!.pdfs.single.bytes,
-        );
-        final pdfRaster = await tester.runAsync(
-          () => PdfRaster.page(handler.output!.pdfs.single.bytes),
-        );
-        expect(
-          pdfRaster!.count(
-            (r, g, b) => r > 200 && g > 90 && g < 190 && b < 130,
-          ),
-          greaterThan(20),
-          reason: 'the saved PDF page must contain the Reports chart image',
-        );
+        final firstPdfBytes = handler.output!.pdfs
+            .map((pdf) => Uint8List.fromList(pdf.bytes))
+            .toList();
+        for (final pdf in handler.output!.pdfs) {
+          final pdfRaster = await tester.runAsync(
+            () => PdfRaster.page(pdf.bytes),
+          );
+          expect(
+            pdfRaster!.count(
+              (r, g, b) => r > 200 && g > 90 && g < 190 && b < 130,
+            ),
+            greaterThan(20),
+            reason: '${pdf.filename} must contain the Reports chart image',
+          );
+        }
         expect(await tester.runAsync(handler.save), isTrue);
         expect(File(savePath).readAsBytesSync(), orderedEquals(zipBytes));
         var archive = ZipDecoder().decodeBytes(zipBytes);
-        var savedPdf = archive.files.singleWhere(
-          (file) => file.name == handler.output!.pdfs.single.filename,
-        );
-        expect(
-          savedPdf.content as List<int>,
-          orderedEquals(handler.output!.pdfs.single.bytes),
-        );
+        for (final pdf in handler.output!.pdfs) {
+          final savedPdf = archive.files.singleWhere(
+            (file) => file.name == pdf.filename,
+          );
+          expect(savedPdf.content as List<int>, orderedEquals(pdf.bytes));
+        }
 
         selectedData = _chartData(visits: 50, complete: false);
         selectedPng = changedPng!;
         await tester.runAsync(() => handler.build(placeholders: true));
         expect(handler.stage, ExportStage.ready);
-        expect(previewInputs, hasLength(2));
-        expect(
-          previewInputs.last,
-          orderedEquals(handler.output!.pdfs.single.bytes),
-        );
-        expect(
-          handler.output!.pdfs.single.bytes,
-          isNot(orderedEquals(firstPdfBytes)),
-          reason: 'changing the selected Reports rows changes the saved chart',
-        );
+        expect(previewInputs, hasLength(4));
+        for (var index = 0; index < handler.output!.pdfs.length; index++) {
+          expect(
+            previewInputs[index + 2],
+            orderedEquals(handler.output!.pdfs[index].bytes),
+          );
+          expect(
+            handler.output!.pdfs[index].bytes,
+            isNot(orderedEquals(firstPdfBytes[index])),
+            reason: 'changing selected Reports rows changes each saved chart',
+          );
+        }
         final updatedZip = handler.bytes();
         expect(await tester.runAsync(handler.save), isTrue);
         expect(File(savePath).readAsBytesSync(), orderedEquals(updatedZip));
         archive = ZipDecoder().decodeBytes(updatedZip);
-        savedPdf = archive.files.singleWhere(
-          (file) => file.name == handler.output!.pdfs.single.filename,
-        );
-        expect(
-          savedPdf.content as List<int>,
-          orderedEquals(handler.output!.pdfs.single.bytes),
-        );
+        for (final pdf in handler.output!.pdfs) {
+          final savedPdf = archive.files.singleWhere(
+            (file) => file.name == pdf.filename,
+          );
+          expect(savedPdf.content as List<int>, orderedEquals(pdf.bytes));
+        }
+        final evidencePath =
+            Platform.environment['ANNOTATIONS_PDF_EVIDENCE_DIR'];
+        if (evidencePath != null && evidencePath.isNotEmpty) {
+          final evidence = Directory(evidencePath);
+          await evidence.create(recursive: true);
+          final outputPdf = handler.output!.pdfs.first.bytes;
+          final typedPdf = handler.output!.pdfs.last.bytes;
+          final preview = handler.previewPdfs.first.pages.first;
+          final typedPreview = handler.previewPdfs.last.pages.first;
+          final previewPng = await tester.runAsync(() async {
+            final png = await preview.toByteData(
+              format: ui.ImageByteFormat.png,
+            );
+            return png!.buffer.asUint8List();
+          });
+          await File(
+            '${evidence.path}/reports-chart.png',
+          ).writeAsBytes(selectedPng, flush: true);
+          await File(
+            '${evidence.path}/reports-preview.png',
+          ).writeAsBytes(previewPng!, flush: true);
+          final typedPreviewPng = await tester.runAsync(() async {
+            final png = await typedPreview.toByteData(
+              format: ui.ImageByteFormat.png,
+            );
+            return png!.buffer.asUint8List();
+          });
+          await File(
+            '${evidence.path}/reports-typed-preview.png',
+          ).writeAsBytes(typedPreviewPng!, flush: true);
+          await File(
+            '${evidence.path}/reports-chart.pdf',
+          ).writeAsBytes(outputPdf, flush: true);
+          await File(
+            '${evidence.path}/reports-typed.pdf',
+          ).writeAsBytes(typedPdf, flush: true);
+          await File(
+            '${evidence.path}/reports-chart.zip',
+          ).writeAsBytes(updatedZip, flush: true);
+          final rasterized = await Process.run('pdftoppm', [
+            '-png',
+            '-r',
+            '96',
+            '-f',
+            '1',
+            '-l',
+            '1',
+            '-singlefile',
+            '${evidence.path}/reports-chart.pdf',
+            '${evidence.path}/reports-raster',
+          ]);
+          if (rasterized.exitCode != 0) {
+            throw StateError('pdftoppm could not rasterize the saved PDF.');
+          }
+          final typedRasterized = await Process.run('pdftoppm', [
+            '-png',
+            '-r',
+            '96',
+            '-f',
+            '1',
+            '-l',
+            '1',
+            '-singlefile',
+            '${evidence.path}/reports-typed.pdf',
+            '${evidence.path}/reports-typed-raster',
+          ]);
+          if (typedRasterized.exitCode != 0) {
+            throw StateError('pdftoppm could not rasterize typed saved PDF.');
+          }
+        }
       },
     );
 
