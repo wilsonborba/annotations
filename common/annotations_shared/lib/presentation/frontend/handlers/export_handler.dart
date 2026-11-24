@@ -76,16 +76,20 @@ class ExportHandler extends ChangeNotifier {
   Future<void>? _pairedLoad;
 
   bool _isPairedRepresentation(LocalNote? candidate) {
-    if (candidate == null || candidate.schema.family == note.schema.family) {
+    if (candidate == null) return false;
+    final pairFamily = switch (note.schema.family) {
+      DocumentFamily.original => DocumentFamily.typed,
+      DocumentFamily.typed => DocumentFamily.original,
+      _ => null,
+    };
+    if (candidate.schema.family != pairFamily ||
+        candidate.id != pairedRepresentationId(note.id, noteIsTyped: typed)) {
       return false;
     }
-    // acceptToTypedNote uses the original id plus this suffix and copies its
-    // title. Reject a same-suffix record if its title or known cloud identity
-    // says that it belongs to another note/account.
-    if (candidate.id != pairedRepresentationId(note.id, noteIsTyped: typed) ||
-        candidate.title != note.title) {
-      return false;
-    }
+    // A custom typed ID is not discoverable because the local model stores no
+    // separate source link. For the default ID, the transcription service's
+    // exact suffix is the source association; known identity conflicts still
+    // make the pair unsafe.
     if (note.accountId != null &&
         candidate.accountId != null &&
         note.accountId != candidate.accountId) {

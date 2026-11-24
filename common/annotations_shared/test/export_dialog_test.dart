@@ -191,12 +191,30 @@ void main() {
       expect(valid.modes, contains(PdfExportMode.both));
       valid.dispose();
 
-      for (final unrelated in [
-        _pairedCandidate(
+      final renamedTyped = ExportHandler(
+        note: original,
+        pairedNote: _pairedCandidate(
           id: 'n1__typed',
           schema: _typedSchema,
-          title: 'Different note',
+          title: 'Renamed typed view',
         ),
+        store: _MissingFileStore(),
+      );
+      expect(renamedTyped.modes, contains(PdfExportMode.both));
+      renamedTyped.dispose();
+
+      final suffixedOriginal = ExportHandler(
+        note: _pairedCandidate(id: 'note__typed', schema: _origSchema),
+        pairedNote: _pairedCandidate(
+          id: 'note__typed__typed',
+          schema: _typedSchema,
+        ),
+        store: _MissingFileStore(),
+      );
+      expect(suffixedOriginal.modes, contains(PdfExportMode.both));
+      suffixedOriginal.dispose();
+
+      for (final unrelated in [
         _pairedCandidate(
           id: 'n1__typed',
           schema: _typedSchema,
@@ -208,6 +226,7 @@ void main() {
           serverNoteId: 'different-cloud-note',
         ),
         _pairedCandidate(id: 'custom-typed-id', schema: _typedSchema),
+        _pairedCandidate(id: 'n1__typed', schema: _origSchema),
       ]) {
         final handler = ExportHandler(
           note: original,
