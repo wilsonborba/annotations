@@ -325,6 +325,129 @@ void main() {
         t + (240 * scale).round(),
       );
       expect(isPinkFill(fr, fg, fb), isTrue, reason: 'fill is $fr,$fg,$fb');
+
+      // 6. Text spans keep size, color, italic and strikethrough, and a line
+      // never runs past its box (widths are measured, not estimated).
+      Future<PdfRaster> textPage(
+        List<Map<String, Object?>> spans, {
+        num width = 640,
+      }) async {
+        final out = await mapper.export(
+          title: '',
+          slug: 'spans',
+          original: NoteDocument.fromJson({
+            'page': {
+              'width': 1000,
+              'background': {'kind': 'blank'},
+            },
+            'items': [
+              {
+                'id': 't1',
+                'kind': 'text',
+                'x': 96,
+                'y': 96,
+                'width': width,
+                'height': 400,
+                'spans': spans,
+              },
+            ],
+          }, schema: origSchema),
+          options: const PdfExportOptions(mode: PdfExportMode.original),
+          regularFontBytes: regularFont,
+          boldFontBytes: boldFont,
+        );
+        expect(out.engine, 'krilla');
+        return PdfRaster.page(out.pdfs.first.bytes);
+      }
+
+      final mixed = await textPage([
+        {'text': 'HHHH ', 'size': 48, 'color': '#DC2626FF'},
+        {'text': 'HHHH', 'size': 24, 'color': '#2563EBFF'},
+      ]);
+      final redBox = mixed.box(isRed)!;
+      final blueBox = mixed.box(isBlue)!;
+      final redH = redBox.$4 - redBox.$2, blueH = blueBox.$4 - blueBox.$2;
+      expect(redH / blueH, closeTo(2, 0.35), reason: 'span sizes $redH $blueH');
+      expect(blueBox.$1, greaterThan(redBox.$3), reason: 'blue follows red');
+      // One baseline for the line: both spans end on the same row.
+      expect((redBox.$4 - blueBox.$4).abs(), lessThanOrEqualTo(1));
+
+      // Italic leans right: the top of an upright I starts right of its foot.
+      (int, int) rowSpan(PdfRaster r, int y) {
+        int? l, rr;
+        for (var x = 0; x < r.width; x++) {
+          final (cr, cg, cb) = r.at(x, y);
+          if (isRed(cr, cg, cb)) {
+            l ??= x;
+            rr = x;
+          }
+        }
+        return (l ?? -1, rr ?? -1);
+      }
+
+      final upright = await textPage([
+        {'text': 'I', 'size': 96, 'color': '#DC2626FF'},
+      ]);
+      final slanted = await textPage([
+        {'text': 'I', 'size': 96, 'color': '#DC2626FF', 'italic': true},
+      ]);
+      final ub = upright.box(isRed)!, sb = slanted.box(isRed)!;
+      final uLean =
+          rowSpan(upright, ub.$2 + 2).$1 - rowSpan(upright, ub.$4 - 2).$1;
+      final sLean =
+          rowSpan(slanted, sb.$2 + 2).$1 - rowSpan(slanted, sb.$4 - 2).$1;
+      expect(uLean.abs(), lessThanOrEqualTo(1));
+      expect(sLean, greaterThanOrEqualTo(4), reason: 'italic lean $sLean');
+
+      // Strikethrough: a red bar across the whole word at mid height.
+      final struck = await textPage([
+        {
+          'text': 'xxxxxxxx',
+          'size': 48,
+          'color': '#DC2626FF',
+          'strikethrough': true,
+        },
+      ]);
+      final plain = await textPage([
+        {'text': 'xxxxxxxx', 'size': 48, 'color': '#DC2626FF'},
+      ]);
+      int fullRows(PdfRaster r) {
+        final b = r.box(isRed)!;
+        var rows = 0;
+        for (var y = b.$2; y <= b.$4; y++) {
+          var n = 0;
+          for (var x = b.$1; x <= b.$3; x++) {
+            final (cr, cg, cb) = r.at(x, y);
+            if (isRed(cr, cg, cb)) n++;
+          }
+          if (n > (b.$3 - b.$1) * 0.9) rows++;
+        }
+        return rows;
+      }
+
+      expect(fullRows(plain), 0);
+      expect(fullRows(struck), greaterThanOrEqualTo(1));
+
+      // Wide glyphs in a narrow box wrap inside the box.
+      final wide = await textPage([
+        {
+          'text': List.filled(12, 'WWWW').join(' '),
+          'size': 16,
+          'color': '#DC2626FF',
+        },
+      ], width: 320);
+      final wb = wide.box(isRed)!;
+      final boxRight = PdfExportMapper.marginPt + (96 + 320) * scale;
+      expect(
+        wb.$3,
+        lessThanOrEqualTo(boxRight + 1),
+        reason: 'line overflows its box',
+      );
+      expect(
+        wb.$4 - wb.$2,
+        greaterThan(16 * scale * 2),
+        reason: 'text did not wrap',
+      );
     },
   );
 

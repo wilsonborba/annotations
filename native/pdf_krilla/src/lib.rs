@@ -2,13 +2,16 @@ use icu_segmenter::LineSegmenter;
 use krilla::Data;
 use krilla::Document;
 use krilla::color::rgb;
-use krilla::geom::{PathBuilder, Point, Rect};
+use krilla::geom::{PathBuilder, Point, Rect, Transform};
 use krilla::num::NormalizedF32;
 use krilla::page::PageSettings;
 use krilla::paint::{Fill, FillRule, Stroke};
 use krilla::text::{Font, TextDirection};
 use serde::Deserialize;
 use std::slice;
+
+mod text;
+pub use text::{Line, Metrics, PdfSpan, layout};
 
 #[derive(Debug, Deserialize)]
 pub struct PdfSpikeModel {
@@ -118,6 +121,11 @@ pub struct PdfTextRun {
     pub bold: bool,
     #[serde(default)]
     pub muted: bool,
+    /// Styled spans (annotations#42). With spans, [y] is the top of the
+    /// first line and line heights come from the font; without, [y] is the
+    /// first baseline and [line_height] the line step.
+    #[serde(default)]
+    pub spans: Vec<PdfSpan>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -135,6 +143,91 @@ pub struct PdfFlowBlock {
     pub keep_with_next: bool,
     #[serde(default)]
     pub space_after: f32,
+    /// Styled spans; empty means [text] in the block style.
+    #[serde(default)]
+    pub spans: Vec<PdfSpan>,
+}
+
+const MUTED_INK: u32 = 0xFF5F_5F5F;
+
+fn plain_spans(text: &str, size: f32, bold: bool, muted: bool) -> Vec<PdfSpan> {
+    vec![PdfSpan {
+        text: text.to_string(),
+        size,
+        bold,
+        italic: false,
+        strike: false,
+        argb: if muted {
+            MUTED_INK
+        } else {
+            text::default_ink()
+        },
+    }]
+}
+
+/// Draws one laid out line with its baseline at [baseline]: each piece in
+/// its span's font, size and color; italic as an oblique of the embedded
+/// face (no italic face is embedded); strikethrough as a filled bar.
+fn draw_line(
+    surface: &mut krilla::surface::Surface<'_>,
+    fonts: (&Font, &Font),
+    m: &Metrics,
+    spans: &[PdfSpan],
+    line: &Line,
+    x: f32,
+    baseline: f32,
+) {
+    surface.set_stroke(None);
+    for p in &line.pieces {
+        let s = &spans[p.span];
+        let font = if s.bold { fonts.1 } else { fonts.0 };
+        let a = ((s.argb >> 24) & 0xFF) as f32 / 255.0;
+        let color = rgb::Color::new(
+            ((s.argb >> 16) & 0xFF) as u8,
+            ((s.argb >> 8) & 0xFF) as u8,
+            (s.argb & 0xFF) as u8,
+        );
+        let fill = Fill {
+            paint: color.into(),
+            opacity: NormalizedF32::new(a).unwrap_or(NormalizedF32::ONE),
+            rule: FillRule::NonZero,
+        };
+        surface.set_fill(Some(fill.clone()));
+        let px = x + p.x;
+        if s.italic {
+            // Slant about the baseline: x' = x + 0.2 * (baseline - y).
+            surface.push_transform(&Transform::from_row(
+                1.0,
+                0.0,
+                -0.2,
+                1.0,
+                0.2 * baseline,
+                0.0,
+            ));
+        }
+        surface.draw_text(
+            Point::from_xy(px, baseline),
+            font.clone(),
+            s.size,
+            &p.text,
+            false,
+            TextDirection::Auto,
+        );
+        if s.italic {
+            surface.pop();
+        }
+        if s.strike {
+            let (offset, thick) = m.strikeout(s.bold, s.size);
+            let mut pb = PathBuilder::new();
+            if let Some(r) = Rect::from_xywh(px, baseline - offset - thick / 2.0, p.width, thick) {
+                pb.push_rect(r);
+                if let Some(path) = pb.finish() {
+                    surface.set_fill(Some(fill));
+                    surface.draw_path(&path);
+                }
+            }
+        }
+    }
 }
 
 /// Breaks [text] into lines at ICU/UAX#14 word/line boundaries (supporting Thai without spaces)
@@ -312,13 +405,23 @@ pub fn render_document_pdf_bytes(
     regular_font_bytes: Vec<u8>,
     bold_font_bytes: Vec<u8>,
 ) -> Result<Vec<u8>, String> {
-    let regular = Font::new(Data::from(regular_font_bytes), 0)
-        .ok_or_else(|| "failed to load regular font".to_string())?;
-    let bold = if bold_font_bytes.is_empty() {
-        regular.clone()
+    let bold_font_bytes = if bold_font_bytes.is_empty() {
+        regular_font_bytes.clone()
     } else {
-        Font::new(Data::from(bold_font_bytes), 0).unwrap_or_else(|| regular.clone())
+        bold_font_bytes
     };
+    let regular = Font::new(Data::from(regular_font_bytes.clone()), 0)
+        .ok_or_else(|| "failed to load regular font".to_string())?;
+    let bold = Font::new(Data::from(bold_font_bytes.clone()), 0).unwrap_or_else(|| regular.clone());
+    // The same faces measured with the shaper Krilla draws with.
+    let regular_face = rustybuzz::Face::from_slice(&regular_font_bytes, 0)
+        .ok_or_else(|| "failed to read regular font".to_string())?;
+    let metrics = Metrics {
+        bold: rustybuzz::Face::from_slice(&bold_font_bytes, 0)
+            .unwrap_or_else(|| regular_face.clone()),
+        regular: regular_face,
+    };
+    let fonts = (&regular, &bold);
 
     let mut doc = Document::new();
     let settings = PageSettings::from_wh(input.paper_width, input.paper_height)
@@ -333,9 +436,9 @@ pub fn render_document_pdf_bytes(
 
         if let Some(title) = &input.title {
             if !title.is_empty() {
-                let lines = break_lines_thai_safe(title, printable_w, 18.0 * 0.50);
-                for line in &lines {
-                    draw_text_line(&mut surface, &bold, 18.0, input.margin, y, line, false);
+                let spans = plain_spans(title, 18.0, true, false);
+                for line in &layout(&spans, printable_w, &metrics) {
+                    draw_line(&mut surface, fonts, &metrics, &spans, line, input.margin, y);
                     y += 24.0;
                 }
                 y += 8.0;
@@ -343,13 +446,17 @@ pub fn render_document_pdf_bytes(
         }
 
         for (bi, block) in input.blocks.iter().enumerate() {
-            let font = if block.bold { &bold } else { &regular };
-            let approx_cw = block.font_size * 0.48;
-            let lines = break_lines_thai_safe(&block.text, printable_w, approx_cw);
-            let min_needed = if block.keep_with_next && bi + 1 < input.blocks.len() {
-                (lines.len() as f32) * block.line_height + block.space_after + 24.0
+            let spans = if block.spans.is_empty() {
+                plain_spans(&block.text, block.font_size, block.bold, block.muted)
             } else {
-                block.line_height
+                block.spans.clone()
+            };
+            let lines = layout(&spans, printable_w, &metrics);
+            let step = |line: &Line| block.line_height.max(line.height);
+            let min_needed = if block.keep_with_next && bi + 1 < input.blocks.len() {
+                lines.iter().map(step).sum::<f32>() + block.space_after + 24.0
+            } else {
+                lines.first().map_or(block.line_height, step)
             };
             if y + min_needed > max_y && y > input.margin + 24.0 {
                 surface.finish();
@@ -366,16 +473,8 @@ pub fn render_document_pdf_bytes(
                     surface = page.surface();
                     y = input.margin + block.font_size;
                 }
-                draw_text_line(
-                    &mut surface,
-                    font,
-                    block.font_size,
-                    input.margin,
-                    y,
-                    line,
-                    block.muted,
-                );
-                y += block.line_height;
+                draw_line(&mut surface, fonts, &metrics, &spans, line, input.margin, y);
+                y += step(line);
             }
             y += block.space_after;
         }
@@ -401,20 +500,28 @@ pub fn render_document_pdf_bytes(
                     draw_stroke_poly(&mut surface, s);
                 }
                 for run in &page_in.runs {
-                    let font = if run.bold { &bold } else { &regular };
-                    let approx_cw = run.font_size * 0.48;
-                    let lines = break_lines_thai_safe(&run.text, run.max_width, approx_cw);
-                    for (idx, line) in lines.iter().enumerate() {
-                        let y = run.y + (idx as f32) * run.line_height;
-                        draw_text_line(
-                            &mut surface,
-                            font,
-                            run.font_size,
-                            run.x,
-                            y,
-                            line,
-                            run.muted,
-                        );
+                    if run.spans.is_empty() {
+                        let spans = plain_spans(&run.text, run.font_size, run.bold, run.muted);
+                        let lines = layout(&spans, run.max_width, &metrics);
+                        for (idx, line) in lines.iter().enumerate() {
+                            let y = run.y + (idx as f32) * run.line_height;
+                            draw_line(&mut surface, fonts, &metrics, &spans, line, run.x, y);
+                        }
+                    } else {
+                        let mut top = run.y;
+                        for line in &layout(&run.spans, run.max_width, &metrics) {
+                            let baseline = top + line.ascent;
+                            draw_line(
+                                &mut surface,
+                                fonts,
+                                &metrics,
+                                &run.spans,
+                                line,
+                                run.x,
+                                baseline,
+                            );
+                            top += line.height;
+                        }
                     }
                 }
                 surface.finish();

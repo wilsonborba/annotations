@@ -90,3 +90,6 @@ bool isRed(int r, int g, int b) => r > 150 && g < 110 && b < 110;
 /// A light red fill such as #FEE2E2 at half alpha on white.
 bool isPinkFill(int r, int g, int b) =>
     r > 240 && g > 220 && g < 250 && b > 220 && b < 250 && r - g > 4;
+
+/// Clearly blue ink (#2563EB).
+bool isBlue(int r, int g, int b) => b > 150 && r < 110 && g < 160;

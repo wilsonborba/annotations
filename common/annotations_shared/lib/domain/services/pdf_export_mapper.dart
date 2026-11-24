@@ -708,23 +708,21 @@ class PdfExportMapper {
           if (kind == 'text') {
             // The editor draws text at 16 page units (or the span size) from
             // the box corner, without an inset; print it at the same scale.
-            final spans = [
-              for (final sp in (item['spans'] as List?) ?? const [])
-                if (sp is Map) sp,
-            ];
-            final size =
-                ((spans.firstOrNull?['size'] as num?)?.toDouble() ??
-                    editorTextSize) *
-                scale;
+            // Each span keeps its size, bold, italic, strikethrough and
+            // color; [y] is the top of the first line.
+            final spans = nativeSpans(
+              (item['spans'] as List?) ?? const [],
+              baseSize: editorTextSize * scale,
+              scale: scale,
+            );
             runs.add({
-              'text': spans.map((sp) => '${sp['text'] ?? ''}').join(),
+              'text': spans.map((sp) => sp['text']).join(),
               'x': x,
-              'y': y + size * 0.95,
+              'y': y,
               'max_width': math.max(20.0, w),
-              'font_size': size,
-              'line_height': size * 1.25,
-              'bold':
-                  spans.isNotEmpty && spans.every((sp) => sp['bold'] == true),
+              'font_size': editorTextSize * scale,
+              'line_height': editorTextSize * scale * 1.25,
+              'spans': spans,
             });
             continue;
           }
@@ -800,6 +798,12 @@ class PdfExportMapper {
           'bold': true,
           'keep_with_next': true,
           'space_after': 6.0,
+          'spans': nativeSpans(
+            spans,
+            baseSize: 14.0,
+            scale: 14.0 / editorTextSize,
+            bold: true,
+          ),
         });
       } else if (kind == 'reports_embed' || kind == 'task' || kind == 'quiz') {
         final isRestricted =
@@ -819,6 +823,11 @@ class PdfExportMapper {
           'font_size': 11.0,
           'line_height': 16.5,
           'space_after': 6.0,
+          'spans': nativeSpans(
+            spans,
+            baseSize: 11.0,
+            scale: 11.0 / editorTextSize,
+          ),
         });
       }
     }
@@ -841,6 +850,30 @@ class PdfExportMapper {
     }
     return rendered;
   }
+
+  /// The spans of an editor text value for the native renderer: each span
+  /// at its own size times [scale] (or [baseSize]), with bold, italic,
+  /// strikethrough and its color as 0xAARRGGBB.
+  static List<Map<String, Object?>> nativeSpans(
+    List<Object?> spans, {
+    required double baseSize,
+    required double scale,
+    bool bold = false,
+  }) => [
+    for (final sp in spans)
+      if (sp is Map && '${sp['text'] ?? ''}'.isNotEmpty)
+        {
+          'text': '${sp['text']}',
+          'size': (sp['size'] as num?) == null
+              ? baseSize
+              : (sp['size'] as num).toDouble() * scale,
+          'bold': bold || sp['bold'] == true,
+          'italic': sp['italic'] == true,
+          'strike': sp['strikethrough'] == true,
+          if (sp['color'] is String)
+            'argb': colorArgb(sp['color'] as String, 1),
+        },
+  ];
 
   pw.ThemeData? _theme(
     pw.Font? baseFont,
