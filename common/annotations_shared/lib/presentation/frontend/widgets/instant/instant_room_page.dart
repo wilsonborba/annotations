@@ -30,6 +30,14 @@ class InstantRoomPage extends StatefulWidget {
   final String code;
   const InstantRoomPage({super.key, required this.code});
 
+  /// The link that opens the room [code]: Copy link uses it, and the QR
+  /// share control of annotations#65 takes the same link.
+  static Uri joinUri(String code) => Uri.base.replace(
+    path: '/v1/instant/${Uri.encodeComponent(code)}',
+    query: '',
+    fragment: '',
+  );
+
   /// Phones get simple typed controls; the browser gets them on a phone
   /// sized screen and the full editor otherwise (A2 matrix, Instant rows).
   static bool typedOnly(BuildContext context) =>
@@ -157,9 +165,7 @@ class RoomHeader extends StatelessWidget {
                   onPressed: () async {
                     await Clipboard.setData(
                       ClipboardData(
-                        text: Uri.base
-                            .replace(path: '/v1/instant/$code', query: '')
-                            .toString(),
+                        text: InstantRoomPage.joinUri(code).toString(),
                       ),
                     );
                     if (context.mounted) {

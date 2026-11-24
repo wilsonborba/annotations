@@ -5,6 +5,7 @@
 import 'package:annotations_shared/app.dart';
 import 'package:annotations_shared/dal/remote/api_adapter.dart';
 import 'package:annotations_shared/domain/services/annotations_service.dart';
+import 'package:annotations_shared/presentation/frontend/widgets/instant/instant_room_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -147,5 +148,12 @@ void main() {
     expect(find.byKey(const Key('mode-switch')), findsOneWidget);
     expect(find.byKey(const Key('paper-button')), findsOneWidget);
     await closeRoom(tester);
+  });
+
+  test('the join link is the room path, with no query or fragment', () {
+    final uri = InstantRoomPage.joinUri('river lab/7');
+    expect(uri.path, '/v1/instant/river%20lab%2F7');
+    expect(uri.hasQuery && uri.query.isNotEmpty, isFalse);
+    expect(uri.fragment, isEmpty);
   });
 }
