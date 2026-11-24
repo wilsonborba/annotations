@@ -194,7 +194,7 @@ void main() {
     final valid = Directory(
       'test/fixtures/document_schema/valid',
     ).listSync().whereType<File>().where((f) => f.path.endsWith('.json'));
-    expect(valid, hasLength(43));
+    expect(valid, hasLength(46));
     for (final f in valid) {
       final c = jsonDecode(f.readAsStringSync()) as Map<String, dynamic>;
       final document = NoteDocument.fromJson(
@@ -212,6 +212,66 @@ void main() {
         anyOf(isNull, 'grid', 'block_overlap', 'group_overlap'),
         reason: '${f.path}: $error',
       );
+    }
+  });
+
+  test('Reports reference checks match backend tuple and owner ID rules', () {
+    final cases = [
+      (
+        'link mismatch',
+        'report_id',
+        'different-report',
+        'invalid_reference',
+        'items[0].report_id',
+      ),
+      (
+        'invalid slug',
+        'project_slug',
+        'Uppercase',
+        'invalid_reference',
+        'items[0].project_slug',
+      ),
+      (
+        'invalid owner UUID',
+        'report_id',
+        'not-a-uuid',
+        'invalid_reference',
+        'items[0].report_id',
+      ),
+      (
+        'partial tuple',
+        'dataset_id',
+        null,
+        'missing_field',
+        'items[0].dataset_id',
+      ),
+    ];
+    for (final (name, key, value, code, path) in cases) {
+      final fixture =
+          jsonDecode(
+                File(
+                  'test/fixtures/document_schema/valid/original-reports-embed.json',
+                ).readAsStringSync(),
+              )
+              as Map<String, dynamic>;
+      final document =
+          jsonDecode(jsonEncode(fixture['document'])) as Map<String, dynamic>;
+      final item = (document['items'] as List).single as Map<String, dynamic>;
+      if (value == null) {
+        item.remove(key);
+      } else {
+        item[key] = value;
+      }
+      if (name == 'invalid owner UUID') item['source'] = 'upload';
+      final loaded = NoteDocument.fromJson(
+        document,
+        schema: DocumentSchema('note-original', 1),
+      );
+
+      final error = rules.check(loaded).error!;
+      expect(error.rule, 'document_schema', reason: name);
+      expect(error.code, code, reason: name);
+      expect(error.path, path, reason: name);
     }
   });
 

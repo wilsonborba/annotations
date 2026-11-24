@@ -149,6 +149,9 @@ final class YoutubeCard extends LinkCard {
 final class ReportsEmbed extends StructuredItem {
   ReportsEmbed._(super.object, {required super.paper}) : super._() {
     reportId = _object.string('report_id');
+    projectSlug = _object.optionalString('project_slug');
+    reportSlug = _object.optionalString('report_slug');
+    datasetId = _object.optionalString('dataset_id');
     mode = _object.string('mode');
     source = _object.string('source');
     snapshotId = _object.optionalString('snapshot_id');
@@ -159,6 +162,7 @@ final class ReportsEmbed extends StructuredItem {
     }
   }
   late final String reportId, mode, source;
+  late final String? projectSlug, reportSlug, datasetId;
   late final String? snapshotId;
 
   /// Unix seconds, not milliseconds.

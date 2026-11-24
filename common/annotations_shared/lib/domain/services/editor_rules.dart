@@ -13,6 +13,7 @@ import '../../core/ink_settings.dart';
 import '../../core/note_limits.dart';
 import '../models/ink.dart';
 import '../models/note_document.dart';
+import '../models/reports_card_reference.dart';
 import '../models/stroke_samples_codec.dart';
 import 'ink_geometry.dart';
 import 'ink_outline.dart';
