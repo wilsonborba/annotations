@@ -2,7 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../core/tracking_manifest.dart';
+
+import '../../../../dal/remote/api_adapter.dart';
 import '../../../../domain/models/local_note.dart';
+import '../../../../domain/services/installed_account.dart';
+import '../../../../domain/services/note_sync_service.dart';
 import '../../components/controls.dart';
 import '../../components/icons.dart';
 import '../../components/scope.dart';
@@ -29,15 +33,38 @@ class _WorkspacePageState extends State<WorkspacePage> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (_handler != null) return;
-    final workspace = AppScope.of(context).workspace;
+    final scope = AppScope.of(context);
+    final workspace = scope.workspace;
+    final installed = _installed = scope.installed;
     _handler =
         widget.handler ??
-        (workspace == null ? null : WorkspaceHandler(workspace));
+        (workspace == null
+            ? null
+            : WorkspaceHandler(
+                workspace,
+                account: installed,
+                sync: installed == null
+                    ? null
+                    : NoteSyncService(
+                        store: workspace.store,
+                        api: ApiAdapter(
+                          client: SessionClient(installed, installed.client),
+                        ),
+                      ),
+              ));
+    installed?.addListener(_accountChanged);
     _handler?.load();
+  }
+
+  InstalledAccount? _installed;
+
+  void _accountChanged() {
+    if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
+    _installed?.removeListener(_accountChanged);
     if (widget.handler == null) _handler?.dispose();
     super.dispose();
   }
@@ -254,6 +281,17 @@ class _NoteRow extends StatelessWidget {
                 ],
               ),
             ),
+            if (handler.failed[note.id] case final retry?) ...[
+              track(
+                'workspace.cloud.retry',
+                AppButton(
+                  key: Key('retry-${note.id}'),
+                  label: context.tr('retry'),
+                  onPressed: retry,
+                ),
+              ),
+              const SizedBox(width: 8),
+            ],
             Container(
               key: Key('state-${note.id}'),
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -262,7 +300,16 @@ class _NoteRow extends StatelessWidget {
                 borderRadius: BorderRadius.circular(6),
                 border: Border.all(color: c.border),
               ),
-              child: Text(context.tr(state), style: text.labelMedium),
+              child: Text(
+                context.tr(
+                  handler.busy.contains(note.id)
+                      ? 'stateWorking'
+                      : handler.failed.containsKey(note.id)
+                      ? 'stateFailed'
+                      : state,
+                ),
+                style: text.labelMedium,
+              ),
             ),
             const SizedBox(width: 8),
             AppMenuButton(
@@ -276,6 +323,39 @@ class _NoteRow extends StatelessWidget {
                   icon: AppIcons.download,
                   onSelected: onExport,
                 ),
+                if (handler.canSync) ...[
+                  AppMenuEntry(
+                    key: Key('sync-${note.id}'),
+                    label: context.tr('syncNow'),
+                    icon: AppIcons.cloud,
+                    onSelected: () => handler.syncNote(note),
+                  ),
+                  AppMenuEntry(
+                    key: Key('publish-${note.id}'),
+                    label: context.tr('publish'),
+                    icon: AppIcons.upload,
+                    onSelected: () => _publish(context),
+                  ),
+                  if (handler.published.containsKey(note.id))
+                    AppMenuEntry(
+                      key: Key('unpublish-${note.id}'),
+                      label: context.tr('unpublish'),
+                      onSelected: () => handler.unpublish(note),
+                    ),
+                  if (note.accountId != null)
+                    AppMenuEntry(
+                      key: Key('delete-everywhere-${note.id}'),
+                      label: context.tr('deleteEverywhere'),
+                      icon: AppIcons.delete,
+                      onSelected: () => _confirmDeleteEverywhere(context),
+                    ),
+                ] else if (handler.account != null)
+                  AppMenuEntry(
+                    key: Key('sign-in-to-sync-${note.id}'),
+                    label: context.tr('signInToSync'),
+                    icon: AppIcons.cloud,
+                    onSelected: () => context.go('/v1/sign-in'),
+                  ),
                 AppMenuEntry(
                   key: Key('remove-${note.id}'),
                   label: context.tr('removeFromDevice'),
@@ -288,6 +368,111 @@ class _NoteRow extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  Future<void> _confirmDeleteEverywhere(BuildContext context) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AppDialog(
+        title: context.tr('deleteEverywhere'),
+        content: Text(context.tr('deleteEverywhereText')),
+        actions: [
+          AppButton.subtle(
+            key: const Key('delete-cancel'),
+            label: context.tr('cancel'),
+            onPressed: () => Navigator.pop(context, false),
+          ),
+          AppButton(
+            key: const Key('delete-confirm'),
+            label: context.tr('delete'),
+            onPressed: () => Navigator.pop(context, true),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) await handler.deleteEverywhere(note);
+  }
+
+  /// The publish dialog: the bound account before the first publication
+  /// (D1.5), Original, Typed or both, and the restricted embed warning.
+  Future<void> _publish(BuildContext context) async {
+    final typedOnly = note.schema.name == 'note-typed';
+    var choice = typedOnly
+        ? PublicationRepresentation.typed
+        : PublicationRepresentation.original;
+    var allow = false;
+    final restricted = handler.restrictedEmbeds(note);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, set) => AppDialog(
+          title: context.tr('publish'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '${context.tr('publishAs')} ${handler.account?.email ?? ''}',
+                key: const Key('publish-account'),
+              ),
+              const SizedBox(height: 16),
+              RadioGroup<PublicationRepresentation>(
+                groupValue: choice,
+                onChanged: (v) => set(() => choice = v!),
+                child: Column(
+                  children: [
+                    for (final (value, label) in [
+                      if (!typedOnly)
+                        (PublicationRepresentation.original, 'publishOriginal'),
+                      (PublicationRepresentation.typed, 'publishTyped'),
+                      if (!typedOnly)
+                        (PublicationRepresentation.both, 'publishBoth'),
+                    ])
+                      RadioListTile<PublicationRepresentation>(
+                        key: Key('publish-${value.code}'),
+                        contentPadding: EdgeInsets.zero,
+                        value: value,
+                        title: Text(context.tr(label)),
+                      ),
+                  ],
+                ),
+              ),
+              if (restricted > 0) ...[
+                const SizedBox(height: 8),
+                Text(
+                  context.tr('restrictedWarning'),
+                  key: const Key('publish-restricted'),
+                ),
+                CheckboxListTile(
+                  key: const Key('publish-allow'),
+                  contentPadding: EdgeInsets.zero,
+                  value: allow,
+                  title: Text(context.tr('publishAnyway')),
+                  onChanged: (v) => set(() => allow = v ?? false),
+                ),
+              ],
+            ],
+          ),
+          actions: [
+            AppButton.subtle(
+              key: const Key('publish-cancel'),
+              label: context.tr('cancel'),
+              onPressed: () => Navigator.pop(context, false),
+            ),
+            AppButton.primary(
+              key: const Key('publish-confirm'),
+              label: context.tr('publish'),
+              onPressed: restricted > 0 && !allow
+                  ? null
+                  : () => Navigator.pop(context, true),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (ok == true) {
+      await handler.publish(note, choice, allowRestricted: allow);
+    }
   }
 
   Future<void> _confirmRemove(BuildContext context) async {

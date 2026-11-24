@@ -410,6 +410,11 @@ const annotationElements = <String, TrailElement>{
     label: 'Account installed back',
     path: 'account > installed > back',
   ),
+  'workspace.cloud.retry': TrailElement(
+    id: 'workspace.cloud.retry',
+    label: 'Workspace cloud retry',
+    path: 'workspace > cloud > retry',
+  ),
   'shell.navigation.instant': TrailElement(
     id: 'shell.navigation.instant',
     label: 'Shell navigation instant',

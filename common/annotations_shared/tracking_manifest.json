@@ -625,6 +625,13 @@
       "path": "account > installed > back",
       "description": "Back from the installed sign-in to Notes.",
       "source": "lib/presentation/frontend/widgets/workspace/installed_sign_in_page.dart"
+    },
+    {
+      "id": "workspace.cloud.retry",
+      "label": "Workspace cloud retry",
+      "path": "workspace > cloud > retry",
+      "description": "Retry of a failed sync, publication or deletion in the writer workspace.",
+      "source": "lib/presentation/frontend/widgets/workspace/workspace_page.dart"
     }
   ]
 }

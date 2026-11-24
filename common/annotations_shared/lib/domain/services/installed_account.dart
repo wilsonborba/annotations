@@ -40,8 +40,11 @@ class InstalledAccount extends ChangeNotifier {
   AccountStatus _status = AccountStatus.checking;
   AccountStatus get status => _status;
   bool get signedIn => _status == AccountStatus.signedIn;
-  String _email = '';
+  String _email = '', _userId = '';
   String get email => _email;
+
+  /// The account id the notes are bound to (gateway user id).
+  String get userId => _userId;
 
   /// The match code while a login waits for Finish, else null.
   String? get matchCode => auth.pendingHandoff?.matchCode;
@@ -71,6 +74,7 @@ class InstalledAccount extends ChangeNotifier {
       if (res.statusCode == 200) {
         final data = (jsonDecode(utf8.decode(res.bodyBytes)) as Map)['data'];
         _email = data is Map ? '${data['email'] ?? ''}' : '';
+        _userId = data is Map ? '${data['id'] ?? data['user_id'] ?? ''}' : '';
         return _set(AccountStatus.signedIn);
       }
       if (res.statusCode == 401 || res.statusCode == 403) return expire();
@@ -92,7 +96,7 @@ class InstalledAccount extends ChangeNotifier {
   }
 
   void _set(AccountStatus status) {
-    if (status != AccountStatus.signedIn) _email = '';
+    if (status != AccountStatus.signedIn) _email = _userId = '';
     _status = status;
     notifyListeners();
   }
@@ -170,3 +174,24 @@ String handoffPlatform(TargetPlatform platform, {required bool fullWriter}) =>
       TargetPlatform.iOS => fullWriter ? 'ipados' : 'ios',
       _ => 'linux',
     };
+
+/// An HTTP client that sends the installed session with each user call:
+/// the session cookie always, the CSRF header on writes. A refused answer
+/// (401 or 403) ends the session once.
+class SessionClient extends http.BaseClient {
+  SessionClient(this.account, this.inner);
+
+  final InstalledAccount account;
+  final http.Client inner;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    final write = request.method != 'GET' && request.method != 'HEAD';
+    request.headers.addAll(account.headers(mutation: write) ?? const {});
+    final response = await inner.send(request);
+    if (response.statusCode == 401 || response.statusCode == 403) {
+      await account.expire();
+    }
+    return response;
+  }
+}
