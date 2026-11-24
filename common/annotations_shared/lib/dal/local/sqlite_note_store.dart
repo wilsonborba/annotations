@@ -83,6 +83,8 @@ const _schemaSteps = [
   ALTER TABLE notes ADD COLUMN server_original_revision_id TEXT;
   ALTER TABLE notes ADD COLUMN server_typed_revision_id TEXT;
   ''',
+  // Conflict copies are owner-bound local documents without a reusable cloud id.
+  'ALTER TABLE notes ADD COLUMN is_conflict_copy INTEGER NOT NULL DEFAULT 0;',
 ];
 
 /// A stable 64-bit hash of an item body, to find changed items: FNV-1a and
@@ -229,6 +231,7 @@ final class SqliteNoteStore implements DeletableLocalNoteStore {
       serverRevision: row['server_revision'] as int?,
       serverOriginalRevisionId: row['server_original_revision_id'] as String?,
       serverTypedRevisionId: row['server_typed_revision_id'] as String?,
+      isConflictCopy: row['is_conflict_copy'] == 1,
     );
   }
 
@@ -289,8 +292,9 @@ final class SqliteNoteStore implements DeletableLocalNoteStore {
       _db.execute(
         '''
         INSERT INTO notes (id, family, schema_version, document, title,
-          revision, created_at, updated_at, sync_state, account_id)
-        VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, NULL)
+          revision, created_at, updated_at, sync_state, account_id,
+          is_conflict_copy)
+        VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)
         ON CONFLICT (id) DO UPDATE SET
           family = excluded.family,
           schema_version = excluded.schema_version,
@@ -310,6 +314,8 @@ final class SqliteNoteStore implements DeletableLocalNoteStore {
           now,
           now,
           LocalSyncState.local.code,
+          draft.accountId,
+          draft.isConflictCopy ? 1 : 0,
           LocalSyncState.synced.code,
           LocalSyncState.changed.code,
         ],

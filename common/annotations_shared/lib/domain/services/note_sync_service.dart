@@ -274,6 +274,11 @@ class NoteSyncService {
   }) async {
     final current = (await store.load(note.id)) ?? note;
     _requireOwner(current, accountId);
+    if (current.isConflictCopy) {
+      throw CloudIdentityException(
+        'A server conflict copy has no reusable cloud identity and cannot be synced directly.',
+      );
+    }
     if (current.accountId == null && current.serverNoteId == null) {
       throw CloudIdentityException(
         'Note ${current.id} is not bound to the cloud yet.',
@@ -422,19 +427,27 @@ class NoteSyncService {
         serverResp,
         note.schema,
       );
-      final conflictId = '${note.id}__conflict_$serverRev';
-      final serverCopy = await store.save(
+      final conflictIdBase = '${note.id}__conflict_$serverRev';
+      var conflictId = conflictIdBase;
+      var conflictSuffix = 1;
+      while (await store.load(conflictId) != null) {
+        conflictId = '${conflictIdBase}_$conflictSuffix';
+        conflictSuffix++;
+      }
+      final savedCopy = await store.save(
         LocalNoteDraft(
           id: conflictId,
           schema: serverSchema,
           document: serverDoc,
           title:
               '${serverResp['title'] ?? note.title ?? 'Untitled note'} (server v$serverRev)',
+          accountId: accountId,
+          isConflictCopy: true,
         ),
       );
       return SyncResult.conflict(
         localNote: note,
-        conflictCopy: serverCopy,
+        conflictCopy: savedCopy,
         serverRevision: serverRev,
       );
     }
@@ -467,17 +480,17 @@ class NoteSyncService {
     final reps = <String, String>{};
     if (representation == PublicationRepresentation.original ||
         representation == PublicationRepresentation.both) {
-      reps['original'] =
-          originalRevisionId ??
-          identity.serverOriginalRevisionId ??
-          '${identity.serverRevision ?? note.revision}';
+      reps['original'] = _requireRepresentationRevision(
+        originalRevisionId ?? identity.serverOriginalRevisionId,
+        'original',
+      );
     }
     if (representation == PublicationRepresentation.typed ||
         representation == PublicationRepresentation.both) {
-      reps['typed'] =
-          typedRevisionId ??
-          identity.serverTypedRevisionId ??
-          '${identity.serverRevision ?? note.revision}';
+      reps['typed'] = _requireRepresentationRevision(
+        typedRevisionId ?? identity.serverTypedRevisionId,
+        'typed',
+      );
     }
 
     final resp = await api.request(
@@ -501,6 +514,15 @@ class NoteSyncService {
       restrictedEmbedCount: restricted,
       response: resp,
     );
+  }
+
+  static String _requireRepresentationRevision(String? revisionId, String rep) {
+    if (revisionId == null || revisionId.isEmpty) {
+      throw CloudIdentityException(
+        'Missing authoritative $rep representation revision id.',
+      );
+    }
+    return revisionId;
   }
 
   /// Deletion scope 1: removes only the local device copy from [store].
@@ -593,10 +615,9 @@ class NoteSyncService {
       },
       compress: true,
     );
-    final noteId = '${created['note_id'] ?? created['id']}';
+    final noteId = _requireServerNoteId(created);
     final (_, parsedTypedRevId) = _parseRevisions(created);
-    final repId =
-        '${parsedTypedRevId ?? created['typed_revision_id'] ?? created['revision_id'] ?? created['revision'] ?? 1}';
+    final repId = _requireRepresentationRevision(parsedTypedRevId, 'typed');
     return api.request(
       '/me/notes/$noteId/publication',
       method: 'PUT',
@@ -697,12 +718,24 @@ class ProjectTagCatalog {
   Set<String> tagsForNote(String noteId) =>
       Set.unmodifiable(_tagsByNoteId[noteId] ?? const <String>{});
 
+  /// Syncs local catalog data for [note] through its server identity.
+  /// Catalog entries use [LocalNote.id]; cloud routes use [LocalNote.serverNoteId].
   Future<void> syncProjectAndTags(
     ApiAdapter api, {
-    required String noteId,
-    required int noteRevision,
+    required String accountId,
+    required LocalNote note,
   }) async {
-    final projectId = _projectByNoteId[noteId];
+    final serverNoteId = note.serverNoteId;
+    final serverRevision = note.serverRevision;
+    if (note.accountId != accountId ||
+        note.isConflictCopy ||
+        serverNoteId == null ||
+        serverRevision == null) {
+      throw CloudIdentityException(
+        'Project and tag sync needs this account to own a note with authoritative server identity and revision.',
+      );
+    }
+    final projectId = _projectByNoteId[note.id];
     if (projectId != null) {
       final name = _projectNamesById[projectId] ?? projectId;
       await api.request(
@@ -710,14 +743,17 @@ class ProjectTagCatalog {
         method: 'POST',
         body: {'project_id': projectId, 'name': name},
       );
-      await api.request('/me/projects/$projectId/notes/$noteId', method: 'PUT');
+      await api.request(
+        '/me/projects/$projectId/notes/$serverNoteId',
+        method: 'PUT',
+      );
     }
     await api.request(
-      '/me/notes/$noteId',
+      '/me/notes/$serverNoteId',
       method: 'PATCH',
-      headers: {'if-match': '"$noteRevision"'},
+      headers: {'if-match': '"$serverRevision"'},
       body: {
-        'metadata': {'tags': tagsForNote(noteId).toList()..sort()},
+        'metadata': {'tags': tagsForNote(note.id).toList()..sort()},
       },
       compress: true,
     );

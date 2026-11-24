@@ -142,6 +142,18 @@ void main() {
             );
           }
 
+          if (req.method == 'GET' &&
+              req.url.path == '/apps/annotations/v1/me/notes') {
+            return http.Response(
+              jsonEncode({
+                'items': [
+                  {'note_id': 'n1', 'client_note_id': 'n1'},
+                ],
+              }),
+              200,
+            );
+          }
+
           if (failConflict) {
             return http.Response(
               jsonEncode({'error': 'revision_mismatch'}),
@@ -212,6 +224,14 @@ void main() {
       expect(recorded.last.ifMatch, '"3"');
 
       // 5. 409 Conflict fetches server doc via GET, keeps local note unchanged, saves server copy.
+      final unrelated = await store.save(
+        LocalNoteDraft(
+          id: 'n1__conflict_9',
+          schema: _paperSchema,
+          document: _paperWithTextAndFile('unrelated local note', att.id),
+          title: 'Unrelated local note',
+        ),
+      );
       failConflict = true;
       final conflict = await service.syncNote(
         updated,
@@ -220,7 +240,7 @@ void main() {
         baseRevision: 3,
       );
       expect(conflict.isConflict, isTrue);
-      expect(conflict.conflictCopy?.id, 'n1__conflict_9');
+      expect(conflict.conflictCopy?.id, 'n1__conflict_9_1');
       expect(
         recorded.any(
           (r) =>
@@ -229,11 +249,84 @@ void main() {
         isTrue,
       );
       final localAfter = await store.load('n1');
-      final serverAfter = await store.load('n1__conflict_9');
+      final serverAfter = await store.load(conflict.conflictCopy!.id);
       expect(localAfter, isNotNull);
       expect(serverAfter, isNotNull);
       expect(jsonEncode(localAfter!.document.toJson()), contains('local v2'));
       expect(jsonEncode(serverAfter!.document.toJson()), contains('server v9'));
+      expect(
+        jsonEncode((await store.load(unrelated.id))!.document.toJson()),
+        contains('unrelated local note'),
+      );
+      final conflictCopy = conflict.conflictCopy!;
+      expect(conflictCopy.accountId, 'acc_1');
+      expect(conflictCopy.syncState, LocalSyncState.local);
+      expect(conflictCopy.isConflictCopy, isTrue);
+      expect(conflictCopy.serverNoteId, isNull);
+      expect(conflictCopy.serverRevision, isNull);
+      expect(conflictCopy.serverOriginalRevisionId, isNull);
+      expect(conflictCopy.serverTypedRevisionId, isNull);
+      expect(
+        (await service.notesForAccount('acc_1')).map((n) => n.id),
+        contains(conflictCopy.id),
+      );
+      expect(
+        (await service.notesForAccount('acc_2')).map((n) => n.id),
+        isNot(contains(conflictCopy.id)),
+      );
+      expect(
+        (await service.notesForAccount(null)).map((n) => n.id),
+        isNot(contains(conflictCopy.id)),
+      );
+
+      // Owner edits stay bound, while the conflict copy has no inherited cloud identity.
+      final editedCopy = await store.save(
+        LocalNoteDraft(
+          id: conflictCopy.id,
+          schema: conflictCopy.schema,
+          document: _paperWithTextAndFile('owner edit', att.id),
+          title: 'Owner edit',
+        ),
+      );
+      expect(editedCopy.accountId, 'acc_1');
+      expect(editedCopy.serverNoteId, isNull);
+      final callsBeforeRetry = recorded.length;
+      await expectLater(
+        service.syncNote(editedCopy, accountId: 'acc_1'),
+        throwsA(isA<CloudIdentityException>()),
+      );
+      expect(recorded, hasLength(callsBeforeRetry));
+
+      await store.close();
+      store = await SqliteNoteStore.open(tempDir.path);
+      final persistedCopy = (await store.load(conflictCopy.id))!;
+      final reloadedService = NoteSyncService(
+        store: store,
+        api: ApiAdapter(
+          client: mock,
+          base: 'https://api.asodya.com/apps/annotations/v1',
+        ),
+      );
+      expect(persistedCopy.accountId, 'acc_1');
+      expect(persistedCopy.syncState, LocalSyncState.local);
+      expect(persistedCopy.isConflictCopy, isTrue);
+      expect(persistedCopy.serverNoteId, isNull);
+      expect(
+        (await reloadedService.notesForAccount('acc_2')).map((n) => n.id),
+        isNot(contains(conflictCopy.id)),
+      );
+
+      final backup = NoteBackupService();
+      final package = await backup.exportPackage(store, conflictCopy.id);
+      final restored = await backup.restorePackage(
+        store,
+        package,
+        newNoteId: 'restored_conflict',
+      );
+      expect(restored.accountId, isNull);
+      expect(restored.serverNoteId, isNull);
+      expect(restored.isConflictCopy, isFalse);
+      expect(restored.syncState, LocalSyncState.local);
     },
   );
 
@@ -286,6 +379,17 @@ void main() {
           if (!req.url.path.contains('/srv_pub')) {
             return http.Response(jsonEncode({'error': 'not_found'}), 404);
           }
+          final reps = body?['representations'] as Map?;
+          if (req.method == 'PUT' &&
+              req.url.path.endsWith('/publication') &&
+              (reps?['original'] != 'rev_orig_1' ||
+                  reps?['typed'] != 'rev_typed_1' ||
+                  reps?.length != 2)) {
+            return http.Response(
+              jsonEncode({'error': 'invalid_representation_revision'}),
+              422,
+            );
+          }
           return http.Response(jsonEncode({'ok': true}), 200);
         },
       ).toMockClient();
@@ -327,6 +431,43 @@ void main() {
         'typed': 'rev_typed_1',
       });
 
+      final missingRevision = await store.save(
+        LocalNoteDraft(
+          id: 'n_missing_rep',
+          schema: _paperSchema,
+          document: _paperWithTextAndFile('missing revision', att.id),
+          title: 'Missing revision',
+        ),
+      );
+      await store.setSync(
+        missingRevision.id,
+        state: LocalSyncState.synced,
+        accountId: 'acc_1',
+        serverNoteId: 'srv_pub',
+        serverRevision: 8,
+      );
+      final callsBeforeMissingRevision = calls.length;
+      await expectLater(
+        service.publishNote(
+          (await store.load(missingRevision.id))!,
+          accountId: 'acc_1',
+          representation: PublicationRepresentation.original,
+          allowRestrictedEmbeds: true,
+        ),
+        throwsA(isA<CloudIdentityException>()),
+      );
+      expect(calls, hasLength(callsBeforeMissingRevision));
+      await expectLater(
+        service.publishNote(
+          bound,
+          accountId: 'acc_1',
+          representation: PublicationRepresentation.original,
+          originalRevisionId: 'wrong_revision_id',
+          allowRestrictedEmbeds: true,
+        ),
+        throwsA(isA<ApiError>()),
+      );
+
       await service.unpublishNote(
         'n_pub',
         accountId: 'acc_1',
@@ -361,8 +502,8 @@ void main() {
       final catalogFile = File('${tempDir.path}/catalog.json');
       final catalog1 = ProjectTagCatalog(persistenceFile: catalogFile);
       catalog1.createLocalProject('proj_1', 'Research');
-      catalog1.assignNoteToProject('n_typed', 'proj_1');
-      catalog1.addTag('n_typed', 'Exam');
+      catalog1.assignNoteToProject('local_typed', 'proj_1');
+      catalog1.addTag('local_typed', 'Exam');
       expect(
         () => catalog1.createLocalProject('proj_2', '  research  '),
         throwsStateError,
@@ -370,8 +511,8 @@ void main() {
 
       // Reload from disk in a fresh instance.
       final catalog2 = ProjectTagCatalog(persistenceFile: catalogFile);
-      expect(catalog2.projectForNote('n_typed'), 'proj_1');
-      expect(catalog2.tagsForNote('n_typed'), {'exam'});
+      expect(catalog2.projectForNote('local_typed'), 'proj_1');
+      expect(catalog2.tagsForNote('local_typed'), {'exam'});
 
       final calls =
           <
@@ -393,8 +534,21 @@ void main() {
           if (req.method == 'POST' &&
               req.url.path == '/apps/annotations/v1/me/notes') {
             return http.Response(
-              jsonEncode({'note_id': 'n_typed', 'revision': 1}),
+              jsonEncode({
+                'note_id': 'n_typed',
+                'revision': 1,
+                'revisions': [
+                  {'representation': 'typed', 'revision_id': 'typed_rev_1'},
+                ],
+              }),
               201,
+            );
+          }
+          if (req.url.path.endsWith('/n_typed/publication') &&
+              body?['representations']?['typed'] != 'typed_rev_1') {
+            return http.Response(
+              jsonEncode({'error': 'invalid_representation_revision'}),
+              422,
             );
           }
           return http.Response(jsonEncode({'ok': true}), 200);
@@ -423,24 +577,77 @@ void main() {
       );
       expect(calls[1].ifMatch, '"0"');
 
+      final typedSchema = DocumentSchema(DocumentFamily.typed.schemaName, 1);
+      final projectNote = await store.save(
+        LocalNoteDraft(
+          id: 'local_typed',
+          schema: typedSchema,
+          document: NoteDocument.fromJson({'blocks': []}, schema: typedSchema),
+          title: 'Typed note',
+        ),
+      );
+      await store.setSync(
+        projectNote.id,
+        state: LocalSyncState.synced,
+        accountId: 'acc_1',
+        serverNoteId: 'srv_typed',
+        serverRevision: 3,
+      );
+      final projectBoundNote = (await store.load(projectNote.id))!;
+      final beforeWrongAccountProjectSync = calls.length;
+      await expectLater(
+        catalog2.syncProjectAndTags(
+          api,
+          accountId: 'acc_2',
+          note: projectBoundNote,
+        ),
+        throwsA(isA<CloudIdentityException>()),
+      );
+      expect(calls, hasLength(beforeWrongAccountProjectSync));
       await catalog2.syncProjectAndTags(
         api,
-        noteId: 'n_typed',
-        noteRevision: 1,
+        accountId: 'acc_1',
+        note: projectBoundNote,
       );
       expect(calls[2].method, 'POST');
       expect(calls[2].path, '/apps/annotations/v1/me/projects');
       expect(calls[3].method, 'PUT');
       expect(
         calls[3].path,
-        '/apps/annotations/v1/me/projects/proj_1/notes/n_typed',
+        '/apps/annotations/v1/me/projects/proj_1/notes/srv_typed',
       );
       expect(calls[4].method, 'PATCH');
-      expect(calls[4].path, '/apps/annotations/v1/me/notes/n_typed');
-      expect(calls[4].ifMatch, '"1"');
+      expect(calls[4].path, '/apps/annotations/v1/me/notes/srv_typed');
+      expect(calls[4].ifMatch, '"3"');
       expect(calls[4].body['metadata'], {
         'tags': ['exam'],
       });
+
+      final missingTypedRevisionCalls = <String>[];
+      final noRevisionService = NoteSyncService(
+        store: store,
+        api: ApiAdapter(
+          client: MockClient((req) async {
+            missingTypedRevisionCalls.add(req.method);
+            return http.Response(
+              jsonEncode({
+                'note_id': 'created_without_revision',
+                'revision': 1,
+              }),
+              201,
+            );
+          }),
+          base: 'https://api.asodya.com/apps/annotations/v1',
+        ),
+      );
+      await expectLater(
+        noRevisionService.createAndPublishTypedNote(
+          title: 'No revision response',
+          blocks: const [],
+        ),
+        throwsA(isA<CloudIdentityException>()),
+      );
+      expect(missingTypedRevisionCalls, ['POST']);
     },
   );
 
@@ -867,8 +1074,17 @@ void main() {
       expect(conflict.isConflict, isTrue);
       expect(calls.last.method, 'GET');
       expect(calls.last.path, '/me/notes/srv_note_1');
-      expect(conflict.conflictCopy!.accountId, isNull);
+      expect(conflict.conflictCopy!.accountId, 'acc_1');
+      expect(conflict.conflictCopy!.isConflictCopy, isTrue);
       expect(conflict.conflictCopy!.serverNoteId, isNull);
+      expect(
+        (await serviceFor(store).notesForAccount('acc_2')).map((n) => n.id),
+        isNot(contains(conflict.conflictCopy!.id)),
+      );
+      expect(
+        (await serviceFor(store).notesForAccount(null)).map((n) => n.id),
+        isNot(contains(conflict.conflictCopy!.id)),
+      );
       expect(
         jsonEncode(conflict.conflictCopy!.document.toJson()),
         contains('server concurrent edit'),
