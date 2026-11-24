@@ -10,6 +10,14 @@ import '../../dal/remote/fernet_token.dart';
 /// Where the account is: not known yet, signed out or signed in.
 enum AccountStatus { checking, signedOut, signedIn }
 
+/// An opaque binding to the browser session which started a private request.
+final class AccountSessionGuard {
+  const AccountSessionGuard._(this.revision, this._csrf);
+
+  final int revision;
+  final String? _csrf;
+}
+
 /// The browser cookie, page and launch operations the account needs. The
 /// browser gives the real ones; tests give fakes.
 class SessionPlatform {
@@ -83,21 +91,72 @@ class AccountService extends ChangeNotifier {
   bool get signedIn => _status == AccountStatus.signedIn;
 
   Future<void>? _checking;
+  int? _checkingGeneration;
+  String? _checkingCsrf;
+  int _sessionGeneration = 0;
+  String? _sessionCsrf;
+  Completer<void>? _exchangeInFlight;
+  Future<void>? _loggingOut;
+
+  /// Changes whenever a browser session is replaced, ended or refused.
+  /// Private data requests bind their result to this value.
+  int get sessionRevision => _sessionGeneration;
+
+  AccountSessionGuard captureSessionGuard() =>
+      AccountSessionGuard._(_sessionGeneration, platform.readCookie('csrf'));
 
   /// Reads the live session once at a time.
-  Future<void> check() =>
-      _checking ??= _check().whenComplete(() => _checking = null);
+  Future<void> check() {
+    final ending = _loggingOut;
+    if (ending != null) return ending.then((_) => check());
+    final exchanging = _exchangeInFlight;
+    if (exchanging != null) {
+      return exchanging.future.then((_) => check());
+    }
 
-  Future<void> _check() async {
     final csrf = platform.readCookie('csrf');
+    final current = _checking;
+    if (current != null &&
+        _checkingGeneration == _sessionGeneration &&
+        _checkingCsrf == csrf) {
+      return current;
+    }
+
+    if (current != null || csrf != _sessionCsrf) {
+      _sessionGeneration++;
+      _sessionCsrf = null;
+      _set(csrf == null ? AccountStatus.signedOut : AccountStatus.checking);
+    }
+
+    final generation = _sessionGeneration;
     if (csrf == null) {
       _set(AccountStatus.signedOut);
-      return;
+      return Future<void>.value();
     }
+
+    _checkingGeneration = generation;
+    _checkingCsrf = csrf;
+    late final Future<void> request;
+    request = _check(generation, csrf).whenComplete(() {
+      if (identical(_checking, request)) {
+        _checking = null;
+        _checkingGeneration = null;
+        _checkingCsrf = null;
+      }
+    });
+    _checking = request;
+    return request;
+  }
+
+  bool _isCurrent(int generation, String csrf) =>
+      generation == _sessionGeneration && platform.readCookie('csrf') == csrf;
+
+  Future<void> _check(int generation, String csrf) async {
     try {
       final res = await _client
           .get(Uri.parse('$gateway/user/info/v1/'))
           .timeout(const Duration(seconds: 15));
+      if (!_isCurrent(generation, csrf)) return;
       if (res.statusCode == 200) {
         final data = (jsonDecode(utf8.decode(res.bodyBytes)) as Map)['data'];
         if (data is Map && '${data['email'] ?? ''}'.isNotEmpty) {
@@ -105,16 +164,18 @@ class AccountService extends ChangeNotifier {
           final last = '${data['last_name'] ?? ''}'.trim();
           _email = '${data['email']}';
           _name = [first, last].where((s) => s.isNotEmpty).join(' ');
+          _sessionCsrf = csrf;
           _set(AccountStatus.signedIn);
           return;
         }
       }
       if (res.statusCode == 401 || res.statusCode == 403) {
-        expire();
+        _expire(generation);
         return;
       }
       _set(AccountStatus.signedOut);
     } catch (_) {
+      if (!_isCurrent(generation, csrf)) return;
       // The gateway did not answer: show Sign in, keep the cookie, so the
       // next page load checks again.
       _set(AccountStatus.signedOut);
@@ -123,6 +184,26 @@ class AccountService extends ChangeNotifier {
 
   /// A call was refused: the session is dead. Signed out once, no retry.
   void expire() {
+    _sessionGeneration++;
+    _sessionCsrf = null;
+    platform.deleteCookie('csrf');
+    _set(AccountStatus.signedOut);
+  }
+
+  /// Expires a refused private request only if it still belongs to the
+  /// session that made it.
+  void expireIfCurrent(AccountSessionGuard guard) {
+    if (guard.revision == _sessionGeneration &&
+        guard._csrf != null &&
+        guard._csrf == platform.readCookie('csrf')) {
+      expire();
+    }
+  }
+
+  void _expire(int generation) {
+    if (generation != _sessionGeneration) return;
+    _sessionGeneration++;
+    _sessionCsrf = null;
     platform.deleteCookie('csrf');
     _set(AccountStatus.signedOut);
   }
@@ -187,6 +268,25 @@ class AccountService extends ChangeNotifier {
   /// Redeems the one-time token, then reads the account. True when a
   /// session opened.
   Future<bool> exchange(String token) async {
+    while (true) {
+      final ending = _loggingOut;
+      if (ending != null) {
+        await ending;
+        continue;
+      }
+      final currentExchange = _exchangeInFlight;
+      if (currentExchange != null) {
+        await currentExchange.future;
+        continue;
+      }
+      break;
+    }
+    final gate = Completer<void>();
+    _exchangeInFlight = gate;
+    final generation = ++_sessionGeneration;
+    _sessionCsrf = null;
+    _set(AccountStatus.checking);
+    var exchanged = false;
     try {
       final res = await _client
           .post(
@@ -195,16 +295,41 @@ class AccountService extends ChangeNotifier {
             body: jsonEncode({tokenParam: token, 'app': appIdentifier}),
           )
           .timeout(const Duration(seconds: 20));
-      if (res.statusCode != 200) return false;
+      if (generation == _sessionGeneration && res.statusCode == 200) {
+        exchanged = true;
+      } else if (generation == _sessionGeneration) {
+        _set(AccountStatus.signedOut);
+      }
     } catch (_) {
-      return false;
+      if (generation == _sessionGeneration) _set(AccountStatus.signedOut);
+    } finally {
+      if (identical(_exchangeInFlight, gate)) _exchangeInFlight = null;
+      gate.complete();
     }
+    if (!exchanged || generation != _sessionGeneration) return false;
     await check();
-    return signedIn;
+    return generation == _sessionGeneration && signedIn;
   }
 
   /// Ends this device session; public reading and Instant keep working.
-  Future<void> logOut() async {
+  Future<void> logOut() {
+    final current = _loggingOut;
+    if (current != null) return current;
+
+    final generation = ++_sessionGeneration;
+    _sessionCsrf = null;
+    _set(AccountStatus.signedOut);
+    late final Future<void> request;
+    request = _finishLogout(generation).whenComplete(() {
+      if (identical(_loggingOut, request)) _loggingOut = null;
+    });
+    _loggingOut = request;
+    return request;
+  }
+
+  Future<void> _finishLogout(int generation) async {
+    final exchanging = _exchangeInFlight;
+    if (exchanging != null) await exchanging.future;
     final csrf = platform.readCookie('csrf');
     try {
       await _client
@@ -216,6 +341,10 @@ class AccountService extends ChangeNotifier {
     } catch (_) {
       // The local state goes anyway.
     }
-    expire();
+    if (generation == _sessionGeneration) {
+      platform.deleteCookie('csrf');
+      _sessionCsrf = null;
+      _set(AccountStatus.signedOut);
+    }
   }
 }

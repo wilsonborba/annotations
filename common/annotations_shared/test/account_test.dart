@@ -43,17 +43,24 @@ class FakeGateway {
   final opened = <Uri>[];
   final addresses = <String>[];
   Completer<void>? holdInfo;
+  Completer<void>? holdNextExchange;
+  Completer<http.Response>? holdNextInfoResponse;
+  Completer<http.Response>? holdNextNotesResponse;
+  String email = 'ana@example.com';
 
   Future<http.Response> handle(http.Request r) async {
     calls.add('${r.method} ${r.url.path}');
     switch ((r.method, r.url.path)) {
       case ('GET', '/user/info/v1/'):
+        final heldResponse = holdNextInfoResponse;
+        holdNextInfoResponse = null;
+        if (heldResponse != null) return heldResponse.future;
         await holdInfo?.future;
         return alive
             ? json({
                 'data': {
-                  'email': 'ana@example.com',
-                  'first_name': 'Ana',
+                  'email': email,
+                  'first_name': email.startsWith('bea') ? 'Bea' : 'Ana',
                   'last_name': 'Lima',
                 },
               })
@@ -64,6 +71,7 @@ class FakeGateway {
             body['app'] != 'annotations') {
           return json({'message': 'Invalid exchange token'}, 400);
         }
+        await holdNextExchange?.future;
         alive = true;
         cookies['csrf'] = 'csrf-1';
         return json({'message': 'Success'});
@@ -77,7 +85,14 @@ class FakeGateway {
         if (notesStatus != null) return json({'detail': 'x'}, notesStatus!);
         // The gateway session route: no session, 401 (api_for_apps e3bc705).
         if (!alive) return json({'detail': 'Authentication required'}, 401);
-        return json({'items': notes, 'next_cursor': null, 'sync_cursor': '1'});
+        final response = json({
+          'items': notes,
+          'next_cursor': null,
+          'sync_cursor': '1',
+        });
+        final heldResponse = holdNextNotesResponse;
+        holdNextNotesResponse = null;
+        return heldResponse == null ? response : heldResponse.future;
     }
     return json({'detail': 'Not Found'}, 404);
   }
@@ -321,6 +336,97 @@ void main() {
       expect(location(tester), '/v1/menu');
     });
 
+    test(
+      'a late successful identity response cannot undo browser logout',
+      () async {
+        final g = signedIn();
+        final delayed = Completer<http.Response>();
+        g.holdNextInfoResponse = delayed;
+
+        final checking = g.account.check();
+        await Future<void>.delayed(Duration.zero);
+        await g.account.logOut();
+        expect(g.cookies, isEmpty);
+        expect(g.account.signedIn, isFalse);
+
+        delayed.complete(
+          FakeGateway.json({
+            'data': {
+              'email': 'ana@example.com',
+              'first_name': 'Ana',
+              'last_name': 'Lima',
+            },
+          }),
+        );
+        await checking;
+
+        expect(g.account.signedIn, isFalse);
+        expect(g.account.email, isEmpty);
+        expect(g.cookies, isEmpty);
+      },
+    );
+
+    test('a replaced CSRF session starts a fresh identity check', () async {
+      final g = signedIn();
+      final oldSession = g.account.captureSessionGuard();
+      final delayed = Completer<http.Response>();
+      g.holdNextInfoResponse = delayed;
+      final checkA = g.account.check();
+      await Future<void>.delayed(Duration.zero);
+
+      g.cookies['csrf'] = 'csrf-b';
+      g.email = 'bea@example.com';
+      final delayedB = Completer<http.Response>();
+      g.holdNextInfoResponse = delayedB;
+      final checkB = g.account.check();
+      await Future<void>.delayed(Duration.zero);
+
+      delayed.complete(FakeGateway.json({'detail': 'old A session'}, 403));
+      await checkA;
+      expect(g.account.status, AccountStatus.checking);
+      expect(identical(g.account.check(), checkB), isTrue);
+      expect(g.count('GET /user/info/v1/'), 2);
+
+      delayedB.complete(
+        FakeGateway.json({
+          'data': {
+            'email': 'bea@example.com',
+            'first_name': 'Bea',
+            'last_name': 'Lima',
+          },
+        }),
+      );
+      await checkB;
+      expect(g.account.signedIn, isTrue);
+      expect(g.account.email, 'bea@example.com');
+      expect(g.cookies['csrf'], 'csrf-b');
+      g.account.expireIfCurrent(oldSession);
+      expect(g.account.signedIn, isTrue, reason: 'a stale private refusal');
+    });
+
+    test(
+      'logout waits for a pending exchange and revokes its new session',
+      () async {
+        final g = FakeGateway();
+        final exchangeGate = Completer<void>();
+        g.holdNextExchange = exchangeGate;
+
+        final exchanging = g.account.exchange('good');
+        await Future<void>.delayed(Duration.zero);
+        final loggingOut = g.account.logOut();
+        expect(g.account.signedIn, isFalse);
+
+        exchangeGate.complete();
+        expect(await exchanging, isFalse);
+        await loggingOut;
+
+        expect(g.count('POST /user/sync/v1/log-out'), 1);
+        expect(g.alive, isFalse);
+        expect(g.cookies, isEmpty);
+        expect(g.account.signedIn, isFalse);
+      },
+    );
+
     test('the state is never a stored flag', () async {
       SharedPreferences.setMockInitialValues({});
       final g = signedIn();
@@ -443,6 +549,58 @@ void main() {
       await tester.tap(find.text(translate('retry', 'en')));
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('my-notes-empty')), findsOneWidget);
+    });
+
+    testWidgets('late private notes from the replaced session stay hidden', (
+      tester,
+    ) async {
+      final g = signedIn()
+        ..notes = [
+          {
+            'note_id': 'private-a',
+            'title': 'A private note',
+            'updated_at': 1794996000,
+            'published': null,
+          },
+        ];
+      final delayed = Completer<http.Response>();
+      g.holdNextNotesResponse = delayed;
+      await openApp(tester, g, '/v1/me/notes', settle: false);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('my-notes-loading')), findsOneWidget);
+
+      g.cookies['csrf'] = 'csrf-b';
+      g.email = 'bea@example.com';
+      g.notes = [
+        {
+          'note_id': 'private-b',
+          'title': 'B private note',
+          'updated_at': 1794996000,
+          'published': null,
+        },
+      ];
+      await g.account.check();
+      await tester.pumpAndSettle();
+      expect(find.text('B private note'), findsOneWidget);
+      expect(find.text('A private note'), findsNothing);
+
+      delayed.complete(
+        FakeGateway.json({
+          'items': [
+            {
+              'note_id': 'private-a',
+              'title': 'A private note',
+              'updated_at': 1794996000,
+              'published': null,
+            },
+          ],
+          'next_cursor': null,
+          'sync_cursor': 'old-a',
+        }),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('B private note'), findsOneWidget);
+      expect(find.text('A private note'), findsNothing);
     });
 
     testWidgets('signed out it asks to sign in', (tester) async {
