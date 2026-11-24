@@ -15,13 +15,13 @@ const appRadius = 6.0;
 /// Corner radius of cards, menus, dialogs and toasts.
 const appPanelRadius = 10.0;
 
-/// One solid shadow for raised surfaces (menus, dialogs, toasts). No blur
-/// on the surface itself, which stays opaque.
+/// A restrained lift for raised surfaces (menus, dialogs, toasts). The
+/// surface stays opaque; its one-pixel outline does most of the separation.
 List<BoxShadow> appPanelShadow(AppColors c) => [
   BoxShadow(
-    color: c.isDark ? const Color(0x66000000) : const Color(0x24000000),
-    blurRadius: 16,
-    offset: const Offset(0, 6),
+    color: c.isDark ? const Color(0x40000000) : const Color(0x16000000),
+    blurRadius: 8,
+    offset: const Offset(0, 2),
   ),
 ];
 
@@ -204,8 +204,8 @@ ThemeData appTheme(Brightness brightness) {
     popupMenuTheme: PopupMenuThemeData(
       color: c.surface,
       surfaceTintColor: Colors.transparent,
-      elevation: 6,
-      shadowColor: const Color(0x55000000),
+      elevation: 2,
+      shadowColor: const Color(0x22000000),
       shape: panelShape,
       textStyle: text.bodyMedium,
       labelTextStyle: WidgetStatePropertyAll(text.bodyMedium),
@@ -213,8 +213,8 @@ ThemeData appTheme(Brightness brightness) {
     dialogTheme: DialogThemeData(
       backgroundColor: c.surface,
       surfaceTintColor: Colors.transparent,
-      elevation: 8,
-      shadowColor: const Color(0x66000000),
+      elevation: 3,
+      shadowColor: const Color(0x26000000),
       // No see-through scrim behind a dialog: the page stays as it is.
       barrierColor: Colors.transparent,
       shape: panelShape,
@@ -336,8 +336,8 @@ ButtonStyle appButtonStyle(AppColors c, TextTheme text, AppButtonKind kind) {
 MenuStyle _menuStyle(AppColors c) => MenuStyle(
   backgroundColor: WidgetStatePropertyAll(c.surface),
   surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
-  elevation: const WidgetStatePropertyAll(6),
-  shadowColor: const WidgetStatePropertyAll(Color(0x55000000)),
+  elevation: const WidgetStatePropertyAll(2),
+  shadowColor: const WidgetStatePropertyAll(Color(0x22000000)),
   padding: const WidgetStatePropertyAll(EdgeInsets.all(6)),
   side: WidgetStatePropertyAll(BorderSide(color: c.border)),
   shape: const WidgetStatePropertyAll(

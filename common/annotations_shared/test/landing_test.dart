@@ -333,9 +333,10 @@ void main() {
     Future<ProductShowcaseState> pumpShowcase(
       WidgetTester tester, {
       bool still = false,
+      double width = 1300,
     }) async {
       tester.view.devicePixelRatio = 1;
-      tester.view.physicalSize = const Size(1300, 1200);
+      tester.view.physicalSize = Size(width, 1200);
       addTearDown(tester.view.reset);
       if (still) stillMotion(tester);
       await tester.pumpWidget(
@@ -419,7 +420,75 @@ void main() {
       await tester.pump(const Duration(seconds: 10));
       expect(s.platform, ShowcasePlatform.mac);
     });
+
+    testWidgets('mobile uses a readable note and no device mockups', (
+      tester,
+    ) async {
+      await pumpShowcase(tester, still: true, width: 390);
+      expect(find.byKey(const Key('showcase-mobile-note')), findsOneWidget);
+      expect(
+        find.byKey(const Key('note-writing-illustration')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const Key('showcase-switch')), findsNothing);
+      expect(find.byType(AppWindowFrame), findsNothing);
+      expect(find.byType(PhoneFrame), findsNothing);
+      expect(find.text(translate('modeNotesTitle', 'en')), findsOneWidget);
+      expect(find.text(translate('howWriteText', 'en')), findsOneWidget);
+      final note = tester.getRect(
+        find.byKey(const Key('note-writing-illustration')),
+      );
+      expect(note.width, greaterThanOrEqualTo(340));
+      expect(note.width, lessThanOrEqualTo(390));
+      expect(note.height, 230);
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('note-writing-illustration')),
+          matching: find.byType(CustomPaint),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('mobile note reveal completes once and fits narrow phones', (
+      tester,
+    ) async {
+      await pumpShowcase(tester, width: 320);
+      await tester.pump(const Duration(milliseconds: 1200));
+      final note = tester.getRect(
+        find.byKey(const Key('note-writing-illustration')),
+      );
+      expect(note.width, lessThanOrEqualTo(320));
+      await tester.pump(const Duration(seconds: 10));
+      expect(tester.takeException(), isNull);
+    });
   });
+
+  test(
+    'raised surfaces use a light shadow and keep focused menu treatment',
+    () {
+      for (final brightness in [Brightness.light, Brightness.dark]) {
+        final c = AppColors.of(brightness);
+        final theme = appTheme(brightness);
+        expect(theme.popupMenuTheme.elevation, 2);
+        expect(theme.dialogTheme.elevation, 3);
+        expect(theme.menuTheme.style!.elevation!.resolve({}), 2);
+        expect(appPanelShadow(c).single.blurRadius, 8);
+        expect(appPanelShadow(c).single.offset, const Offset(0, 2));
+        expect(
+          (theme.popupMenuTheme.shape! as RoundedRectangleBorder).side,
+          BorderSide(color: c.border),
+        );
+        expect(
+          appMenuItemStyle(
+            c,
+            theme.textTheme,
+          ).backgroundColor!.resolve({WidgetState.focused}),
+          c.selection,
+        );
+      }
+    },
+  );
 
   group('Install section', () {
     testWidgets('every platform has its icon, action and install path', (

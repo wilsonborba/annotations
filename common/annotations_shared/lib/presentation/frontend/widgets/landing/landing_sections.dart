@@ -154,10 +154,10 @@ class _WordMarks extends CustomPainter {
   bool shouldRepaint(_WordMarks old) => old.progress != progress;
 }
 
-/// The product showcase (Linear and Obsidian): a desktop window of the app
-/// with the phone stacked over its corner. It moves to the next platform
-/// every few seconds, the user can choose one, and it waits while the
-/// pointer or the focus is on it. Under reduced motion it never moves.
+/// The product showcase keeps the desktop app window and overlapping phone.
+/// On phones it uses a simple note illustration instead of scaled device
+/// frames. The desktop preview changes platforms; reduced motion keeps it
+/// still and shows the completed note mark.
 class ProductShowcase extends StatefulWidget {
   const ProductShowcase({
     super.key,
@@ -186,7 +186,7 @@ class ProductShowcaseState extends State<ProductShowcase> {
   void _restart() {
     _timer?.cancel();
     _timer = null;
-    if (MediaQuery.of(context).disableAnimations) return;
+    if (MediaQuery.of(context).disableAnimations || isPhone(context)) return;
     _timer = Timer.periodic(widget.interval, (_) {
       if (paused || !mounted) return;
       setState(() {
@@ -219,6 +219,14 @@ class ProductShowcaseState extends State<ProductShowcase> {
     final dark = context.colors.isDark;
     final phone = isPhone(context);
     final still = MediaQuery.of(context).disableAnimations;
+    if (phone) {
+      return Semantics(
+        key: const Key('showcase-mobile-note'),
+        label: context.tr('showcaseLabel'),
+        container: true,
+        child: const _NoteWritingIllustration(),
+      );
+    }
     final shot = platform == ShowcasePlatform.browser
         ? browserShot
         : desktopShot;
@@ -275,8 +283,8 @@ class ProductShowcaseState extends State<ProductShowcase> {
                     children: [
                       Padding(
                         padding: EdgeInsets.only(
-                          right: phone ? phoneWidth * .45 : phoneWidth * .55,
-                          bottom: phone ? 40 : 56,
+                          right: phoneWidth * .55,
+                          bottom: 56,
                         ),
                         child: AspectRatio(
                           aspectRatio: desktopShot.ratio * .94,
@@ -314,6 +322,126 @@ class ProductShowcaseState extends State<ProductShowcase> {
       ),
     );
   }
+}
+
+/// A readable, finite mobile illustration of writing on a simple note.
+/// It draws once and then rests; reduced-motion users see the finished mark.
+class _NoteWritingIllustration extends StatefulWidget {
+  const _NoteWritingIllustration();
+
+  @override
+  State<_NoteWritingIllustration> createState() =>
+      _NoteWritingIllustrationState();
+}
+
+class _NoteWritingIllustrationState extends State<_NoteWritingIllustration>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ink = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1100),
+  );
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (MediaQuery.of(context).disableAnimations) {
+      _ink
+        ..stop()
+        ..value = 1;
+    } else if (_ink.value == 0 && !_ink.isAnimating) {
+      _ink.forward();
+    }
+  }
+
+  @override
+  void dispose() {
+    _ink.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final text = Theme.of(context).textTheme;
+    return SizedBox(
+      key: const Key('note-writing-illustration'),
+      height: 230,
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 390),
+          child: Container(
+            width: double.infinity,
+            height: 210,
+            padding: const EdgeInsets.fromLTRB(24, 20, 24, 18),
+            decoration: BoxDecoration(
+              color: c.surface,
+              border: Border.all(color: c.border),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        context.tr('modeNotesTitle'),
+                        key: const Key('note-writing-title'),
+                        style: text.titleLarge,
+                      ),
+                    ),
+                    AnimatedBuilder(
+                      animation: _ink,
+                      builder: (context, _) => CustomPaint(
+                        key: const Key('note-writing-ink'),
+                        size: const Size(52, 36),
+                        painter: _NoteWritingPainter(
+                          progress: _ink.value,
+                          color: c.accent,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  context.tr('howWriteText'),
+                  key: const Key('note-writing-body'),
+                  style: text.bodyMedium,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _NoteWritingPainter extends CustomPainter {
+  const _NoteWritingPainter({required this.progress, required this.color});
+
+  final double progress;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final draw = progress.clamp(0.0, 1.0);
+    final mark = Paint()
+      ..color = color.withValues(alpha: .8)
+      ..strokeWidth = 3
+      ..strokeCap = StrokeCap.round;
+    canvas.drawLine(
+      Offset(size.width * .08, size.height * .64),
+      Offset(size.width * (.08 + .82 * draw), size.height * .64 - 2),
+      mark,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_NoteWritingPainter old) =>
+      old.progress != progress || old.color != color;
 }
 
 /// A platform choice of the showcase: green fill with dark text when
