@@ -14,6 +14,13 @@ class AccountOwnershipException implements Exception {
   String toString() => message;
 }
 
+class CloudIdentityException implements Exception {
+  final String message;
+  CloudIdentityException(this.message);
+  @override
+  String toString() => message;
+}
+
 enum PublicationRepresentation {
   original('original'),
   typed('typed'),
@@ -119,13 +126,198 @@ class NoteSyncService {
     }
   }
 
+  static (String?, String?) _parseRevisions(Map<String, dynamic> payload) {
+    String? original;
+    String? typed;
+    final list = payload['revisions'] ?? payload['representations'];
+    if (list is List) {
+      for (final item in list) {
+        if (item is! Map) continue;
+        final rep = item['representation'] as String?;
+        final revId = item['revision_id'] as String?;
+        if (revId == null || revId.isEmpty) continue;
+        if (rep == 'original') original = revId;
+        if (rep == 'typed') typed = revId;
+      }
+    } else if (list is Map) {
+      final origVal = list['original'];
+      final typedVal = list['typed'];
+      if (origVal is String && origVal.isNotEmpty) original = origVal;
+      if (typedVal is String && typedVal.isNotEmpty) typed = typedVal;
+    }
+    return (original, typed);
+  }
+
+  static String _requireServerNoteId(Map<String, dynamic> payload) {
+    final id = payload['note_id'];
+    if (id is String && id.isNotEmpty) return id;
+    throw CloudIdentityException('Server response is missing note_id.');
+  }
+
+  static (DocumentSchema, NoteDocument) _extractServerConflictDocument(
+    Map<String, dynamic> serverResp,
+    DocumentSchema fallbackSchema,
+  ) {
+    final rawReps = serverResp['representations'];
+    if (rawReps is List && rawReps.isNotEmpty) {
+      final preferredRep = fallbackSchema.family == DocumentFamily.typed
+          ? 'typed'
+          : 'original';
+      final mainRep = serverResp['main_representation'] as String?;
+      Map<String, dynamic>? chosen;
+      for (final item in rawReps) {
+        if (item is! Map) continue;
+        final map = Map<String, dynamic>.from(item);
+        if (map['document'] is! Map) continue;
+        if (map['representation'] == preferredRep) {
+          chosen = map;
+          break;
+        }
+        chosen ??= (mainRep != null && map['representation'] == mainRep)
+            ? map
+            : null;
+      }
+      chosen ??= rawReps
+          .whereType<Map>()
+          .map(Map<String, dynamic>.from)
+          .firstWhere(
+            (m) => m['document'] is Map,
+            orElse: () => <String, dynamic>{},
+          );
+      if (chosen['document'] is Map) {
+        final rep = '${chosen['representation'] ?? 'original'}';
+        final schemaName = rep == 'typed'
+            ? DocumentFamily.typed.schemaName
+            : DocumentFamily.original.schemaName;
+        final schemaVersion =
+            (chosen['schema_version'] as num?)?.toInt() ??
+            fallbackSchema.version;
+        final serverSchema = DocumentSchema(schemaName, schemaVersion);
+        final serverDoc = NoteDocument.fromJson(
+          Map<String, dynamic>.from(chosen['document'] as Map),
+          schema: serverSchema,
+        );
+        return (serverSchema, serverDoc);
+      }
+    }
+
+    final rawSchema = (serverResp['schema'] as Map?) ?? const {};
+    final serverSchema = DocumentSchema(
+      '${rawSchema['name'] ?? fallbackSchema.name}',
+      (rawSchema['version'] as num?)?.toInt() ?? fallbackSchema.version,
+    );
+    final serverDoc = NoteDocument.fromJson(
+      Map<String, dynamic>.from(serverResp['document'] as Map),
+      schema: serverSchema,
+    );
+    return (serverSchema, serverDoc);
+  }
+
+  Future<LocalNote> _recoverMappingByClientId(
+    LocalNote note,
+    String accountId,
+  ) async {
+    String? cursor;
+    while (true) {
+      final resp = await api.request(
+        '/me/notes',
+        method: 'GET',
+        query: {'limit': '100', 'cursor': ?cursor},
+      );
+      final items = (resp['items'] as List?) ?? const [];
+      for (final rawItem in items) {
+        if (rawItem is! Map) continue;
+        final item = Map<String, dynamic>.from(rawItem);
+        if (item['client_note_id'] != note.id) continue;
+        final serverNoteId = _requireServerNoteId(item);
+        final serverRevision = (item['revision'] as num?)?.toInt();
+        final (origRevId, typedRevId) = _parseRevisions(item);
+        await store.setSync(
+          note.id,
+          state: note.syncState,
+          accountId: accountId,
+          serverNoteId: serverNoteId,
+          serverRevision: serverRevision,
+          serverOriginalRevisionId: origRevId,
+          serverTypedRevisionId: typedRevId,
+        );
+        return (await store.load(note.id)) ??
+            LocalNote(
+              id: note.id,
+              schema: note.schema,
+              document: note.document,
+              title: note.title,
+              revision: note.revision,
+              createdAt: note.createdAt,
+              updatedAt: note.updatedAt,
+              syncState: note.syncState,
+              accountId: accountId,
+              serverNoteId: serverNoteId,
+              serverRevision: serverRevision,
+              serverOriginalRevisionId: origRevId,
+              serverTypedRevisionId: typedRevId,
+            );
+      }
+      final nextCursor = resp['next_cursor'] as String?;
+      if (nextCursor == null || nextCursor.isEmpty || items.isEmpty) break;
+      cursor = nextCursor;
+    }
+    throw CloudIdentityException(
+      'Could not recover a cloud note mapping for ${note.id}.',
+    );
+  }
+
+  Future<LocalNote> _resolveBoundIdentity(
+    LocalNote note,
+    String accountId, {
+    bool requireRevision = false,
+  }) async {
+    final current = (await store.load(note.id)) ?? note;
+    _requireOwner(current, accountId);
+    if (current.accountId == null && current.serverNoteId == null) {
+      throw CloudIdentityException(
+        'Note ${current.id} is not bound to the cloud yet.',
+      );
+    }
+    if (current.serverNoteId == null) {
+      return _recoverMappingByClientId(current, accountId);
+    }
+    if (!requireRevision || current.serverRevision != null) {
+      return current;
+    }
+    final detail = await api.request(
+      '/me/notes/${current.serverNoteId}',
+      method: 'GET',
+    );
+    final rev = (detail['revision'] as num?)?.toInt();
+    if (rev == null) {
+      throw CloudIdentityException(
+        'Server detail for ${current.serverNoteId} is missing revision.',
+      );
+    }
+    final (origRevId, typedRevId) = _parseRevisions(detail);
+    await store.setSync(
+      current.id,
+      state: current.syncState,
+      accountId: accountId,
+      serverNoteId: current.serverNoteId,
+      serverRevision: rev,
+      serverOriginalRevisionId: origRevId,
+      serverTypedRevisionId: typedRevId,
+    );
+    return (await store.load(current.id)) ?? current;
+  }
+
   /// Explicitly syncs [note] for [accountId].
-  /// - First upload (`note.accountId == null`): `POST /me/notes` with full document.
-  /// - Subsequent syncs (`note.accountId != null`): `PATCH /me/notes/{id}` (with `syncOperation`
-  ///   when [baseDocument] is present) or `PUT /me/notes/{id}`, always sending `If-Match`.
+  /// - First upload (`note.accountId == null`): `POST /me/notes` with full document
+  ///   and `client_note_id: note.id`; persists returned server `note_id` and `revision`.
+  /// - Subsequent syncs (`note.accountId != null`): resolves persisted (or
+  ///   recovered via `GET /me/notes`) server `note_id` and `serverRevision`,
+  ///   then sends `PATCH /me/notes/{serverNoteId}` or `PUT /me/notes/{serverNoteId}`
+  ///   with `If-Match`. Never uses the local note id or local save counter.
   /// - Uses `gzipBody` (`compress: true`).
-  /// - On `409 Conflict`, fetches the SERVER version via `GET /me/notes/{id}`, keeps the
-  ///   LOCAL note unchanged, and saves the SERVER document as a separate conflict copy.
+  /// - On `409 Conflict`, fetches the SERVER version via `GET /me/notes/{serverNoteId}`,
+  ///   keeps the LOCAL note unchanged, and saves the SERVER document as a separate conflict copy.
   Future<SyncResult> syncNote(
     LocalNote note, {
     required String accountId,
@@ -134,7 +326,7 @@ class NoteSyncService {
   }) async {
     _requireOwner(note, accountId);
 
-    final isFirstUpload = note.accountId == null;
+    final isFirstUpload = note.accountId == null && note.serverNoteId == null;
     final op = (!isFirstUpload && baseDocument != null)
         ? syncOperation(baseDocument, note.document)
         : null;
@@ -143,6 +335,7 @@ class NoteSyncService {
     final String method;
     final Map<String, String>? headers;
     final Map<String, dynamic> payload;
+    String? knownServerNoteId;
 
     final repKey = note.schema.family == DocumentFamily.typed
         ? 'typed'
@@ -167,8 +360,19 @@ class NoteSyncService {
         },
       };
     } else {
-      final rev = baseRevision ?? note.revision;
-      path = '/me/notes/${note.id}';
+      final identity = await _resolveBoundIdentity(
+        note,
+        accountId,
+        requireRevision: baseRevision == null,
+      );
+      knownServerNoteId = identity.serverNoteId!;
+      final rev = baseRevision ?? identity.serverRevision;
+      if (rev == null) {
+        throw CloudIdentityException(
+          'Missing authoritative server revision for ${identity.id}.',
+        );
+      }
+      path = '/me/notes/$knownServerNoteId';
       method = usePatch ? 'PATCH' : 'PUT';
       headers = {'if-match': '"$rev"'};
       payload = usePatch
@@ -192,32 +396,31 @@ class NoteSyncService {
         headers: headers,
         compress: true,
       );
+      final serverNoteId = knownServerNoteId ?? _requireServerNoteId(resp);
+      final serverRev = (resp['revision'] as num?)?.toInt();
+      final (origRevId, typedRevId) = _parseRevisions(resp);
       await store.setSync(
         note.id,
         state: LocalSyncState.synced,
         accountId: accountId,
+        serverNoteId: serverNoteId,
+        serverRevision: serverRev,
+        serverOriginalRevisionId: origRevId,
+        serverTypedRevisionId: typedRevId,
       );
       final updated = (await store.load(note.id)) ?? note;
-      return SyncResult.synced(
-        localNote: updated,
-        serverRevision: (resp['revision'] as num?)?.toInt(),
-      );
+      return SyncResult.synced(localNote: updated, serverRevision: serverRev);
     } on ApiError catch (err) {
-      if (err.status != 409) rethrow;
+      if (err.status != 409 || knownServerNoteId == null) rethrow;
       // Fetch the authoritative server version; never overwrite the local note.
       final serverResp = await api.request(
-        '/me/notes/${note.id}',
+        '/me/notes/$knownServerNoteId',
         method: 'GET',
       );
       final serverRev = (serverResp['revision'] as num?)?.toInt() ?? 1;
-      final rawSchema = (serverResp['schema'] as Map?) ?? const {};
-      final serverSchema = DocumentSchema(
-        '${rawSchema['name'] ?? note.schema.name}',
-        (rawSchema['version'] as num?)?.toInt() ?? note.schema.version,
-      );
-      final serverDoc = NoteDocument.fromJson(
-        Map<String, dynamic>.from(serverResp['document'] as Map),
-        schema: serverSchema,
+      final (serverSchema, serverDoc) = _extractServerConflictDocument(
+        serverResp,
+        note.schema,
       );
       final conflictId = '${note.id}__conflict_$serverRev';
       final serverCopy = await store.save(
@@ -237,7 +440,7 @@ class NoteSyncService {
     }
   }
 
-  /// Publishes [note] via `PUT /me/notes/{note_id}/publication` (`If-Match: <pubRev>`).
+  /// Publishes [note] via `PUT /me/notes/{serverNoteId}/publication` (`If-Match: <pubRev>`).
   /// When restricted embeds exist and [allowRestrictedEmbeds] is false, returns a warning
   /// result with `published: false` and `restrictedEmbedCount`.
   Future<PublicationResult> publishNote(
@@ -259,18 +462,26 @@ class NoteSyncService {
       );
     }
 
+    final identity = await _resolveBoundIdentity(note, accountId);
+    final serverNoteId = identity.serverNoteId!;
     final reps = <String, String>{};
     if (representation == PublicationRepresentation.original ||
         representation == PublicationRepresentation.both) {
-      reps['original'] = originalRevisionId ?? '${note.revision}';
+      reps['original'] =
+          originalRevisionId ??
+          identity.serverOriginalRevisionId ??
+          '${identity.serverRevision ?? note.revision}';
     }
     if (representation == PublicationRepresentation.typed ||
         representation == PublicationRepresentation.both) {
-      reps['typed'] = typedRevisionId ?? '${note.revision}';
+      reps['typed'] =
+          typedRevisionId ??
+          identity.serverTypedRevisionId ??
+          '${identity.serverRevision ?? note.revision}';
     }
 
     final resp = await api.request(
-      '/me/notes/${note.id}/publication',
+      '/me/notes/$serverNoteId/publication',
       method: 'PUT',
       headers: {'if-match': '"$publicationRevision"'},
       body: {'language': language, 'representations': reps},
@@ -280,6 +491,10 @@ class NoteSyncService {
       note.id,
       state: LocalSyncState.synced,
       accountId: accountId,
+      serverNoteId: serverNoteId,
+      serverRevision: identity.serverRevision,
+      serverOriginalRevisionId: identity.serverOriginalRevisionId,
+      serverTypedRevisionId: identity.serverTypedRevisionId,
     );
     return PublicationResult(
       published: true,
@@ -297,37 +512,55 @@ class NoteSyncService {
     }
   }
 
-  /// Deletion scope 2: deletes the cloud note via `DELETE /me/notes/{note_id}`
+  /// Deletion scope 2: deletes the cloud note via `DELETE /me/notes/{serverNoteId}`
   /// with `If-Match` and `?delete_owned_reports=true` when requested.
   Future<void> deleteCloudNote(
     String noteId, {
     required String accountId,
-    required int expectedRevision,
+    int? expectedRevision,
     bool deleteOwnedReports = false,
   }) async {
     final existing = await store.load(noteId);
-    if (existing != null) _requireOwner(existing, accountId);
+    if (existing == null) {
+      throw CloudIdentityException(
+        'Note $noteId does not exist locally to resolve its server identity.',
+      );
+    }
+    final identity = await _resolveBoundIdentity(
+      existing,
+      accountId,
+      requireRevision: expectedRevision == null,
+    );
+    final rev = expectedRevision ?? identity.serverRevision;
+    if (rev == null) {
+      throw CloudIdentityException(
+        'Missing authoritative server revision for ${existing.id}.',
+      );
+    }
     await api.request(
-      '/me/notes/$noteId',
+      '/me/notes/${identity.serverNoteId}',
       method: 'DELETE',
-      headers: {'if-match': '"$expectedRevision"'},
+      headers: {'if-match': '"$rev"'},
       query: deleteOwnedReports ? {'delete_owned_reports': 'true'} : null,
     );
-    if (existing != null) {
-      await store.setSync(noteId, state: LocalSyncState.local, accountId: null);
-    }
+    await store.setSync(noteId, state: LocalSyncState.local, accountId: null);
   }
 
-  /// Deletion scope 3: unpublishes via `DELETE /me/notes/{note_id}/publication`.
+  /// Deletion scope 3: unpublishes via `DELETE /me/notes/{serverNoteId}/publication`.
   Future<void> unpublishNote(
     String noteId, {
     required String accountId,
     required int publicationRevision,
   }) async {
     final existing = await store.load(noteId);
-    if (existing != null) _requireOwner(existing, accountId);
+    if (existing == null) {
+      throw CloudIdentityException(
+        'Note $noteId does not exist locally to resolve its server identity.',
+      );
+    }
+    final identity = await _resolveBoundIdentity(existing, accountId);
     await api.request(
-      '/me/notes/$noteId/publication',
+      '/me/notes/${identity.serverNoteId}/publication',
       method: 'DELETE',
       headers: {'if-match': '"$publicationRevision"'},
     );
@@ -361,8 +594,9 @@ class NoteSyncService {
       compress: true,
     );
     final noteId = '${created['note_id'] ?? created['id']}';
+    final (_, parsedTypedRevId) = _parseRevisions(created);
     final repId =
-        '${created['typed_revision_id'] ?? created['revision_id'] ?? created['revision'] ?? 1}';
+        '${parsedTypedRevId ?? created['typed_revision_id'] ?? created['revision_id'] ?? created['revision'] ?? 1}';
     return api.request(
       '/me/notes/$noteId/publication',
       method: 'PUT',

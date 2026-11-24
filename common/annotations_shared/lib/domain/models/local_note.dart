@@ -56,6 +56,10 @@ final class LocalNote {
     required this.updatedAt,
     required this.syncState,
     required this.accountId,
+    this.serverNoteId,
+    this.serverRevision,
+    this.serverOriginalRevisionId,
+    this.serverTypedRevisionId,
   });
 
   final String id;
@@ -72,6 +76,19 @@ final class LocalNote {
   /// The account that the note is bound to. Null until the first sync or
   /// publication (D1.5).
   final String? accountId;
+
+  /// Server-generated note identifier assigned on first cloud upload, or null
+  /// when local-only or after cloud deletion.
+  final String? serverNoteId;
+
+  /// Authoritative server sync revision used for `If-Match`, separate from the
+  /// local save counter [revision].
+  final int? serverRevision;
+
+  /// Authoritative server representation revision ids returned by `/me/notes`
+  /// and used for `PUT /me/notes/{id}/publication`.
+  final String? serverOriginalRevisionId;
+  final String? serverTypedRevisionId;
 }
 
 /// A managed copy of an attachment in the app support folder. The note uses

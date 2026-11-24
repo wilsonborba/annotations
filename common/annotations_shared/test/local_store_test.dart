@@ -355,14 +355,42 @@ void main() {
       store.setSync('absent', state: LocalSyncState.synced, accountId: 'u1'),
       storeError('missing_note'),
     );
-    await store.setSync('n1', state: LocalSyncState.synced, accountId: 'u1');
-    expect((await store.load('n1'))!.syncState, LocalSyncState.synced);
+    await store.setSync(
+      'n1',
+      state: LocalSyncState.synced,
+      accountId: 'u1',
+      serverNoteId: 'srv_n1',
+      serverRevision: 4,
+      serverOriginalRevisionId: 'rev_orig_4',
+      serverTypedRevisionId: 'rev_typed_4',
+    );
+    final loadedSynced = (await store.load('n1'))!;
+    expect(loadedSynced.syncState, LocalSyncState.synced);
+    expect(loadedSynced.serverNoteId, 'srv_n1');
+    expect(loadedSynced.serverRevision, 4);
+    expect(loadedSynced.serverOriginalRevisionId, 'rev_orig_4');
+    expect(loadedSynced.serverTypedRevisionId, 'rev_typed_4');
 
     await store.save(draft('b'));
     await reopen();
     final changed = (await store.load('n1'))!;
     expect(changed.syncState, LocalSyncState.changed);
     expect(changed.accountId, 'u1');
+    expect(changed.revision, 2);
+    expect(changed.serverNoteId, 'srv_n1');
+    expect(changed.serverRevision, 4);
+    expect(changed.serverOriginalRevisionId, 'rev_orig_4');
+    expect(changed.serverTypedRevisionId, 'rev_typed_4');
+
+    await store.setSync('n1', state: LocalSyncState.local, accountId: null);
+    await reopen();
+    final unbound = (await store.load('n1'))!;
+    expect(unbound.syncState, LocalSyncState.local);
+    expect(unbound.accountId, isNull);
+    expect(unbound.serverNoteId, isNull);
+    expect(unbound.serverRevision, isNull);
+    expect(unbound.serverOriginalRevisionId, isNull);
+    expect(unbound.serverTypedRevisionId, isNull);
 
     // A note that never synced stays local after edits.
     await store.save(draft('c', id: 'n2'));
@@ -370,12 +398,14 @@ void main() {
     final local = (await store.load('n2'))!;
     expect(local.syncState, LocalSyncState.local);
     expect(local.accountId, isNull);
+    expect(local.serverNoteId, isNull);
+    expect(local.serverRevision, isNull);
   });
 
   test('schema steps run once and a newer store is not opened', () async {
     await store.close();
     final db = sqlite3.open('${root.path}/notes.sqlite3');
-    expect(db.userVersion, 2);
+    expect(db.userVersion, 3);
     expect(db.select('PRAGMA journal_mode').first.values.first, 'wal');
     db.userVersion = 99;
     db.close();
@@ -384,7 +414,7 @@ void main() {
       storeError('newer_store'),
     );
     final again = sqlite3.open('${root.path}/notes.sqlite3')
-      ..userVersion = 2
+      ..userVersion = 3
       ..close();
     expect(again, isNotNull);
     store = await SqliteNoteStore.open(root.path);

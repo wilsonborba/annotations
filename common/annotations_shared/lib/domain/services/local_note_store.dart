@@ -56,12 +56,17 @@ abstract interface class LocalNoteStore {
   /// a file that the store does not hold; the previous state stays.
   Future<LocalNote> save(LocalNoteDraft draft);
 
-  /// Records the sync state and the bound account of a saved note. Only the
-  /// sync and publication flows call it (annotations#37).
+  /// Records the sync state, bound account, and optional server note identity
+  /// and authoritative revisions of a saved note. Passing `accountId: null`
+  /// clears all stored cloud identity and revision metadata.
   Future<void> setSync(
     String id, {
     required LocalSyncState state,
     required String? accountId,
+    String? serverNoteId,
+    int? serverRevision,
+    String? serverOriginalRevisionId,
+    String? serverTypedRevisionId,
   });
 
   /// Copies the file at [sourcePath] into the store. The copy is complete and
