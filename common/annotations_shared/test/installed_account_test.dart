@@ -112,11 +112,16 @@ Map<String, dynamic> openToken(String token) {
 late Directory root;
 late SqliteNoteStore store;
 
-Future<void> openApp(WidgetTester tester, FakeGateway g, {String? at}) async {
+Future<void> openApp(
+  WidgetTester tester,
+  FakeGateway g, {
+  String? at,
+  String locale = 'en',
+}) async {
   tester.platformDispatcher.accessibilityFeaturesTestValue =
       const FakeAccessibilityFeatures(disableAnimations: true);
   addTearDown(tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
-  SharedPreferences.setMockInitialValues({});
+  SharedPreferences.setMockInitialValues({'annotations.locale': locale});
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = const Size(1300, 1000);
   addTearDown(tester.view.reset);
@@ -275,8 +280,65 @@ void main() {
       aes: aesCbcEncrypt,
     );
     await tester.runAsync(account.startLogin);
-    expect(account.message, InstalledAccount.loginUnavailable);
+    expect(account.notice?.kind, LoginNoticeKind.unavailable);
     expect(account.matchCode, isNull);
     expect(g.opened, isEmpty);
+  });
+
+  testWidgets('the login messages follow the interface language (TH)', (
+    tester,
+  ) async {
+    String th(String key) => translate(key, 'th');
+    final g = FakeGateway();
+    await openApp(tester, g, at: '/v1/sign-in', locale: 'th');
+    await tester.tap(find.byKey(const Key('sign-in-start')));
+    await settle(tester);
+    await tester.tap(find.byKey(const Key('sign-in-finish')));
+    await settle(tester);
+    expect(find.text(th('loginNotFinished')), findsOneWidget);
+    expect(find.textContaining('The login is not finished'), findsNothing);
+    g.browserDone = true;
+    await tester.tap(find.byKey(const Key('sign-in-finish')));
+    await settle(tester);
+    // The place comes from the FINAL record as it is.
+    expect(
+      find.text('${th('loginSuccessFrom')} Bangkok, Thailand'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('Logged in'), findsNothing);
+  });
+
+  test('every login status has its own text in each language', () {
+    for (final lang in ['en', 'pt-BR', 'th']) {
+      final seen = <String>{};
+      for (final key in [
+        'loginUnavailable',
+        'loginSuccess',
+        'loginNotFinished',
+        'loginExpired',
+        'loginUsed',
+        'loginCancelled',
+        'loginRefused',
+        'loginInvalid',
+        'loginDisabled',
+        'loginFailed',
+      ]) {
+        final text = translate(key, lang);
+        expect(text, isNot(key), reason: '$lang $key missing');
+        if (lang != 'en') {
+          expect(text, isNot(translate(key, 'en')), reason: '$lang $key');
+        }
+        expect(seen.add(text), isTrue, reason: '$lang $key repeats');
+      }
+    }
+    // Every FINAL status maps to a notice kind.
+    for (final status in FinishLoginStatus.values) {
+      expect(
+        LoginNotice.fromResult(
+          FinishLoginResult(status: status, message: ''),
+        ).kind.name,
+        isNotEmpty,
+      );
+    }
   });
 }

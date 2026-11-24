@@ -6,6 +6,50 @@ const strings = <String, List<String>>{
   'myNotes': ['My notes', 'Minhas anotações', 'บันทึกของฉัน'],
   'logOut': ['Log out', 'Sair', 'ออกจากระบบ'],
   'account': ['Account', 'Conta', 'บัญชี'],
+  // Installed login messages by FINAL status (annotations#38).
+  'loginUnavailable': [
+    'The login cannot start on this device. Try again later.',
+    'O login não pode começar neste dispositivo. Tente mais tarde.',
+    'เริ่มการเข้าสู่ระบบบนอุปกรณ์นี้ไม่ได้ ลองใหม่ภายหลัง',
+  ],
+  'loginSuccess': ['Logged in', 'Conectado', 'เข้าสู่ระบบแล้ว'],
+  'loginSuccessFrom': ['Logged in from', 'Conectado de', 'เข้าสู่ระบบจาก'],
+  'loginNotFinished': [
+    'The login is not finished. Finish it in the browser, then press Finish.',
+    'O login não terminou. Termine no navegador e toque em Concluir.',
+    'การเข้าสู่ระบบยังไม่เสร็จ ทำให้เสร็จในเบราว์เซอร์ แล้วกดเสร็จสิ้น',
+  ],
+  'loginExpired': [
+    'This login expired. Start again.',
+    'Este login expirou. Comece de novo.',
+    'การเข้าสู่ระบบนี้หมดอายุแล้ว เริ่มใหม่อีกครั้ง',
+  ],
+  'loginUsed': ['Start again.', 'Comece de novo.', 'เริ่มใหม่อีกครั้ง'],
+  'loginCancelled': [
+    'Login cancelled. Start again.',
+    'Login cancelado. Comece de novo.',
+    'ยกเลิกการเข้าสู่ระบบแล้ว เริ่มใหม่อีกครั้ง',
+  ],
+  'loginRefused': [
+    'Login refused. The login came from a different location.',
+    'Login recusado. O login veio de outro local.',
+    'การเข้าสู่ระบบถูกปฏิเสธ การเข้าสู่ระบบมาจากตำแหน่งอื่น',
+  ],
+  'loginInvalid': [
+    'Invalid installed-app login fields.',
+    'Campos de login do app instalado inválidos.',
+    'ข้อมูลการเข้าสู่ระบบของแอปไม่ถูกต้อง',
+  ],
+  'loginDisabled': [
+    'Installed-app login is disabled.',
+    'O login do app instalado está desativado.',
+    'การเข้าสู่ระบบของแอปถูกปิดใช้งาน',
+  ],
+  'loginFailed': [
+    'Unable to finish login.',
+    'Não foi possível concluir o login.',
+    'ไม่สามารถเข้าสู่ระบบให้เสร็จได้',
+  ],
   'setProject': ['Project', 'Projeto', 'โปรเจกต์'],
   'noProject': ['No project', 'Sem projeto', 'ไม่มีโปรเจกต์'],
   'newProjectName': [

@@ -49,8 +49,9 @@ class InstalledAccount extends ChangeNotifier {
   /// The match code while a login waits for Finish, else null.
   String? get matchCode => auth.pendingHandoff?.matchCode;
 
-  /// The last message of the FINAL record (Finish result), or null.
-  String? message;
+  /// What the last login step said, as a stable kind the UI translates
+  /// (never the English text of the service), or null.
+  LoginNotice? notice;
 
   /// True while Finish waits for the gateway.
   bool finishing = false;
@@ -128,7 +129,7 @@ class InstalledAccount extends ChangeNotifier {
   /// nothing.
   Future<void> startLogin() async {
     if (signedIn) return;
-    message = null;
+    notice = null;
     final handoff = auth.prepareHandoff();
     try {
       final uri = await loginUri(handoff);
@@ -137,14 +138,10 @@ class InstalledAccount extends ChangeNotifier {
     } catch (_) {
       // No key in this build or no browser: say so, keep no handoff.
       auth.cancelPendingLogin();
-      message = loginUnavailable;
+      notice = const LoginNotice(LoginNoticeKind.unavailable);
       notifyListeners();
     }
   }
-
-  /// The message when the login cannot start on this device.
-  static const loginUnavailable =
-      'The login cannot start on this device. Try again later.';
 
   /// One Finish check, on the user's click (never polled).
   Future<void> finish() async {
@@ -153,10 +150,10 @@ class InstalledAccount extends ChangeNotifier {
     notifyListeners();
     try {
       final result = await auth.finishLogin();
-      message = result.message;
+      notice = LoginNotice.fromResult(result);
       if (result.status == FinishLoginStatus.success) await check();
     } catch (_) {
-      message = 'Unable to finish login.';
+      notice = const LoginNotice(LoginNoticeKind.failed);
     } finally {
       finishing = false;
       notifyListeners();
@@ -165,7 +162,7 @@ class InstalledAccount extends ChangeNotifier {
 
   void cancel() {
     auth.cancelPendingLogin();
-    message = null;
+    notice = null;
     notifyListeners();
   }
 
@@ -206,4 +203,44 @@ class SessionClient extends http.BaseClient {
     }
     return response;
   }
+}
+
+/// The kinds of login messages the installed sign-in shows (FINAL record
+/// statuses plus "cannot start" and an unknown failure).
+enum LoginNoticeKind {
+  unavailable,
+  success,
+  notFinished,
+  expired,
+  used,
+  cancelled,
+  refused,
+  invalid,
+  disabled,
+  failed,
+}
+
+/// One login message: its kind and, for a success, the login place.
+final class LoginNotice {
+  const LoginNotice(this.kind, {this.city, this.country});
+
+  factory LoginNotice.fromResult(FinishLoginResult result) => LoginNotice(
+    switch (result.status) {
+      FinishLoginStatus.success => LoginNoticeKind.success,
+      FinishLoginStatus.notFinished => LoginNoticeKind.notFinished,
+      FinishLoginStatus.expired => LoginNoticeKind.expired,
+      FinishLoginStatus.used => LoginNoticeKind.used,
+      FinishLoginStatus.cancelled => LoginNoticeKind.cancelled,
+      FinishLoginStatus.refused => LoginNoticeKind.refused,
+      FinishLoginStatus.invalid => LoginNoticeKind.invalid,
+      FinishLoginStatus.disabled => LoginNoticeKind.disabled,
+    },
+    city: result.city?.trim().isEmpty ?? true ? null : result.city!.trim(),
+    country: result.country?.trim().isEmpty ?? true
+        ? null
+        : result.country!.trim(),
+  );
+
+  final LoginNoticeKind kind;
+  final String? city, country;
 }

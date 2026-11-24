@@ -50,9 +50,13 @@ class InstalledSignInPage extends StatelessWidget {
         children: [
           Text(context.tr('signedInAs'), style: text.titleMedium),
           Text(account.email, style: text.headlineSmall),
-          if (account.message != null) ...[
+          if (account.notice != null) ...[
             const SizedBox(height: 8),
-            Text(account.message!, style: text.bodyMedium),
+            Text(
+              noticeText(context, account.notice!),
+              key: const Key('sign-in-message'),
+              style: text.bodyMedium,
+            ),
           ],
           const SizedBox(height: 24),
           back,
@@ -89,10 +93,10 @@ class InstalledSignInPage extends StatelessWidget {
               ),
             ),
           ),
-          if (account.message != null) ...[
+          if (account.notice != null) ...[
             const SizedBox(height: 16),
             Text(
-              account.message!,
+              noticeText(context, account.notice!),
               key: const Key('sign-in-message'),
               style: text.bodyMedium,
             ),
@@ -129,9 +133,9 @@ class InstalledSignInPage extends StatelessWidget {
             ],
           ),
         ] else ...[
-          if (account.message != null) ...[
+          if (account.notice != null) ...[
             Text(
-              account.message!,
+              noticeText(context, account.notice!),
               key: const Key('sign-in-message'),
               style: text.bodyMedium,
             ),
@@ -151,4 +155,24 @@ class InstalledSignInPage extends StatelessWidget {
       ],
     );
   }
+}
+
+/// The login message in the interface language, from its stable kind; the
+/// city and country come from the FINAL record as they are.
+String noticeText(BuildContext context, LoginNotice notice) {
+  final place = [?notice.city, ?notice.country].join(', ');
+  return switch (notice.kind) {
+    LoginNoticeKind.success when place.isNotEmpty =>
+      '${context.tr('loginSuccessFrom')} $place',
+    LoginNoticeKind.success => context.tr('loginSuccess'),
+    LoginNoticeKind.unavailable => context.tr('loginUnavailable'),
+    LoginNoticeKind.notFinished => context.tr('loginNotFinished'),
+    LoginNoticeKind.expired => context.tr('loginExpired'),
+    LoginNoticeKind.used => context.tr('loginUsed'),
+    LoginNoticeKind.cancelled => context.tr('loginCancelled'),
+    LoginNoticeKind.refused => context.tr('loginRefused'),
+    LoginNoticeKind.invalid => context.tr('loginInvalid'),
+    LoginNoticeKind.disabled => context.tr('loginDisabled'),
+    LoginNoticeKind.failed => context.tr('loginFailed'),
+  };
 }
