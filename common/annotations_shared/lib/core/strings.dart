@@ -1,6 +1,25 @@
 import 'landing_strings.dart';
 
 const strings = <String, List<String>>{
+  // Public browsing and reader (annotations#40).
+  'loadMore': ['Show more', 'Mostrar mais', 'แสดงเพิ่ม'],
+  'viewOriginal': ['Original', 'Original', 'ต้นฉบับ'],
+  'viewTyped': ['Typed', 'Digitado', 'แบบพิมพ์'],
+  'typedStale': [
+    'Typed version uses an earlier revision.',
+    'A versão digitada usa uma revisão anterior.',
+    'ฉบับพิมพ์ใช้การแก้ไขก่อนหน้า',
+  ],
+  'noteBy': ['by', 'por', 'โดย'],
+  'projectsOf': ['Projects', 'Projetos', 'โปรเจกต์'],
+  'notesOf': ['Notes', 'Anotações', 'บันทึก'],
+  'noteCount': ['notes', 'anotações', 'บันทึก'],
+  'filterLanguage': ['Language', 'Idioma', 'ภาษา'],
+  'allLanguages': ['All languages', 'Todos os idiomas', 'ทุกภาษา'],
+  'clearFilter': ['Clear filter', 'Limpar filtro', 'ล้างตัวกรอง'],
+  'filterTag': ['Tag', 'Tag', 'แท็ก'],
+  'filterAuthor': ['Author', 'Autor', 'ผู้เขียน'],
+  'filterProject': ['Project', 'Projeto', 'โปรเจกต์'],
   'noteSources': [
     'Notes / Sources / Reports',
     'Notas / Fontes / Reports',

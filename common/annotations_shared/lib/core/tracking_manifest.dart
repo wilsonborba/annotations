@@ -325,6 +325,16 @@ const annotationElements = <String, TrailElement>{
     label: 'Shell theme toggle',
     path: 'shell > theme > toggle',
   ),
+  'discovery.more': TrailElement(
+    id: 'discovery.more',
+    label: 'Discovery more',
+    path: 'discovery > more',
+  ),
+  'reader.view.switch': TrailElement(
+    id: 'reader.view.switch',
+    label: 'Reader view switch',
+    path: 'reader > view > switch',
+  ),
   'shell.navigation.instant': TrailElement(
     id: 'shell.navigation.instant',
     label: 'Shell navigation instant',

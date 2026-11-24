@@ -506,6 +506,20 @@
       "path": "landing > install > how",
       "description": "Interaction for landing install how in widgets/landing/landing_sections.dart",
       "source": "lib/presentation/frontend/widgets/landing/landing_sections.dart"
+    },
+    {
+      "id": "discovery.more",
+      "label": "Discovery more",
+      "path": "discovery > more",
+      "description": "Show more results in public browsing.",
+      "source": "lib/presentation/frontend/widgets/discovery/discovery_pages.dart"
+    },
+    {
+      "id": "reader.view.switch",
+      "label": "Reader view switch",
+      "path": "reader > view > switch",
+      "description": "Switch between the Original and Typed views of a public note.",
+      "source": "lib/presentation/frontend/widgets/discovery/discovery_pages.dart"
     }
   ]
 }

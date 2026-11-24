@@ -317,12 +317,16 @@ class TypedNoteReader extends StatelessWidget {
   final TypedDocument document;
   final AttachmentCache files;
   final String? title;
+
+  /// The author line under the title on the formal page (annotations#40).
+  final String? byline;
   final ValueChanged<String>? onOpen;
   const TypedNoteReader({
     super.key,
     required this.document,
     required this.files,
     this.title,
+    this.byline,
     this.onOpen,
   });
 
@@ -349,6 +353,12 @@ class TypedNoteReader extends StatelessWidget {
               color: c.text,
             ),
           ),
+        ),
+      if (byline != null)
+        Padding(
+          key: const Key('typed-byline'),
+          padding: const EdgeInsets.only(bottom: 20),
+          child: Text(byline!, style: TextStyle(color: c.textSecondary)),
         ),
     ];
     for (final b in document.blocks) {
@@ -438,7 +448,25 @@ class TypedNoteReader extends StatelessWidget {
             ),
           );
         default:
-          children.add(_BlockPicture(json: j, files: files, onOpen: onOpen));
+          if (j['restricted'] == true) {
+            // Keeps the block's place with a lock (annotations#40).
+            children.add(
+              Container(
+                key: Key('locked-${j['id']}'),
+                height: 96,
+                margin: const EdgeInsets.symmetric(vertical: 8),
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: c.subtle,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: c.border),
+                ),
+                child: const AppIcon(AppIcons.lock, size: 24),
+              ),
+            );
+          } else {
+            children.add(_BlockPicture(json: j, files: files, onOpen: onOpen));
+          }
       }
     }
     return ColoredBox(
