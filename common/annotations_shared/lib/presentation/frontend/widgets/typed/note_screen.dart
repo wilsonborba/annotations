@@ -154,11 +154,15 @@ class TypedNoteEditor extends StatefulWidget {
 class _TypedNoteEditorState extends State<TypedNoteEditor> {
   late final typed = TypedNoteHandler(paper: widget.paper);
   late final title = TextEditingController(text: widget.paper.title ?? '');
+  final _editorFocus = FocusNode();
+  final _editorScroll = ScrollController();
 
   @override
   void dispose() {
     typed.dispose();
     title.dispose();
+    _editorFocus.dispose();
+    _editorScroll.dispose();
     super.dispose();
   }
 
@@ -268,6 +272,8 @@ class _TypedNoteEditorState extends State<TypedNoteEditor> {
                 builder: (context, _) => QuillEditor.basic(
                   key: const Key('typed-editor'),
                   controller: typed.controller,
+                  focusNode: _editorFocus,
+                  scrollController: _editorScroll,
                   config: QuillEditorConfig(
                     padding: const EdgeInsets.all(16),
                     placeholder: context.tr('typedPlaceholder'),
