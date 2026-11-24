@@ -162,7 +162,10 @@ class AccountService extends ChangeNotifier {
       final res = await _client
           .get(Uri.parse('$gateway/user/info/v1/'))
           .timeout(const Duration(seconds: 15));
-      if (!_isCurrent(generation, csrf)) return;
+      if (!_isCurrent(generation, csrf)) {
+        if (generation == _sessionGeneration) unawaited(check());
+        return;
+      }
       if (res.statusCode == 200) {
         final data = (jsonDecode(utf8.decode(res.bodyBytes)) as Map)['data'];
         if (data is Map && '${data['email'] ?? ''}'.isNotEmpty) {
@@ -181,7 +184,10 @@ class AccountService extends ChangeNotifier {
       }
       _set(AccountStatus.signedOut);
     } catch (_) {
-      if (!_isCurrent(generation, csrf)) return;
+      if (!_isCurrent(generation, csrf)) {
+        if (generation == _sessionGeneration) unawaited(check());
+        return;
+      }
       // The gateway did not answer: show Sign in, keep the cookie, so the
       // next page load checks again.
       _set(AccountStatus.signedOut);
