@@ -21,7 +21,16 @@ class Settings {
     this.version = '1.0.0',
     this.buildTime = 'development',
     this.development = true,
+    this.authBase = 'https://auth.asodya.com',
+    this.appContextKey = '',
   });
+
+  /// The central login (auth_apps) origin (annotations#38).
+  final String authBase;
+
+  /// The shared key that encrypts this app's context for auth_apps. The
+  /// build passes it from the canonical .env; empty means no browser login.
+  final String appContextKey;
 
   /// The Annotations API base URL.
   final String apiBase;

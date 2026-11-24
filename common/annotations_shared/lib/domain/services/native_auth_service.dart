@@ -141,10 +141,15 @@ final class FinishLoginResult {
   final String message;
   final NativeSession? session;
 
+  /// The login place of a success, for a localized message (annotations#38).
+  final String? city, country;
+
   const FinishLoginResult({
     required this.status,
     required this.message,
     this.session,
+    this.city,
+    this.country,
   });
 }
 
@@ -354,6 +359,8 @@ class NativeAuthService {
       status: FinishLoginStatus.success,
       message: locMsg,
       session: session,
+      city: location['city'] as String?,
+      country: location['country'] as String?,
     );
   }
 

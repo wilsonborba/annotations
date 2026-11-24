@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../core/landing_settings.dart';
 import '../../../core/settings.dart';
+import 'account_menu.dart';
 import 'controls.dart';
 import 'landing_image.dart';
 import 'icons.dart';
@@ -97,30 +98,37 @@ class PageShell extends StatelessWidget {
               onPressed: () => prefs.toggle(dark),
             ),
           ),
+          if (AppScope.of(context).account != null)
+            const SizedBox(width: 8),
+          AccountControl(location: location, compact: width < 600),
           if (!wide)
             track(
               'shell.navigation.menu',
-              AppMenuButton(
-                key: const Key('tabs-menu'),
-                icon: AppIcons.menu,
-                label: context.tr('menu'),
-                round: true,
-                entries: [
-                  for (final (route, key) in [
-                    for (final (route, key, _) in landingTabs) (route, key),
-                    ('/v1/menu', 'barNotes'),
-                    ('/v1/instant', 'barInstant'),
-                  ])
-                    AppMenuEntry(
-                      key: Key('menu-$key'),
-                      label: context.tr(key),
-                      checked: location == route,
-                      onSelected: () {
-                        trackChoice(context, 'shell.navigation.menu', route);
-                        context.go(route);
-                      },
-                    ),
-                ],
+              _BarMenu(
+                location: location,
+                menu: (accountEntries) => AppMenuButton(
+                  key: const Key('tabs-menu'),
+                  icon: AppIcons.menu,
+                  label: context.tr('menu'),
+                  round: true,
+                  entries: [
+                    if (width < 600) ...accountEntries,
+                    for (final (route, key) in [
+                      for (final (route, key, _) in landingTabs) (route, key),
+                      ('/v1/menu', 'barNotes'),
+                      ('/v1/instant', 'barInstant'),
+                    ])
+                      AppMenuEntry(
+                        key: Key('menu-$key'),
+                        label: context.tr(key),
+                        checked: location == route,
+                        onSelected: () {
+                          trackChoice(context, 'shell.navigation.menu', route);
+                          context.go(route);
+                        },
+                      ),
+                  ],
+                ),
               ),
             ),
           const SizedBox(width: 12),
@@ -461,4 +469,23 @@ class LoadError extends StatelessWidget {
       ],
     ),
   );
+}
+
+/// Rebuilds the bar menu when the account state changes, so its Sign in row
+/// follows the live session.
+class _BarMenu extends StatelessWidget {
+  const _BarMenu({required this.location, required this.menu});
+
+  final String location;
+  final Widget Function(List<AppMenuEntry> accountEntries) menu;
+
+  @override
+  Widget build(BuildContext context) {
+    final account = AppScope.of(context).account;
+    if (account == null) return menu(const []);
+    return ListenableBuilder(
+      listenable: account,
+      builder: (context, _) => menu(accountMenuEntries(context, location)),
+    );
+  }
 }
