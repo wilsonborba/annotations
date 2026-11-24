@@ -284,13 +284,16 @@ void main() {
           final rgba = await frame.image.toByteData(
             format: ui.ImageByteFormat.rawRgba,
           );
+          final dimensions = (frame.image.width, frame.image.height);
           codec.dispose();
           frame.image.dispose();
-          return rgba!.buffer.asUint8List();
+          return (dimensions, rgba!.buffer.asUint8List());
         });
+        expect(decoded!.$1, (900, 650));
         var orangeChartPixels = 0;
-        for (var i = 0; i < decoded!.length; i += 4) {
-          final r = decoded[i], g = decoded[i + 1], b = decoded[i + 2];
+        for (var i = 0; i < decoded.$2.length; i += 4) {
+          final r = decoded.$2[i], g = decoded.$2[i + 1];
+          final b = decoded.$2[i + 2];
           if (r > 200 && g > 90 && g < 190 && b < 130) {
             orangeChartPixels++;
           }

@@ -61,6 +61,8 @@ Future<Uint8List> captureReportsPdfChart(
           locale: Locale(language.split('-').first),
           child: MediaQuery(
             data: MediaQuery.of(context).copyWith(
+              size: const Size(720, 520),
+              devicePixelRatio: 1.25,
               disableAnimations: true,
               textScaler: TextScaler.noScaling,
             ),
