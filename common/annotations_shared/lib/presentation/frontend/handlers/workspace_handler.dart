@@ -159,4 +159,30 @@ class WorkspaceHandler extends ChangeNotifier {
       expectedRevision: note.revision,
     ),
   );
+
+  /// Puts the note in a project; [newName] creates the project first.
+  /// Returns false when a project with [newName] exists.
+  bool setProject(LocalNote note, {String? projectId, String? newName}) {
+    final catalog = workspace.catalog;
+    var id = projectId;
+    if (newName != null && newName.trim().isNotEmpty) {
+      try {
+        id = catalog.createLocalProject(
+          'p${DateTime.now().microsecondsSinceEpoch}',
+          newName,
+        );
+      } on StateError {
+        return false;
+      }
+    }
+    if (id == null) return true;
+    catalog.assignNoteToProject(note.id, id);
+    load();
+    return true;
+  }
+
+  void addTag(LocalNote note, String tag) {
+    workspace.catalog.addTag(note.id, tag);
+    load();
+  }
 }

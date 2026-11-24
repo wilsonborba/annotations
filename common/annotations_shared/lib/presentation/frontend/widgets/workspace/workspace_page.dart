@@ -357,6 +357,18 @@ class _NoteRow extends StatelessWidget {
                     onSelected: () => context.go('/v1/sign-in'),
                   ),
                 AppMenuEntry(
+                  key: Key('project-${note.id}'),
+                  label: context.tr('setProject'),
+                  icon: AppIcons.fileText,
+                  onSelected: () => _project(context),
+                ),
+                AppMenuEntry(
+                  key: Key('tag-${note.id}'),
+                  label: context.tr('addTag'),
+                  icon: AppIcons.add,
+                  onSelected: () => _tag(context),
+                ),
+                AppMenuEntry(
                   key: Key('remove-${note.id}'),
                   label: context.tr('removeFromDevice'),
                   icon: AppIcons.delete,
@@ -475,6 +487,19 @@ class _NoteRow extends StatelessWidget {
     }
   }
 
+  Future<void> _project(BuildContext context) => showDialog<void>(
+    context: context,
+    builder: (_) => _ProjectDialog(handler: handler, note: note),
+  );
+
+  Future<void> _tag(BuildContext context) async {
+    final tag = await showDialog<String>(
+      context: context,
+      builder: (_) => const _TagDialog(),
+    );
+    if (tag != null) handler.addTag(note, tag);
+  }
+
   Future<void> _confirmRemove(BuildContext context) async {
     final ok = await showDialog<bool>(
       context: context,
@@ -497,4 +522,116 @@ class _NoteRow extends StatelessWidget {
     );
     if (ok == true) await handler.removeFromDevice(note);
   }
+}
+
+/// Chooses a project for a note or creates one; the dialog owns its field.
+class _ProjectDialog extends StatefulWidget {
+  const _ProjectDialog({required this.handler, required this.note});
+
+  final WorkspaceHandler handler;
+  final LocalNote note;
+
+  @override
+  State<_ProjectDialog> createState() => _ProjectDialogState();
+}
+
+class _ProjectDialogState extends State<_ProjectDialog> {
+  final _name = TextEditingController();
+  String? _error;
+
+  @override
+  void dispose() {
+    _name.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final handler = widget.handler;
+    final catalog = handler.workspace.catalog;
+    return AppDialog(
+      title: context.tr('setProject'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (final e in catalog.projects.entries)
+            ListTile(
+              key: Key('choose-project-${e.key}'),
+              contentPadding: EdgeInsets.zero,
+              title: Text(e.value),
+              selected: catalog.projectForNote(widget.note.id) == e.key,
+              onTap: () {
+                handler.setProject(widget.note, projectId: e.key);
+                Navigator.pop(context);
+              },
+            ),
+          TextField(
+            key: const Key('new-project-name'),
+            controller: _name,
+            decoration: InputDecoration(
+              labelText: context.tr('newProjectName'),
+              errorText: _error,
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        AppButton.subtle(
+          label: context.tr('cancel'),
+          onPressed: () => Navigator.pop(context),
+        ),
+        AppButton.primary(
+          key: const Key('project-save'),
+          label: context.tr('save'),
+          onPressed: () {
+            if (handler.setProject(widget.note, newName: _name.text)) {
+              Navigator.pop(context);
+            } else {
+              setState(() => _error = context.tr('projectExists'));
+            }
+          },
+        ),
+      ],
+    );
+  }
+}
+
+/// Asks for a tag name; the dialog owns its field.
+class _TagDialog extends StatefulWidget {
+  const _TagDialog();
+
+  @override
+  State<_TagDialog> createState() => _TagDialogState();
+}
+
+class _TagDialogState extends State<_TagDialog> {
+  final _name = TextEditingController();
+
+  @override
+  void dispose() {
+    _name.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AppDialog(
+    title: context.tr('addTag'),
+    content: TextField(
+      key: const Key('tag-name'),
+      controller: _name,
+      decoration: InputDecoration(labelText: context.tr('tagName')),
+    ),
+    actions: [
+      AppButton.subtle(
+        label: context.tr('cancel'),
+        onPressed: () => Navigator.pop(context),
+      ),
+      AppButton.primary(
+        key: const Key('tag-save'),
+        label: context.tr('save'),
+        onPressed: () => Navigator.pop(context, _name.text),
+      ),
+    ],
+  );
 }

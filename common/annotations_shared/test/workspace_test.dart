@@ -255,4 +255,43 @@ void main() {
     expect(await tester.runAsync(cancelled.restoreBackup), isFalse);
     expect(WorkspacePage, isNotNull);
   });
+
+  testWidgets('a note gets a new project and a tag from its menu', (
+    tester,
+  ) async {
+    final ws = workspace();
+    await tester.runAsync(() => saved('a', 'Biology'));
+    await openApp(tester, ws);
+    await tester.tap(find.byKey(const Key('actions-a')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('project-a')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('new-project-name')), 'School');
+    await tester.tap(find.byKey(const Key('project-save')));
+    await settle(tester);
+    expect(ws.catalog.projects.values, ['School']);
+    expect(ws.catalog.projectForNote('a'), isNotNull);
+    // The same name again is refused, not duplicated.
+    await tester.tap(find.byKey(const Key('actions-a')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('project-a')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('new-project-name')), 'school');
+    await tester.tap(find.byKey(const Key('project-save')));
+    await tester.pumpAndSettle();
+    expect(find.text(t('projectExists')), findsOneWidget);
+    expect(ws.catalog.projects, hasLength(1));
+    await tester.tap(find.text(t('cancel')));
+    await settle(tester);
+    await tester.tap(find.byKey(const Key('actions-a')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('tag-a')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('tag-name')), 'Exam');
+    await tester.tap(find.byKey(const Key('tag-save')));
+    await settle(tester);
+    expect(ws.catalog.tagsForNote('a'), {'exam'});
+    expect(find.textContaining('School'), findsWidgets);
+    expect(find.textContaining('#exam'), findsOneWidget);
+  });
 }
