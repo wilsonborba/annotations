@@ -257,6 +257,10 @@ void main() {
         note.id,
         state: LocalSyncState.synced,
         accountId: 'acc_1',
+        serverNoteId: 'srv_pub',
+        serverRevision: 7,
+        serverOriginalRevisionId: 'rev_orig_1',
+        serverTypedRevisionId: 'rev_typed_1',
       );
       final bound = (await store.load(note.id))!;
 
@@ -279,6 +283,9 @@ void main() {
             ifMatch: req.headers['if-match'],
             body: body ?? const {},
           ));
+          if (!req.url.path.contains('/srv_pub')) {
+            return http.Response(jsonEncode({'error': 'not_found'}), 404);
+          }
           return http.Response(jsonEncode({'ok': true}), 200);
         },
       ).toMockClient();
@@ -311,13 +318,13 @@ void main() {
       expect(calls.last.method, 'PUT');
       expect(
         calls.last.path,
-        '/apps/annotations/v1/me/notes/n_pub/publication',
+        '/apps/annotations/v1/me/notes/srv_pub/publication',
       );
       expect(calls.last.ifMatch, '"4"');
       expect(calls.last.body['language'], 'en');
       expect(calls.last.body['representations'], {
-        'original': '1',
-        'typed': '1',
+        'original': 'rev_orig_1',
+        'typed': 'rev_typed_1',
       });
 
       await service.unpublishNote(
@@ -328,7 +335,7 @@ void main() {
       expect(calls.last.method, 'DELETE');
       expect(
         calls.last.path,
-        '/apps/annotations/v1/me/notes/n_pub/publication',
+        '/apps/annotations/v1/me/notes/srv_pub/publication',
       );
       expect(calls.last.ifMatch, '"5"');
 
@@ -339,7 +346,7 @@ void main() {
         deleteOwnedReports: true,
       );
       expect(calls.last.method, 'DELETE');
-      expect(calls.last.path, '/apps/annotations/v1/me/notes/n_pub');
+      expect(calls.last.path, '/apps/annotations/v1/me/notes/srv_pub');
       expect(calls.last.query, 'delete_owned_reports=true');
       expect(calls.last.ifMatch, '"7"');
 
@@ -547,4 +554,470 @@ void main() {
       expect(missingIfMatch.body, contains('if_match_required'));
     },
   );
+
+  test(
+    'strict server-id double enforces distinct server note_id, persisted reload, server revision If-Match, conflict retrieval, publication/deletion, account isolation, backup/restore, and client_note_id recovery',
+    () async {
+      final att = await store.importBytes(
+        Uint8List.fromList([3, 1, 4]),
+        name: 'sketch.png',
+        type: 'image/png',
+      );
+      var activeAccount = 'acc_1';
+      var seq = 0;
+      var revSeq = 0;
+      final serverNotes = <String, _ServerNoteRecord>{};
+      final calls = <({String method, String path, String? ifMatch})>[];
+      var forceNextSyncConflict = false;
+
+      final client = AnnotationsApiContract(
+        onValid: (req, body) async {
+          final path = req.url.path.substring('/apps/annotations/v1'.length);
+          calls.add((
+            method: req.method,
+            path: path,
+            ifMatch: req.headers['if-match'],
+          ));
+
+          if (req.method == 'GET' && path == '/me/notes') {
+            final owned = serverNotes.values
+                .where((n) => n.owner == activeAccount)
+                .toList();
+            final cursor = req.url.queryParameters['cursor'];
+            final page = cursor == null
+                ? owned.take(1).toList()
+                : owned.skip(1).toList();
+            final nextCursor = cursor == null && owned.length > 1 ? 'p2' : null;
+            return http.Response(
+              jsonEncode({
+                'items': [
+                  for (final n in page)
+                    {
+                      'note_id': n.noteId,
+                      'client_note_id': n.clientNoteId,
+                      'main_representation': 'original',
+                      'revision': n.revision,
+                      'representations': [
+                        {
+                          'representation': 'original',
+                          'revision_id': n.originalRevisionId,
+                          'schema_version': 1,
+                        },
+                      ],
+                    },
+                ],
+                'next_cursor': nextCursor,
+              }),
+              200,
+            );
+          }
+
+          if (req.method == 'POST' && path == '/me/notes') {
+            final clientId = '${body!['client_note_id']}';
+            final existing = serverNotes.values.where(
+              (n) => n.owner == activeAccount && n.clientNoteId == clientId,
+            );
+            if (existing.isNotEmpty) {
+              final hit = existing.first;
+              return http.Response(
+                jsonEncode({
+                  'note_id': hit.noteId,
+                  'client_note_id': hit.clientNoteId,
+                  'revision': hit.revision,
+                  'created': false,
+                }),
+                200,
+              );
+            }
+            final sid = 'srv_note_${++seq}';
+            final revId = 'rev_orig_${++revSeq}';
+            // Server identifiers must never equal the local client id.
+            expect(sid, isNot(clientId));
+            final reps = body['representations'] as Map;
+            final doc = Map<String, dynamic>.from(
+              (reps['original'] as Map)['document'] as Map,
+            );
+            serverNotes[sid] = _ServerNoteRecord(
+              noteId: sid,
+              owner: activeAccount,
+              clientNoteId: clientId,
+              revision: 1,
+              originalRevisionId: revId,
+              document: doc,
+            );
+            return http.Response(
+              jsonEncode({
+                'note_id': sid,
+                'revision': 1,
+                'revisions': [
+                  {'representation': 'original', 'revision_id': revId},
+                ],
+                'client_note_id': clientId,
+                'created': true,
+              }),
+              201,
+            );
+          }
+
+          final pubMatch = RegExp(
+            r'^/me/notes/([^/]+)/publication$',
+          ).firstMatch(path);
+          if (pubMatch != null) {
+            final nid = pubMatch.group(1)!;
+            final rec = serverNotes[nid];
+            if (rec == null || rec.owner != activeAccount) {
+              return http.Response(jsonEncode({'error': 'not_found'}), 404);
+            }
+            if (req.method == 'PUT') {
+              final sentOrig = (body!['representations'] as Map)['original'];
+              if (sentOrig != rec.originalRevisionId) {
+                return http.Response(
+                  jsonEncode({'error': 'revision_not_found'}),
+                  422,
+                );
+              }
+              rec.pubRevision += 1;
+              return http.Response(
+                jsonEncode({'note_id': nid, 'revision': rec.pubRevision}),
+                200,
+              );
+            }
+            if (req.method == 'DELETE') {
+              rec.pubRevision += 1;
+              return http.Response('', 204);
+            }
+          }
+
+          final noteMatch = RegExp(r'^/me/notes/([^/]+)$').firstMatch(path);
+          if (noteMatch != null) {
+            final nid = noteMatch.group(1)!;
+            final rec = serverNotes[nid];
+            // Strictly reject local/unknown ids with 404.
+            if (rec == null || rec.owner != activeAccount) {
+              return http.Response(jsonEncode({'error': 'not_found'}), 404);
+            }
+            if (req.method == 'GET') {
+              return http.Response(
+                jsonEncode({
+                  'note_id': rec.noteId,
+                  'client_note_id': rec.clientNoteId,
+                  'main_representation': 'original',
+                  'revision': rec.revision,
+                  'title': 'Server Title',
+                  'representations': [
+                    {
+                      'representation': 'original',
+                      'revision_id': rec.originalRevisionId,
+                      'schema_version': 1,
+                      'document': rec.document,
+                    },
+                  ],
+                }),
+                200,
+              );
+            }
+            final expected = req.headers['if-match']?.replaceAll('"', '');
+            if (expected != '${rec.revision}') {
+              return http.Response(
+                jsonEncode({
+                  'error': 'revision_conflict',
+                  'current_revision': rec.revision,
+                }),
+                409,
+              );
+            }
+            if (forceNextSyncConflict) {
+              forceNextSyncConflict = false;
+              rec.revision += 1;
+              rec.originalRevisionId = 'rev_orig_${++revSeq}';
+              rec.document = _paperWithTextAndFile(
+                'server concurrent edit',
+                att.id,
+              ).toJson();
+              return http.Response(
+                jsonEncode({
+                  'error': 'revision_conflict',
+                  'current_revision': rec.revision,
+                }),
+                409,
+              );
+            }
+            if (req.method == 'DELETE') {
+              serverNotes.remove(nid);
+              return http.Response('', 204);
+            }
+            rec.revision += 1;
+            rec.originalRevisionId = 'rev_orig_${++revSeq}';
+            return http.Response(
+              jsonEncode({
+                'note_id': rec.noteId,
+                'revision': rec.revision,
+                'revisions': [
+                  {
+                    'representation': 'original',
+                    'revision_id': rec.originalRevisionId,
+                  },
+                ],
+              }),
+              200,
+            );
+          }
+
+          return http.Response(jsonEncode({'error': 'not_found'}), 404);
+        },
+      ).toMockClient();
+
+      NoteSyncService serviceFor(SqliteNoteStore s) => NoteSyncService(
+        store: s,
+        api: ApiAdapter(
+          client: client,
+          base: 'https://api.asodya.com/apps/annotations/v1',
+        ),
+      );
+
+      final v1 = _paperWithTextAndFile('draft 1', att.id);
+      await store.save(
+        LocalNoteDraft(
+          id: 'local_only_1',
+          schema: _paperSchema,
+          document: v1,
+          title: 'Strict Flow',
+        ),
+      );
+
+      // 1. First upload issues srv_note_1 != local_only_1 and persists both server id and revision.
+      final service = serviceFor(store);
+      final first = await service.syncNote(
+        (await store.load('local_only_1'))!,
+        accountId: 'acc_1',
+      );
+      expect(first.localNote.id, 'local_only_1');
+      expect(first.localNote.serverNoteId, 'srv_note_1');
+      expect(first.localNote.serverRevision, 1);
+      expect(first.localNote.serverOriginalRevisionId, 'rev_orig_1');
+
+      // 2. Reopen SQLite store to prove server id + revision survive restarts.
+      await store.close();
+      store = await SqliteNoteStore.open(tempDir.path);
+      final persisted = (await store.load('local_only_1'))!;
+      expect(persisted.serverNoteId, 'srv_note_1');
+      expect(persisted.serverRevision, 1);
+
+      // 3. Edit locally twice (local revision becomes 3, while serverRevision stays 1).
+      await store.save(
+        LocalNoteDraft(
+          id: 'local_only_1',
+          schema: _paperSchema,
+          document: _paperWithTextAndFile('draft 2', att.id),
+          title: 'Strict Flow',
+        ),
+      );
+      final edited3 = await store.save(
+        LocalNoteDraft(
+          id: 'local_only_1',
+          schema: _paperSchema,
+          document: _paperWithTextAndFile('draft 3', att.id),
+          title: 'Strict Flow',
+        ),
+      );
+      expect(edited3.revision, 3);
+      expect(edited3.serverRevision, 1);
+
+      final second = await serviceFor(
+        store,
+      ).syncNote(edited3, accountId: 'acc_1', baseDocument: v1);
+      expect(calls.last.method, 'PATCH');
+      expect(calls.last.path, '/me/notes/srv_note_1');
+      expect(calls.last.ifMatch, '"1"');
+      expect(second.localNote.serverRevision, 2);
+      expect(second.localNote.serverOriginalRevisionId, 'rev_orig_2');
+
+      // 4. Subsequent PUT uses srv_note_1 + If-Match "2".
+      final third = await serviceFor(
+        store,
+      ).syncNote(second.localNote, accountId: 'acc_1');
+      expect(calls.last.method, 'PUT');
+      expect(calls.last.path, '/me/notes/srv_note_1');
+      expect(calls.last.ifMatch, '"2"');
+      expect(third.localNote.serverRevision, 3);
+      expect(third.localNote.serverOriginalRevisionId, 'rev_orig_3');
+
+      // 5. Publish and unpublish hit /me/notes/srv_note_1/publication using server revision_id.
+      final pub = await serviceFor(store).publishNote(
+        third.localNote,
+        accountId: 'acc_1',
+        representation: PublicationRepresentation.original,
+      );
+      expect(pub.published, isTrue);
+      expect(calls.last.path, '/me/notes/srv_note_1/publication');
+
+      await serviceFor(store).unpublishNote(
+        'local_only_1',
+        accountId: 'acc_1',
+        publicationRevision: 1,
+      );
+      expect(calls.last.method, 'DELETE');
+      expect(calls.last.path, '/me/notes/srv_note_1/publication');
+
+      // 6. Conflict 409 calls GET /me/notes/srv_note_1 and parses representations[].
+      forceNextSyncConflict = true;
+      final conflict = await serviceFor(
+        store,
+      ).syncNote(third.localNote, accountId: 'acc_1');
+      expect(conflict.isConflict, isTrue);
+      expect(calls.last.method, 'GET');
+      expect(calls.last.path, '/me/notes/srv_note_1');
+      expect(conflict.conflictCopy!.accountId, isNull);
+      expect(conflict.conflictCopy!.serverNoteId, isNull);
+      expect(
+        jsonEncode(conflict.conflictCopy!.document.toJson()),
+        contains('server concurrent edit'),
+      );
+
+      // Update stored serverRevision to server's new revision 4 before deleting, simulating sync/refresh:
+      await store.setSync(
+        'local_only_1',
+        state: LocalSyncState.changed,
+        accountId: 'acc_1',
+        serverNoteId: 'srv_note_1',
+        serverRevision: 4,
+      );
+
+      // 7. Switching account cannot reuse acc_1 mapping.
+      await expectLater(
+        serviceFor(store).deleteCloudNote('local_only_1', accountId: 'acc_2'),
+        throwsA(isA<AccountOwnershipException>()),
+      );
+
+      // 8. Delete everywhere uses srv_note_1 and clears all cloud identity while keeping local copy.
+      await serviceFor(
+        store,
+      ).deleteCloudNote('local_only_1', accountId: 'acc_1');
+      expect(calls.last.method, 'DELETE');
+      expect(calls.last.path, '/me/notes/srv_note_1');
+      expect(calls.last.ifMatch, '"4"');
+      final afterDelete = (await store.load('local_only_1'))!;
+      expect(afterDelete.accountId, isNull);
+      expect(afterDelete.serverNoteId, isNull);
+      expect(afterDelete.serverRevision, isNull);
+
+      // Re-uploading as acc_2 does a fresh POST, never reusing acc_1's server id.
+      activeAccount = 'acc_2';
+      final reuploaded = await serviceFor(
+        store,
+      ).syncNote(afterDelete, accountId: 'acc_2');
+      expect(reuploaded.localNote.serverNoteId, 'srv_note_2');
+      expect(reuploaded.localNote.serverNoteId, isNot('srv_note_1'));
+
+      // 9. Restored backup copy has no cloud identity and creates srv_note_3 on first sync.
+      final pkg = await NoteBackupService().exportPackage(
+        store,
+        'local_only_1',
+      );
+      final restored = await NoteBackupService().restorePackage(
+        store,
+        pkg,
+        newNoteId: 'restored_copy_1',
+      );
+      expect(restored.accountId, isNull);
+      expect(restored.serverNoteId, isNull);
+      expect(restored.serverRevision, isNull);
+      final restoredSync = await serviceFor(
+        store,
+      ).syncNote(restored, accountId: 'acc_2');
+      expect(restoredSync.localNote.serverNoteId, 'srv_note_3');
+      expect(calls.last.method, 'POST');
+
+      // 10. Recovery via paginated GET /me/notes for a pre-#63 bound note missing serverNoteId (no duplicate POST).
+      await store.save(
+        LocalNoteDraft(
+          id: 'restored_copy_1',
+          schema: _paperSchema,
+          document: _paperWithTextAndFile(
+            'edited before mapping saved',
+            att.id,
+          ),
+          title: 'Strict Flow Copy',
+        ),
+      );
+      await store.setSync(
+        'restored_copy_1',
+        state: LocalSyncState.local,
+        accountId: null,
+      );
+      // Bind without server_note_id directly in SQLite row, simulating upgraded legacy metadata.
+      await store.setSync(
+        'restored_copy_1',
+        state: LocalSyncState.changed,
+        accountId: 'acc_2',
+      );
+      final legacyBound = (await store.load('restored_copy_1'))!;
+      expect(legacyBound.serverNoteId, isNull);
+
+      final beforeCount = calls.length;
+      final recovered = await serviceFor(
+        store,
+      ).syncNote(legacyBound, accountId: 'acc_2');
+      final recoveryCalls = calls.skip(beforeCount).toList();
+      expect(recoveryCalls.where((c) => c.method == 'POST'), isEmpty);
+      expect(
+        recoveryCalls.where((c) => c.method == 'GET' && c.path == '/me/notes'),
+        hasLength(2),
+      );
+      expect(recovered.localNote.serverNoteId, 'srv_note_3');
+      expect(recovered.localNote.serverRevision, 2);
+
+      // Unknown bound note fails loudly without guessing local id or uploading duplicate.
+      await store.save(
+        LocalNoteDraft(
+          id: 'orphan_bound',
+          schema: _paperSchema,
+          document: v1,
+          title: 'Missing On Server',
+        ),
+      );
+      await store.setSync(
+        'orphan_bound',
+        state: LocalSyncState.changed,
+        accountId: 'acc_2',
+      );
+      final beforeOrphan = calls.length;
+      await expectLater(
+        serviceFor(
+          store,
+        ).syncNote((await store.load('orphan_bound'))!, accountId: 'acc_2'),
+        throwsA(isA<CloudIdentityException>()),
+      );
+      expect(
+        calls
+            .skip(beforeOrphan)
+            .where(
+              (c) =>
+                  c.method == 'POST' ||
+                  c.method == 'PUT' ||
+                  c.method == 'PATCH',
+            ),
+        isEmpty,
+      );
+    },
+  );
+}
+
+final class _ServerNoteRecord {
+  _ServerNoteRecord({
+    required this.noteId,
+    required this.owner,
+    required this.clientNoteId,
+    required this.revision,
+    required this.originalRevisionId,
+    required this.document,
+  });
+
+  final String noteId;
+  final String owner;
+  final String clientNoteId;
+  int revision;
+  String originalRevisionId;
+  Map<String, dynamic> document;
+  int pubRevision = 0;
 }
