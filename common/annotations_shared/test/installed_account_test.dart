@@ -181,6 +181,7 @@ String t(String k) => translate(k, 'en');
 void main() {
   setUpAll(loadAppFonts);
   setUp(() async {
+    SharedPreferences.setMockInitialValues({});
     root = await Directory.systemTemp.createTemp('installed_');
     store = await SqliteNoteStore.open(root.path);
   });
