@@ -14,8 +14,13 @@ final class ReportsCardReference {
   final String dataset;
 
   static final _slugPattern = RegExp(r'^[a-z][a-z0-9_-]{1,47}$');
+  static final _ownerItemIdPattern = RegExp(
+    r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
+  );
 
   static bool isValidSlug(String value) => _slugPattern.hasMatch(value);
+  static bool isValidOwnerItemId(String value) =>
+      _ownerItemIdPattern.hasMatch(value);
 
   static ReportsCardReference? fromFields({
     required String project,

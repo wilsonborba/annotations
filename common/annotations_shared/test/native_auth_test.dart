@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:annotations_shared/core/logs.dart';
 import 'package:annotations_shared/core/tracking.dart';
+import 'package:annotations_shared/dal/local/reports_private_cache.dart';
 import 'package:annotations_shared/dal/remote/api_adapter.dart';
 import 'package:annotations_shared/domain/services/native_auth_service.dart';
 import 'package:flutter/foundation.dart';
@@ -9,6 +10,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -181,6 +183,7 @@ void main() {
       });
 
       // Offline sign-out works immediately with server revocation pending.
+      SharedPreferences.setMockInitialValues({});
       await auth.signOut();
       expect(await storage.readSession(), isNull);
       expect(auth.pendingServerRevocation, isTrue);
@@ -302,4 +305,22 @@ void main() {
       expect(allTelemetry, isNot(contains('hid_full_77')));
     },
   );
+
+  test('native sign out clears the Reports private cache', () async {
+    SharedPreferences.setMockInitialValues({});
+    final cache = PreferencesReportsPrivateCache();
+    await cache.write('account-a', 'card', {'payload': 'private'});
+    expect(await cache.read('account-a', 'card'), {'payload': 'private'});
+
+    await NativeAuthService(storage: InMemorySecureSessionStorage()).signOut();
+
+    expect(await cache.readActive('card'), isNull);
+    final preferences = await SharedPreferences.getInstance();
+    expect(
+      preferences.getKeys().where(
+        (key) => key.startsWith('annotations.reports.restricted.v1.'),
+      ),
+      isEmpty,
+    );
+  });
 }

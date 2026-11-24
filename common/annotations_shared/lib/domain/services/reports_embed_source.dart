@@ -200,27 +200,36 @@ final class ReportsEmbedSource {
       return _state(ReportsEmbedState.signInRequired, reference);
     }
 
-    String? logicalKey;
+    final logicalKey = _logicalCacheKey(
+      reference,
+      mode as String,
+      mode == 'snapshot' ? snapshotId as String : '',
+      language,
+    );
     try {
       final session = await _viewerSession(expectedAccountId: trustedAccountId);
-      if (reference == null) return _state(ReportsEmbedState.unavailable, null);
-      logicalKey = _logicalCacheKey(
-        reference,
-        mode as String,
-        mode == 'snapshot' ? snapshotId as String : '',
-        language,
-      );
       final raw = mode == 'snapshot'
           ? await api.snapshotContent(session, reference, snapshotId as String)
           : await _liveData(session, reference, language);
+      if (mode == 'snapshot' &&
+          (raw['id'] != snapshotId ||
+              raw['project'] != reference.project ||
+              raw['report'] != reference.report ||
+              raw['dataset_id'] != reference.dataset)) {
+        throw const ReportsChangingDatasetException();
+      }
       await _assertSameViewer(session);
       final cachedAt = DateTime.now().toUtc();
-      await cache.write(session.userId, logicalKey, {
-        'cached_at': cachedAt.toIso8601String(),
-        'mode': mode,
-        'snapshot_id': mode == 'snapshot' ? snapshotId : null,
-        'payload': raw,
-      });
+      try {
+        await cache.write(session.userId, logicalKey, {
+          'cached_at': cachedAt.toIso8601String(),
+          'mode': mode,
+          'snapshot_id': mode == 'snapshot' ? snapshotId : null,
+          'payload': raw,
+        });
+      } catch (_) {
+        // A local cache failure does not invalidate the authorized response.
+      }
       return _toEmbedData(
         reference,
         mode,
@@ -235,7 +244,7 @@ final class ReportsEmbedSource {
       }
       if (error.status == 403 || error.status == 404) {
         final userId = _activeUserId;
-        if (userId != null && logicalKey != null) {
+        if (userId != null) {
           await cache.remove(userId, logicalKey);
         }
         return _state(
@@ -245,8 +254,13 @@ final class ReportsEmbedSource {
           reference,
         );
       }
-      if (error.status >= 500 && reference != null && logicalKey != null) {
-        return _offlineOrUnavailable(reference, mode, logicalKey);
+      if (error.status >= 500) {
+        return _offlineOrUnavailable(
+          reference,
+          mode,
+          logicalKey,
+          trustedAccountId: trustedAccountId,
+        );
       }
       return _state(ReportsEmbedState.unavailable, reference);
     } on ReportsSessionException {
@@ -257,21 +271,23 @@ final class ReportsEmbedSource {
       return _state(ReportsEmbedState.signInRequired, reference);
     } on ReportsAccessException {
       final userId = _activeUserId;
-      if (userId != null && logicalKey != null) {
+      if (userId != null) {
         await cache.remove(userId, logicalKey);
       }
       return _state(ReportsEmbedState.restricted, reference);
     } on ReportsChangingDatasetException {
       final userId = _activeUserId;
-      if (userId != null && logicalKey != null) {
+      if (userId != null) {
         await cache.remove(userId, logicalKey);
       }
       return _state(ReportsEmbedState.unavailable, reference);
     } on http.ClientException {
-      if (reference != null && logicalKey != null) {
-        return _offlineOrUnavailable(reference, mode, logicalKey);
-      }
-      return _state(ReportsEmbedState.unavailable, reference);
+      return _offlineOrUnavailable(
+        reference,
+        mode,
+        logicalKey,
+        trustedAccountId: trustedAccountId,
+      );
     } catch (_) {
       return _state(ReportsEmbedState.unavailable, reference);
     }
@@ -299,52 +315,28 @@ final class ReportsEmbedSource {
       throw const ReportsAccessException();
     }
 
-    final rows = <Map<String, dynamic>>[];
-    Map<String, dynamic>? firstPage;
-    Lineage? lineage;
-    var totalRows = 0;
-    var offset = 0;
-    while (true) {
-      final pageJson = await api.datasetPageJson(
-        session,
-        reference,
-        language: language,
-        offset: offset,
-        limit: 5000,
-      );
-      final page = DatasetPage.fromJson(pageJson);
-      if (!page.descriptor.canView) throw const ReportsAccessException();
-      firstPage ??= pageJson;
-      totalRows = page.totalRows;
-      if (page.offset > 0 &&
-          (lineage == null ||
-              page.lineage == null ||
-              !_sameLineage(lineage, page.lineage))) {
-        throw const ReportsChangingDatasetException();
-      }
-      lineage ??= page.lineage;
-      rows.addAll(page.rows);
-      if (rows.length >= totalRows || page.rows.isEmpty) break;
-      offset += page.rows.length;
+    final pageJson = await api.datasetPageJson(
+      session,
+      reference,
+      language: language,
+      offset: 0,
+      limit: 5000,
+    );
+    final page = DatasetPage.fromJson(pageJson);
+    if (!page.descriptor.canView) throw const ReportsAccessException();
+    if (page.descriptor.datasetId != reference.dataset) {
+      throw const ReportsChangingDatasetException();
     }
 
-    return {
-      'report_view': reportJson,
-      'dataset_page': {
-        ...firstPage,
-        'rows': rows,
-        'offset': 0,
-        'limit': rows.length,
-        'total_rows': totalRows,
-      },
-    };
+    return {'report_view': reportJson, 'dataset_page': pageJson};
   }
 
   Future<ReportsEmbedData> _offlineOrUnavailable(
     ReportsCardReference? reference,
     Object mode,
-    String logicalKey,
-  ) async {
+    String logicalKey, {
+    required String? trustedAccountId,
+  }) async {
     if (reference == null) return _state(ReportsEmbedState.unavailable, null);
     bool signedIn;
     try {
@@ -353,12 +345,10 @@ final class ReportsEmbedSource {
       return _state(ReportsEmbedState.unavailable, reference);
     }
     if (!signedIn) return _state(ReportsEmbedState.unavailable, reference);
-    final userId = _activeUserId;
+    final userId = trustedAccountId;
     Map<String, dynamic>? entry;
     try {
-      entry = userId == null
-          ? await cache.readActive(logicalKey)
-          : await cache.read(userId, logicalKey);
+      entry = userId == null ? null : await cache.read(userId, logicalKey);
     } catch (_) {
       return _state(ReportsEmbedState.unavailable, reference);
     }
@@ -434,7 +424,12 @@ final class ReportsEmbedSource {
     await _assertSameViewer(session);
     final id = meta['id'];
     final capturedAtText = meta['captured_at'];
-    if (id is! String || capturedAtText is! String) {
+    if (id is! String ||
+        !_validOwnerItemId(id) ||
+        capturedAtText is! String ||
+        meta['project'] != reference.project ||
+        meta['report'] != reference.report ||
+        meta['dataset_id'] != reference.dataset) {
       throw const FormatException(
         'Reports returned invalid snapshot metadata.',
       );
@@ -485,10 +480,12 @@ final class ReportsEmbedSource {
     final itemProject = item['project'];
     final itemReport = item['report_slug'];
     final itemDataset = item['dataset_id'];
+    final itemEmbedUrl = item['embed_url'];
     if (!_validOwnerItemId(item['id'] as String) ||
         itemProject is! String ||
         itemReport is! String ||
         itemDataset is! String ||
+        itemEmbedUrl is! String ||
         itemProject != project) {
       throw const FormatException(
         'Reports returned invalid owner item identity.',
@@ -502,6 +499,11 @@ final class ReportsEmbedSource {
     if (reference == null) {
       throw const FormatException('Reports returned an invalid card identity.');
     }
+    if (ReportsCardReference.tryParse(itemEmbedUrl) != reference) {
+      throw const FormatException(
+        'Reports returned mismatched owner item identity.',
+      );
+    }
     return ReportsEmbedReference(
       reportId: item['id'] as String,
       projectSlug: reference.project,
@@ -512,9 +514,8 @@ final class ReportsEmbedSource {
     );
   }
 
-  bool _validOwnerItemId(String id) => RegExp(
-    r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
-  ).hasMatch(id);
+  bool _validOwnerItemId(String id) =>
+      ReportsCardReference.isValidOwnerItemId(id);
 
   ReportsEmbedData _toEmbedData(
     ReportsCardReference reference,
@@ -599,11 +600,6 @@ final class ReportsEmbedSource {
         ),
       )
       .toString();
-
-  bool _sameLineage(Lineage? a, Lineage? b) =>
-      a?.calculationId == b?.calculationId &&
-      a?.calculationVersion == b?.calculationVersion &&
-      a?.calculatedAt == b?.calculatedAt;
 }
 
 final class ReportsAccessException implements Exception {

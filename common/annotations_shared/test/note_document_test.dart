@@ -3,9 +3,8 @@ import 'dart:io';
 import 'package:annotations_shared/domain/models/note_document.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-// Unchanged valid fixtures from wilsonborba/annotations_api at
-// f176b76aee059f9157263499b3e0e08f3244588e, tests/fixtures/document_schema/valid.
-// Schema1 includes compact stroke encoding (decision b593b780).
+// Pinned valid fixtures from annotations_api tests/fixtures/document_schema/valid.
+// Reports embed variants track the source-aware reference contract in #43.
 final fixtureDirectory = Directory('test/fixtures/document_schema/valid');
 Map<String, dynamic> fixture(String name) =>
     jsonDecode(File('${fixtureDirectory.path}/$name.json').readAsStringSync())
@@ -37,7 +36,7 @@ void main() {
           .toList()
         ..sort((a, b) => a.path.compareTo(b.path));
   test('canonical fixture set includes every family and item kind', () {
-    expect(fixtures, hasLength(43));
+    expect(fixtures, hasLength(46));
     final kinds = <String, Set<String>>{};
     for (final file in fixtures) {
       final value = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
@@ -164,6 +163,10 @@ void main() {
               as ReportsEmbed;
       expect(snapshot.mode, 'snapshot');
       expect(snapshot.capturedAt, isA<int>());
+      expect(snapshot.reportId, '00000000-0000-4000-8000-000000000001');
+      expect(snapshot.projectSlug, 'project-1');
+      expect(snapshot.reportSlug, 'report-42');
+      expect(snapshot.datasetId, 'dataset-1');
       expect(snapshot.bounds, isNotNull);
       final typedCard =
           (decode(fixture('typed-file-card')) as TypedDocument).blocks.single
@@ -172,6 +175,19 @@ void main() {
       expect(typedCard.fileId, 'file-doc-1');
     },
   );
+
+  test('legacy Reports references decode without inventing a tuple', () {
+    final legacy =
+        (decode(fixture('original-reports-embed-legacy-token'))
+                    as OriginalDocument)
+                .items
+                .single
+            as ReportsEmbed;
+    expect(legacy.reportId, 'report-42');
+    expect(legacy.projectSlug, isNull);
+    expect(legacy.reportSlug, isNull);
+    expect(legacy.datasetId, isNull);
+  });
 
   test('unknown nested fields and kinds survive known family load/save', () {
     final value = fixture('original-text');
