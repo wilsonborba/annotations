@@ -2,6 +2,8 @@
 
 ### 🚀 Features
 
+- Add Reports embed data adapters
+
 - *(telemetry)* Adopt shared tracking with mapped Annotations controls
 - *(core)* Add platform profiles and feature availability
 - *(core)* Share settings, logs, screen_trail tracking and client errors
@@ -33,6 +35,8 @@
 - *(domain)* Check only the changed items of each edit, Undo and Redo included, so a stroke on a 30-page note takes a few milliseconds (#62)
 
 ### 🐛 Bug Fixes
+
+- Enforce Reports reference and cache identity
 
 - *(sync)* Persist server note identity and revisions for cloud calls (#63)
 - *(sync)* Isolate conflict copies and require revision ids (#63)
