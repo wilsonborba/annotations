@@ -308,7 +308,7 @@ class _ExportDialogState extends State<ExportDialog> {
                   children: [
                     if (h.pages.isNotEmpty)
                       Text(
-                        '${h.pages.length} ${context.tr('previewPages')}',
+                        '${h.pages.length} ${context.tr(h.pages.length == 1 ? 'previewPage' : 'previewPages')}',
                         key: const Key('export-count'),
                       ),
                     Wrap(

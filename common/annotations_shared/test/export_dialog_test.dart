@@ -789,5 +789,41 @@ void main() {
         }
       },
     );
+
+    testWidgets('the page count says 1 page, and 2 pages for two', (
+      tester,
+    ) async {
+      final now = DateTime.now();
+      LocalNote note(String id, DocumentSchema schema, NoteDocument doc) =>
+          LocalNote(
+            id: id,
+            schema: schema,
+            document: doc,
+            title: 'Count',
+            revision: 1,
+            createdAt: now,
+            updatedAt: now,
+            syncState: LocalSyncState.local,
+            accountId: null,
+          );
+      final handler = ExportHandler(
+        note: note('c1', _origSchema, _originalDoc()),
+        store: _MissingFileStore(note('c1__typed', _typedSchema, _typedDoc())),
+        renderPages: (_, _) async => [await _solidImage()],
+      );
+      addTearDown(handler.dispose);
+      await tester.pumpWidget(_host(ExportDialog(handler: handler)));
+      Finder count() => find.byKey(const Key('export-count'));
+      await _pumpUntil(tester, () => count().evaluate().isNotEmpty);
+      expect(tester.widget<Text>(count()).data, '1 page');
+
+      handler.choose(mode: PdfExportMode.both);
+      await _pumpUntil(
+        tester,
+        () =>
+            handler.stage == ExportStage.ready &&
+            tester.widget<Text>(count()).data == '2 pages',
+      );
+    });
   });
 }

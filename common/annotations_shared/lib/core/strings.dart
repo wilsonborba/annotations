@@ -12,6 +12,7 @@ const strings = <String, List<String>>{
   'paperLetter': ['Letter', 'Carta', 'Letter'],
   'portrait': ['Portrait', 'Retrato', 'แนวตั้ง'],
   'landscape': ['Landscape', 'Paisagem', 'แนวนอน'],
+  'previewPage': ['page', 'página', 'หน้า'],
   'previewPages': ['pages', 'páginas', 'หน้า'],
   'preflightTitle': [
     'Some content is not ready',
