@@ -87,7 +87,13 @@ class PageShell extends StatelessWidget {
             ),
             const SizedBox(width: 16),
           ],
-          LanguageSwitch(selected: prefs.locale, onChanged: prefs.language),
+          if (width < 360)
+            _CompactLanguageSwitch(
+              selected: prefs.locale,
+              onChanged: prefs.language,
+            )
+          else
+            LanguageSwitch(selected: prefs.locale, onChanged: prefs.language),
           const SizedBox(width: 6),
           track(
             'shell.theme.toggle',
@@ -284,6 +290,89 @@ class LanguageSwitch extends StatelessWidget {
                 ),
               ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Keeps all three interface languages available when the full segmented
+/// control would leave too little room for the brand and other toolbar
+/// actions. PopupMenuButton retains the standard keyboard and touch behavior.
+class _CompactLanguageSwitch extends StatelessWidget {
+  final String selected;
+  final ValueChanged<String> onChanged;
+
+  const _CompactLanguageSwitch({
+    required this.selected,
+    required this.onChanged,
+  });
+
+  static const _languages = <(String, String, String)>[
+    ('en', 'EN', 'English'),
+    ('pt-BR', 'PT', 'Português'),
+    ('th', 'TH', 'ไทย'),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final current = _languages.firstWhere(
+      (language) => language.$1 == selected,
+      orElse: () => _languages.first,
+    );
+    return PopupMenuButton<String>(
+      key: const Key('language-switch'),
+      tooltip: context.tr('language'),
+      onSelected: (code) {
+        trackChoice(context, 'shell.language.select', code);
+        onChanged(code);
+      },
+      itemBuilder: (context) => [
+        for (final (code, shortName, name) in _languages)
+          PopupMenuItem<String>(
+            key: Key('compact-language-$code'),
+            value: code,
+            child: Semantics(
+              label: name,
+              selected: code == selected,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SizedBox(width: 34, child: Text(shortName)),
+                  Text(name),
+                  if (code == selected) ...[
+                    const SizedBox(width: 12),
+                    const AppIcon(AppIcons.checkmarkCircle, size: 16),
+                  ],
+                ],
+              ),
+            ),
+          ),
+      ],
+      child: Semantics(
+        button: true,
+        label: '${context.tr('language')}: ${current.$3}',
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 40, minWidth: 52),
+          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 5),
+          decoration: BoxDecoration(
+            color: colors.subtle,
+            borderRadius: BorderRadius.circular(appRadius + 2),
+            border: Border.all(color: colors.border),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(current.$2, style: Theme.of(context).textTheme.labelMedium),
+              const SizedBox(width: 3),
+              AppIcon(
+                AppIcons.chevronDown,
+                size: 14,
+                color: colors.textSecondary,
+              ),
+            ],
+          ),
         ),
       ),
     );
