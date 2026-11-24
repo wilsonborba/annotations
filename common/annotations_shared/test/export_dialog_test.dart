@@ -21,6 +21,7 @@ import 'package:annotations_shared/presentation/frontend/components/controls.dar
 import 'package:annotations_shared/presentation/frontend/components/scope.dart';
 import 'package:annotations_shared/presentation/frontend/components/theme.dart';
 import 'package:annotations_shared/presentation/frontend/handlers/export_handler.dart';
+import 'package:annotations_shared/presentation/frontend/handlers/reports_pdf_capture.dart';
 import 'package:annotations_shared/presentation/frontend/widgets/export/export_dialog.dart';
 import 'package:archive/archive.dart';
 import 'package:flutter/material.dart';
@@ -33,9 +34,55 @@ import 'package:reports_view/reports_view.dart';
 import 'attachment_fixtures.dart' show usePdfiumInTests;
 import 'design_goldens_test.dart' show loadAppFonts;
 import 'fixtures.dart';
+import 'pdf_raster.dart';
 
 final _origSchema = DocumentSchema(DocumentFamily.original.schemaName, 1);
 final _typedSchema = DocumentSchema(DocumentFamily.typed.schemaName, 1);
+
+ReportsEmbedData _chartData({int visits = 20, bool complete = true}) {
+  const descriptor = DatasetDescriptor(
+    datasetId: 'dataset',
+    title: 'Visits',
+    description: 'Visits by source',
+    equation: null,
+    fields: [
+      FieldInfo(
+        name: 'source',
+        label: 'Source',
+        type: 'string',
+        role: 'dimension',
+      ),
+      FieldInfo(
+        name: 'visits',
+        label: 'Visits',
+        type: 'integer',
+        role: 'measure',
+      ),
+    ],
+    filters: [],
+    canView: true,
+  );
+  return ReportsEmbedData(
+    state: ReportsEmbedState.readable,
+    reference: const ReportsCardReference(
+      project: 'project',
+      report: 'report',
+      dataset: 'dataset',
+    ),
+    descriptor: descriptor,
+    page: DatasetPage(
+      descriptor: descriptor,
+      rows: [
+        {'source': 'Direct', 'visits': visits},
+        {'source': 'Search', 'visits': 13},
+      ],
+      offset: 0,
+      limit: 5000,
+      totalRows: complete ? 2 : 3,
+    ),
+    complete: complete,
+  );
+}
 
 NoteDocument _originalDoc({List<Map<String, Object?>> items = const []}) =>
     NoteDocument.fromJson({
@@ -130,6 +177,12 @@ class _MissingFileStore implements LocalNoteStore {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+class _MemoryAttachmentStore extends _MissingFileStore {
+  @override
+  Future<Uint8List?> readAttachment(String id) async =>
+      id == 'companion-file' ? Uint8List.fromList([1, 2, 3, 4]) : null;
+}
+
 LocalNote _pairedCandidate({
   required String id,
   required DocumentSchema schema,
@@ -176,6 +229,235 @@ void main() {
   });
 
   group('ExportHandler & B13 coverage', () {
+    test('partial Report row labels are fully localized', () {
+      expect(
+        partialReportRowsLabel(1, 3, 'en'),
+        'Report has partial data: 1 of 3 rows',
+      );
+      expect(
+        partialReportRowsLabel(1, 3, 'pt-BR'),
+        'O relatório tem dados parciais: 1 de 3 linhas',
+      );
+      expect(
+        partialReportRowsLabel(1, 3, 'th'),
+        'รายงานมีข้อมูลบางส่วน: 1 จาก 3 แถว',
+      );
+    });
+
+    testWidgets(
+      'actual Reports VisualChooser capture paints above an opaque dialog',
+      (tester) async {
+        const hostKey = Key('reports-capture-host');
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: Builder(
+                key: hostKey,
+                builder: (_) => const Text('editor route'),
+              ),
+            ),
+          ),
+        );
+        final editorContext = tester.element(find.byKey(hostKey));
+        unawaited(
+          showDialog<void>(
+            context: editorContext,
+            builder: (_) => const AlertDialog(title: Text('Export dialog')),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final capture = captureReportsPdfChart(
+          editorContext,
+          _chartData(complete: false),
+          language: 'pt-BR',
+        );
+        await tester.pump();
+        final png = await tester.runAsync(() => capture);
+        await tester.pumpAndSettle();
+
+        expect(png, isNotNull);
+        expect(png!.length, greaterThan(1000));
+        final decoded = await tester.runAsync(() async {
+          final codec = await ui.instantiateImageCodec(png);
+          final frame = await codec.getNextFrame();
+          final rgba = await frame.image.toByteData(
+            format: ui.ImageByteFormat.rawRgba,
+          );
+          codec.dispose();
+          frame.image.dispose();
+          return rgba!.buffer.asUint8List();
+        });
+        var orangeChartPixels = 0;
+        for (var i = 0; i < decoded!.length; i += 4) {
+          final r = decoded[i], g = decoded[i + 1], b = decoded[i + 2];
+          if (r > 200 && g > 90 && g < 190 && b < 130) {
+            orangeChartPixels++;
+          }
+        }
+        expect(
+          orangeChartPixels,
+          greaterThan(20),
+          reason: 'the captured PNG must contain real chart series pixels',
+        );
+
+        final changedCapture = captureReportsPdfChart(
+          editorContext,
+          _chartData(visits: 50),
+          language: 'pt-BR',
+        );
+        await tester.pump();
+        final changedPng = await tester.runAsync(() => changedCapture);
+        await tester.pumpAndSettle();
+        expect(changedPng, isNot(orderedEquals(png)));
+
+        Navigator.of(editorContext).pop();
+        await tester.pumpAndSettle();
+
+        final note = LocalNote(
+          id: 'captured-chart-note',
+          schema: _origSchema,
+          document: _originalDoc(
+            items: [
+              {
+                'id': 'report-card',
+                'kind': 'reports_embed',
+                'x': 20,
+                'y': 80,
+                'width': 500,
+                'height': 300,
+                'report_id': 'report',
+                'project_slug': 'project',
+                'report_slug': 'report',
+                'dataset_id': 'dataset',
+                'mode': 'snapshot',
+                'source': 'link',
+                'snapshot_id': 'snapshot-1',
+                'captured_at': 1795520000,
+              },
+              {
+                'id': 'large-companion',
+                'kind': 'file',
+                'x': 20,
+                'y': 2000,
+                'width': 300,
+                'height': 5000,
+                'name': 'evidence.json',
+                'file_id': 'companion-file',
+                'type': 'application/json',
+                'size': 4,
+              },
+            ],
+          ),
+          title: 'Captured chart',
+          revision: 1,
+          createdAt: DateTime.utc(2026),
+          updatedAt: DateTime.utc(2026),
+          syncState: LocalSyncState.local,
+          accountId: null,
+        );
+        final previewInputs = <Uint8List>[];
+        final savePath = '${root.path}/captured-chart.zip';
+        var selectedData = _chartData(complete: false);
+        var selectedPng = png;
+        final handler = ExportHandler(
+          note: note,
+          store: _MemoryAttachmentStore(),
+          loadReportsEmbed: (_) async => selectedData,
+          renderReportsChart: (_, {required partial}) async {
+            expect(partial, isTrue);
+            return selectedPng;
+          },
+          renderPages: (bytes, max) async {
+            previewInputs.add(Uint8List.fromList(bytes));
+            return renderPdfPages(bytes, max);
+          },
+          saveLocation: (_) async => savePath,
+        );
+        addTearDown(handler.dispose);
+        await tester.runAsync(() => handler.build());
+        expect(handler.stage, ExportStage.preflight);
+        expect(
+          handler.preflight!.issues.map((issue) => issue.kind),
+          contains('partial_chart'),
+        );
+        await tester.runAsync(() => handler.build(placeholders: true));
+        expect(handler.stage, ExportStage.ready);
+        expect(handler.output!.pdfs, hasLength(1));
+        expect(handler.needsZip, isTrue);
+        expect(
+          previewInputs.single,
+          orderedEquals(handler.output!.pdfs.single.bytes),
+        );
+        final previewImage = handler.previewPdfs.single.pages.first;
+        final previewPixels = await tester.runAsync(() async {
+          final rgba = await previewImage.toByteData(
+            format: ui.ImageByteFormat.rawRgba,
+          );
+          return rgba!.buffer.asUint8List();
+        });
+        var previewOrangePixels = 0;
+        for (var i = 0; i < previewPixels!.length; i += 4) {
+          final r = previewPixels[i], g = previewPixels[i + 1];
+          final b = previewPixels[i + 2];
+          if (r > 200 && g > 90 && g < 190 && b < 130) {
+            previewOrangePixels++;
+          }
+        }
+        expect(previewOrangePixels, greaterThan(20));
+        final zipBytes = handler.bytes();
+        final firstPdfBytes = Uint8List.fromList(
+          handler.output!.pdfs.single.bytes,
+        );
+        final pdfRaster = await tester.runAsync(
+          () => PdfRaster.page(handler.output!.pdfs.single.bytes),
+        );
+        expect(
+          pdfRaster!.count(
+            (r, g, b) => r > 200 && g > 90 && g < 190 && b < 130,
+          ),
+          greaterThan(20),
+          reason: 'the saved PDF page must contain the Reports chart image',
+        );
+        expect(await tester.runAsync(handler.save), isTrue);
+        expect(File(savePath).readAsBytesSync(), orderedEquals(zipBytes));
+        var archive = ZipDecoder().decodeBytes(zipBytes);
+        var savedPdf = archive.files.singleWhere(
+          (file) => file.name == handler.output!.pdfs.single.filename,
+        );
+        expect(
+          savedPdf.content as List<int>,
+          orderedEquals(handler.output!.pdfs.single.bytes),
+        );
+
+        selectedData = _chartData(visits: 50, complete: false);
+        selectedPng = changedPng!;
+        await tester.runAsync(() => handler.build(placeholders: true));
+        expect(handler.stage, ExportStage.ready);
+        expect(previewInputs, hasLength(2));
+        expect(
+          previewInputs.last,
+          orderedEquals(handler.output!.pdfs.single.bytes),
+        );
+        expect(
+          handler.output!.pdfs.single.bytes,
+          isNot(orderedEquals(firstPdfBytes)),
+          reason: 'changing the selected Reports rows changes the saved chart',
+        );
+        final updatedZip = handler.bytes();
+        expect(await tester.runAsync(handler.save), isTrue);
+        expect(File(savePath).readAsBytesSync(), orderedEquals(updatedZip));
+        archive = ZipDecoder().decodeBytes(updatedZip);
+        savedPdf = archive.files.singleWhere(
+          (file) => file.name == handler.output!.pdfs.single.filename,
+        );
+        expect(
+          savedPdf.content as List<int>,
+          orderedEquals(handler.output!.pdfs.single.bytes),
+        );
+      },
+    );
+
     test('missing file preflight uses its saved file name', () {
       final schema = _origSchema;
       final note = LocalNote(

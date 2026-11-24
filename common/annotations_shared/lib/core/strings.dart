@@ -30,6 +30,11 @@ const strings = <String, List<String>>{
     'O relatório tem dados parciais',
     'รายงานมีข้อมูลเพียงบางส่วน',
   ],
+  'partialReportRows': [
+    'Report has partial data: {shown} of {total} rows',
+    'O relatório tem dados parciais: {shown} de {total} linhas',
+    'รายงานมีข้อมูลบางส่วน: {shown} จาก {total} แถว',
+  ],
   'issueMissingFont': ['Font unavailable', 'Fonte indisponível', 'ไม่มีฟอนต์'],
   'continuePlaceholders': [
     'Continue with marked placeholders',
@@ -717,4 +722,11 @@ String translate(String key, String locale) {
       ? 2
       : 0;
   return (strings[key] ?? landingStrings[key])?[index] ?? key;
+}
+
+String partialReportRowsLabel(int shown, int total, String locale) {
+  return translate(
+    'partialReportRows',
+    locale,
+  ).replaceAll('{shown}', '$shown').replaceAll('{total}', '$total');
 }

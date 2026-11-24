@@ -148,9 +148,6 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
                                 captureReportsPdfChart(
                                   context,
                                   data,
-                                  partialLabel: context.tr(
-                                    'issuePartialReport',
-                                  ),
                                   language: language,
                                 ),
                           );

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:reports_view/reports_view.dart';
 
+import '../../../core/strings.dart';
 import '../../../domain/models/reports_embed_data.dart';
 
 const _printPalette = ReportPalette(
@@ -40,7 +41,6 @@ const _printPalette = ReportPalette(
 Future<Uint8List> captureReportsPdfChart(
   BuildContext context,
   ReportsEmbedData data, {
-  required String partialLabel,
   String language = 'en',
 }) async {
   final page = data.page;
@@ -48,15 +48,11 @@ Future<Uint8List> captureReportsPdfChart(
     throw StateError('Reports data is not available for export.');
   }
   final overlay = Overlay.of(context, rootOverlay: true);
-  final routeEntries = ModalRoute.of(context)?.overlayEntries;
-  final insertionAnchor = routeEntries == null || routeEntries.isEmpty
-      ? null
-      : routeEntries.first;
   final key = GlobalKey();
   final partial = !data.complete;
   final entry = OverlayEntry(
     builder: (context) => Positioned(
-      left: 0,
+      left: -10000,
       top: 0,
       child: TickerMode(
         enabled: false,
@@ -64,7 +60,10 @@ Future<Uint8List> captureReportsPdfChart(
           context: context,
           locale: Locale(language.split('-').first),
           child: MediaQuery(
-            data: MediaQuery.of(context).copyWith(disableAnimations: true),
+            data: MediaQuery.of(context).copyWith(
+              disableAnimations: true,
+              textScaler: TextScaler.noScaling,
+            ),
             child: Theme(
               data: _printPalette.toTheme(Brightness.light),
               child: Material(
@@ -83,7 +82,11 @@ Future<Uint8List> captureReportsPdfChart(
                             Padding(
                               padding: const EdgeInsets.only(bottom: 8),
                               child: Text(
-                                '$partialLabel (${page.rows.length} of ${page.totalRows} rows)',
+                                partialReportRowsLabel(
+                                  page.rows.length,
+                                  page.totalRows,
+                                  language,
+                                ),
                                 style: Theme.of(context).textTheme.bodySmall,
                               ),
                             ),
@@ -124,13 +127,9 @@ Future<Uint8List> captureReportsPdfChart(
       ),
     ),
   );
-  if (insertionAnchor == null) {
-    overlay.insert(entry);
-  } else {
-    // Keep the offscreen render surface beneath the export dialog and its
-    // modal barrier. It cannot flash chart content on the active screen.
-    overlay.insert(entry, below: insertionAnchor);
-  }
+  // Insert above every route and modal barrier. An opaque route skips painting
+  // below its entry, which leaves a below-route RepaintBoundary without pixels.
+  overlay.insert(entry);
   try {
     await WidgetsBinding.instance.endOfFrame;
     final boundary = key.currentContext?.findRenderObject();
