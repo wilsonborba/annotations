@@ -75,7 +75,8 @@ class FakeGateway {
         return json({'message': 'Logged out successfully.'});
       case ('GET', '/apps/annotations/v1/me/notes'):
         if (notesStatus != null) return json({'detail': 'x'}, notesStatus!);
-        if (!alive) return json({'detail': 'Identity required'}, 403);
+        // The gateway session route: no session, 401 (api_for_apps e3bc705).
+        if (!alive) return json({'detail': 'Authentication required'}, 401);
         return json({'items': notes, 'next_cursor': null, 'sync_cursor': '1'});
     }
     return json({'detail': 'Not Found'}, 404);
@@ -433,8 +434,8 @@ void main() {
     });
 
     testWidgets('a failed load shows the error with Retry', (tester) async {
-      // Today's gateway answers 404 for /me/* (no user forwarding yet).
-      final g = signedIn()..notesStatus = 404;
+      // A server failure: the error state with Retry, still signed in.
+      final g = signedIn()..notesStatus = 500;
       await openApp(tester, g, '/v1/me/notes');
       expect(find.byKey(const Key('my-notes-error')), findsOneWidget);
       expect(find.byKey(const Key('account-avatar')), findsOneWidget);
