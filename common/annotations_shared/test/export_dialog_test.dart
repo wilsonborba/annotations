@@ -496,6 +496,24 @@ void main() {
         expect(handler.stage, ExportStage.ready);
         expect(handler.saveError, isTrue);
 
+        // A failed platform save picker also reports the error and remains retryable.
+        var pickerFails = true;
+        final pickerHandler = ExportHandler(
+          note: orig,
+          store: store,
+          renderPages: (_, _) async => [await _solidImage()],
+          saveLocation: (_) async {
+            if (pickerFails) throw StateError('save picker failed');
+            return targetPath;
+          },
+        );
+        addTearDown(pickerHandler.dispose);
+        await tester.runAsync(() => pickerHandler.build());
+        expect(await tester.runAsync(() => pickerHandler.save()), isFalse);
+        expect(pickerHandler.stage, ExportStage.ready);
+        expect(pickerHandler.saveError, isTrue);
+        pickerFails = false;
+
         // Retry with valid path succeeds.
         final validPath = '${root.path}/ok.pdf';
         targetPath = validPath;
@@ -694,6 +712,10 @@ void main() {
               expect(
                 find.byKey(const Key('export-preflight-list')),
                 findsOneWidget,
+              );
+              expect(
+                handler.preflight!.issues.map((i) => i.kind),
+                contains('failed_chart'),
               );
               expect(find.byKey(const Key('export-private')), findsOneWidget);
               expect(

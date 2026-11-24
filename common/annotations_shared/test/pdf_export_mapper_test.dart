@@ -161,6 +161,47 @@ void main() {
   );
 
   test(
+    'preflight identifies failed Reports snapshots and unavailable fonts',
+    () {
+      final doc = NoteDocument.fromJson({
+        'page': {
+          'width': 1000,
+          'background': {'kind': 'blank'},
+        },
+        'items': [
+          {
+            'id': 'report-card',
+            'kind': 'reports_embed',
+            'report_id': 'report-1',
+            'mode': 'snapshot',
+            'source': 'upload',
+            'snapshot_id': 'snapshot-1',
+            'captured_at': 1795520000,
+            'x': 20,
+            'y': 20,
+            'width': 300,
+            'height': 80,
+          },
+        ],
+      }, schema: origSchema);
+
+      final preflight = PdfExportMapper.preflight(
+        original: doc,
+        typed: null,
+        options: const PdfExportOptions(audience: PdfAudience.personal),
+        failedChartIds: const {'report-1'},
+        fontsAvailable: false,
+      );
+
+      expect(preflight.issues.map((issue) => issue.kind).toSet(), {
+        'failed_chart',
+        'missing_font',
+      });
+      expect(preflight.hasPrivateChartWarning, isTrue);
+    },
+  );
+
+  test(
     'oversized object gets dedicated preview page and relative companion file',
     () async {
       final baseFont = loadFont(
