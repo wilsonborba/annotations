@@ -8,8 +8,11 @@ import 'package:annotations_shared/domain/models/note_document.dart';
 import 'package:annotations_shared/domain/services/note_views.dart';
 import 'package:annotations_shared/presentation/frontend/handlers/paper_handler.dart';
 import 'package:annotations_shared/presentation/frontend/handlers/typed_note_handler.dart';
-import 'package:flutter_quill/flutter_quill.dart' show ChangeSource;
+import 'package:flutter_quill/flutter_quill.dart'
+    show ChangeSource, QuillEditor;
 import 'package:annotations_shared/presentation/frontend/widgets/typed/note_screen.dart';
+import 'package:flutter/foundation.dart'
+    show debugDefaultTargetPlatformOverride;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -222,6 +225,144 @@ void main() {
     expect(store.saved.last.title, 'Plants');
     expect(store.saved.last.document is TypedDocument, isTrue);
     await tester.pump(const Duration(seconds: 3));
+  });
+
+  testWidgets('title then body input keeps body focus through editor rebuild', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    try {
+      await setWindow(tester, phone);
+      final h = handlerFor(simpleTyped(), title: 'Biology');
+      addTearDown(h.dispose);
+      await tester.pumpWidget(
+        host(NoteScreen(handler: h, profile: PlatformProfile.phone)),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byKey(const Key('typed-title')), 'Plants');
+      await tester.pump();
+      expect(h.title, 'Plants');
+
+      final before = tester.widget<QuillEditor>(
+        find.byKey(const Key('typed-editor')),
+      );
+      final focus = before.focusNode;
+      final scroll = before.scrollController;
+      final editorRect = tester.getRect(find.byKey(const Key('typed-editor')));
+      await tester.tapAt(editorRect.topLeft + const Offset(60, 25));
+      await tester.pump();
+
+      final afterTap = tester.widget<QuillEditor>(
+        find.byKey(const Key('typed-editor')),
+      );
+      expect(identical(afterTap.focusNode, focus), isTrue);
+      expect(identical(afterTap.scrollController, scroll), isTrue);
+      expect(focus.hasFocus, isTrue);
+
+      final state = tester.state<State<StatefulWidget>>(
+        find.byType(TypedNoteEditor),
+      );
+      final editor = (state as dynamic).typed;
+      final beforeText = editor.controller.document.toPlainText() as String;
+      final caret = beforeText.length - 1;
+      const bodyInput = 'Body input';
+      tester.testTextInput.updateEditingValue(
+        TextEditingValue(
+          text: '${beforeText.substring(0, caret)}$bodyInput\n',
+          selection: TextSelection.collapsed(offset: caret + bodyInput.length),
+        ),
+      );
+      await tester.pump();
+
+      final afterInput = tester.widget<QuillEditor>(
+        find.byKey(const Key('typed-editor')),
+      );
+      expect(identical(afterInput.focusNode, focus), isTrue);
+      expect(identical(afterInput.scrollController, scroll), isTrue);
+      expect(focus.hasFocus, isTrue);
+      expect(editor.controller.document.toPlainText(), contains(bodyInput));
+      expect(
+        editor.controller.selection.extentOffset,
+        caret + bodyInput.length,
+      );
+      expect(h.title, 'Plants');
+
+      final englishText = editor.controller.document.toPlainText() as String;
+      final portugueseCaret = englishText.length - 1;
+      const portugueseInput = ' ação';
+      tester.testTextInput.updateEditingValue(
+        TextEditingValue(
+          text:
+              '${englishText.substring(0, portugueseCaret)}$portugueseInput\n',
+          selection: TextSelection.collapsed(
+            offset: portugueseCaret + portugueseInput.length,
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(editor.controller.document.toPlainText(), contains('ação'));
+      expect(
+        editor.controller.selection.extentOffset,
+        portugueseCaret + portugueseInput.length,
+      );
+      expect(
+        identical(
+          tester
+              .widget<QuillEditor>(find.byKey(const Key('typed-editor')))
+              .focusNode,
+          focus,
+        ),
+        isTrue,
+      );
+      expect(focus.hasFocus, isTrue);
+      expect(h.title, 'Plants');
+
+      final committedText = editor.controller.document.toPlainText() as String;
+      final thaiCaret = committedText.length - 1;
+      const thaiComposition = 'กี่';
+      tester.testTextInput.updateEditingValue(
+        TextEditingValue(
+          text: '${committedText.substring(0, thaiCaret)}$thaiComposition\n',
+          selection: TextSelection.collapsed(
+            offset: thaiCaret + thaiComposition.length,
+          ),
+          composing: TextRange(
+            start: thaiCaret,
+            end: thaiCaret + thaiComposition.length,
+          ),
+        ),
+      );
+      await tester.pump();
+      final afterComposition = tester.widget<QuillEditor>(
+        find.byKey(const Key('typed-editor')),
+      );
+      expect(identical(afterComposition.focusNode, focus), isTrue);
+      expect(identical(afterComposition.scrollController, scroll), isTrue);
+      expect(focus.hasFocus, isTrue);
+      expect(
+        editor.controller.document.toPlainText(),
+        contains(thaiComposition),
+      );
+      expect(
+        editor.controller.selection.extentOffset,
+        thaiCaret + thaiComposition.length,
+      );
+      expect(h.title, 'Plants');
+      tester.testTextInput.updateEditingValue(
+        TextEditingValue(
+          text: '${committedText.substring(0, thaiCaret)}$thaiComposition\n',
+          selection: TextSelection.collapsed(
+            offset: thaiCaret + thaiComposition.length,
+          ),
+        ),
+      );
+      await tester.pump();
+      await h.close();
+      await tester.pump(const Duration(seconds: 1));
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
   });
 
   final review = Platform.environment['ANNOTATIONS_REVIEW_DIR'];
