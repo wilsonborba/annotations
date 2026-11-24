@@ -440,18 +440,100 @@ void main() {
     );
     expect(qr.url, publicAppUri(pathSegments: ['v1', 'instant', 'transfer']));
     expect(qr.caption, translate('qrInstantCaption', 'en'));
+    expect(qr.semanticHint, contains('Room code transfer'));
+    expect(qr.semanticHint, contains(qr.url.toString()));
+    expect(qr.labelKey, 'qrRoom');
+    expect(find.byType(QrCodeView), findsNothing);
     final requestCount = requests.length;
     await tester.ensureVisible(find.byKey(const Key('instant-room-qr-share')));
     await tester.tap(find.byKey(const Key('instant-room-qr-share')));
     await tester.pumpAndSettle();
     final codes = tester.widgetList<QrCodeView>(find.byType(QrCodeView));
-    expect(codes, hasLength(2));
-    expect(codes.last.data, qr.url.toString());
+    expect(codes, hasLength(1));
+    expect(codes.single.data, qr.url.toString());
     expect(requests.length, requestCount);
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await tester.pumpAndSettle();
     expect(find.byType(Dialog), findsNothing);
     expect(requests.length, requestCount);
+  });
+
+  testWidgets('maximum backend room code truncates visibly but stays intact', (
+    tester,
+  ) async {
+    final longCode = List.filled(100, 'r').join();
+    final semantics = tester.ensureSemantics();
+    for (final (width, locale) in [
+      (390.0, 'en'),
+      (390.0, 'pt-BR'),
+      (390.0, 'th'),
+      (1300.0, 'pt-BR'),
+    ]) {
+      final service = fixtureService(
+        handler: (_) async => http.Response(
+          jsonEncode({
+            'code': longCode,
+            'revision': 0,
+            'expires_at': DateTime.now().millisecondsSinceEpoch ~/ 1000 + 900,
+            'items': [],
+          }),
+          200,
+        ),
+      );
+      await open(
+        tester,
+        '/v1/instant/$longCode',
+        width: width,
+        locale: locale,
+        service: service,
+      );
+      expect(tester.takeException(), isNull, reason: '$width / $locale');
+
+      final codeLabel = tester.widget<Text>(
+        find.byKey(const Key('instant-room-code-label')),
+      );
+      expect(codeLabel.data, longCode);
+      expect(codeLabel.maxLines, 1);
+      expect(codeLabel.overflow, TextOverflow.ellipsis);
+
+      final qr = tester.widget<QrShareControl>(
+        find.byKey(const Key('instant-room-qr-share')),
+      );
+      expect(qr.url, publicAppUri(pathSegments: ['v1', 'instant', longCode]));
+      expect(qr.caption, translate('qrInstantCaption', locale));
+      expect(qr.semanticHint, contains(longCode));
+      expect(qr.semanticHint, contains(qr.url.toString()));
+      expect(find.text(translate('qrRoom', locale)), findsOneWidget);
+      expect(find.text(translate('copy', locale)), findsOneWidget);
+      final qrSemantics = tester.getSemantics(
+        find.byKey(const Key('instant-room-qr-share')),
+      );
+      expect(qrSemantics.label, translate('qrRoom', locale));
+      expect(qrSemantics.hint, contains(longCode));
+      expect(qrSemantics.hint, contains(qr.url.toString()));
+
+      await tester.ensureVisible(
+        find.byKey(const Key('instant-room-qr-share')),
+      );
+      await tester.tap(find.byKey(const Key('instant-room-qr-share')));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull, reason: 'dialog $width / $locale');
+      expect(
+        tester.widgetList<QrCodeView>(find.byType(QrCodeView)).single.data,
+        qr.url.toString(),
+      );
+      final urlPreview = tester.widget<Text>(
+        find.byWidgetPredicate(
+          (widget) => widget is Text && widget.data == qr.url.toString(),
+        ),
+      );
+      expect(urlPreview.data, qr.url.toString());
+      expect(urlPreview.maxLines, 2);
+      expect(tester.getSize(find.byType(QrCodeView)).width, lessThan(321));
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+    }
+    semantics.dispose();
   });
 
   group('Overview hero', () {

@@ -659,6 +659,7 @@ class _ReaderPageState extends State<ReaderPage> {
                   key: const Key('reader-qr-share'),
                   url: readerUri,
                   caption: note.title,
+                  labelKey: 'qrNote',
                 ),
                 track(
                   'reader.link.copy',

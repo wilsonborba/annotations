@@ -8,6 +8,9 @@ import 'package:annotations_shared/domain/models/note_document.dart';
 import 'package:annotations_shared/domain/services/discovery_reader_service.dart';
 import 'package:annotations_shared/domain/services/note_autosave.dart';
 import 'package:annotations_shared/domain/services/read_only_store.dart';
+import 'package:annotations_shared/domain/services/preferences.dart';
+import 'package:annotations_shared/presentation/frontend/components/scope.dart';
+import 'package:annotations_shared/presentation/frontend/components/theme.dart';
 import 'package:annotations_shared/presentation/frontend/handlers/attachment_handler.dart';
 import 'package:annotations_shared/presentation/frontend/handlers/paper_handler.dart';
 import 'package:annotations_shared/presentation/frontend/components/qr_share.dart';
@@ -349,13 +352,15 @@ void main() {
           queryParameters: {'view': 'typed'},
         ),
       );
+      expect(small.labelKey, 'qrNote');
+      expect(find.byType(QrCodeView), findsNothing);
       final requestCount = api.requests.length;
       await tester.ensureVisible(find.byKey(const Key('reader-qr-share')));
       await tester.tap(find.byKey(const Key('reader-qr-share')));
       await tester.pumpAndSettle();
       final codes = tester.widgetList<QrCodeView>(find.byType(QrCodeView));
-      expect(codes, hasLength(2));
-      expect(codes.last.data, small.url.toString());
+      expect(codes, hasLength(1));
+      expect(codes.single.data, small.url.toString());
       expect(api.requests.length, requestCount);
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pumpAndSettle();
@@ -520,10 +525,79 @@ void main() {
       await tester.ensureVisible(find.byKey(const Key('reader-qr-share')));
       await tester.tap(find.byKey(const Key('reader-qr-share')));
       await tester.pumpAndSettle();
-      expect(tester.getSize(find.byType(QrCodeView).last).width, 240);
+      expect(
+        tester.getSize(find.byType(QrCodeView).at(0)).width,
+        lessThan(320),
+      );
       expect(tester.takeException(), isNull);
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pumpAndSettle();
+    });
+
+    testWidgets('QR dialog fits a narrow screen and larger text scale', (
+      tester,
+    ) async {
+      for (final (width, textScale, qrLimit) in [
+        (320.0, 1.0, 220.0),
+        (390.0, 1.3, 300.0),
+      ]) {
+        final api = FakeApi();
+        await open(tester, api, '/v1/notes/n1', width: width);
+        if (textScale > 1) {
+          tester.platformDispatcher.textScaleFactorTestValue = textScale;
+          addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+          await tester.pump();
+        }
+        await tester.tap(find.byKey(const Key('reader-qr-share')));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        expect(
+          tester.getSize(find.byType(QrCodeView).at(0)).width,
+          lessThan(qrLimit),
+        );
+        expect(find.text('Note QR code'), findsOneWidget);
+        await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+        await tester.pumpAndSettle();
+      }
+    });
+
+    testWidgets('QR dialog itself fits 320px at 1.3x text scale', (
+      tester,
+    ) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(320, 844);
+      tester.platformDispatcher.textScaleFactorTestValue = 1.3;
+      addTearDown(tester.view.reset);
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+      final service = fixtureService();
+      await tester.pumpWidget(
+        AppScope(
+          service: service,
+          preferences: Preferences(),
+          child: MaterialApp(
+            theme: appTheme(Brightness.light),
+            home: Scaffold(
+              body: Center(
+                child: QrShareControl(
+                  url: Uri.parse('https://annotations.asodya.com/v1/notes/n1'),
+                  caption: 'Note n1',
+                  labelKey: 'qrNote',
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.byType(QrShareControl));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(find.text('Note QR code'), findsNWidgets(2));
+      expect(tester.getSize(find.byType(QrCodeView)).width, lessThan(220));
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      final trigger = tester.widget<TextButton>(find.byType(TextButton));
+      expect(trigger.focusNode?.hasFocus, isTrue);
     });
 
     testWidgets(
