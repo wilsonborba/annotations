@@ -154,7 +154,9 @@ class _ExportDialogState extends State<ExportDialog> {
                             Padding(
                               key: Key('issue-${issue.refId}'),
                               padding: const EdgeInsets.symmetric(vertical: 4),
-                              child: Text('${_issue(issue)}: ${issue.refId}'),
+                              child: Text(
+                                '${_issue(issue)}: ${h.issueTarget(issue)}',
+                              ),
                             ),
                         ],
                       ),

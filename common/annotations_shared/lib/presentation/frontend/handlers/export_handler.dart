@@ -156,6 +156,31 @@ class ExportHandler extends ChangeNotifier {
     return build();
   }
 
+  /// What a person knows the item of [issue] by: a missing file shows its
+  /// file name; other items keep their reference.
+  String issueTarget(PdfPreflightIssue issue) {
+    if (issue.kind != 'missing_file') return issue.refId;
+    String? find(Object? node) {
+      if (node is Map) {
+        if (node['file_id'] == issue.refId && node['name'] is String) {
+          return node['name'] as String;
+        }
+        for (final v in node.values) {
+          if (find(v) case final String name) return name;
+        }
+      } else if (node is List) {
+        for (final v in node) {
+          if (find(v) case final String name) return name;
+        }
+      }
+      return null;
+    }
+
+    return find(note.document.toJson()) ??
+        find(_pairedNote?.document.toJson()) ??
+        issue.refId;
+  }
+
   String get _slug {
     final base = (note.title ?? 'note').trim().toLowerCase();
     final slug = base.replaceAll(RegExp(r'[^a-z0-9\u0E00-\u0E7F]+'), '-');
