@@ -31,8 +31,28 @@ void main() {
     }
   }
 
+  bool nativeLibBuiltOnDisk() {
+    final repoRoot = Directory.current.parent.parent;
+    final defaultLib = File(
+      '${repoRoot.path}/native/pdf_krilla/target/release/libpdf_krilla.so',
+    );
+    if (defaultLib.existsSync()) return true;
+    final targetDir = Platform.environment['CARGO_TARGET_DIR'];
+    if (targetDir != null && targetDir.isNotEmpty) {
+      return File('$targetDir/release/libpdf_krilla.so').existsSync();
+    }
+    return false;
+  }
+
   test('krilla FFI backend is available and exports Thai, mixed, oversized, and ink PDFs', () async {
-    expect(await KrillaPdfBackend.isAvailable(), isTrue);
+    final available = await KrillaPdfBackend.isAvailable();
+    if (!available && !nativeLibBuiltOnDisk()) {
+      markTestSkipped(
+        'libpdf_krilla.so is not built; run ./scripts/build_pdf_krilla.sh linux to execute krilla FFI tests.',
+      );
+      return;
+    }
+    expect(available, isTrue);
 
     final regularFont = loadFontBytes(
       'lib/presentation/frontend/assets/fonts/IBMPlexSansThai-Regular.ttf',
@@ -225,11 +245,12 @@ void main() {
     final libRs = File('${repoRoot.path}/native/pdf_krilla/src/lib.rs');
     final cargoToml = File('${repoRoot.path}/native/pdf_krilla/Cargo.toml');
 
-    expect(
-      wasm.existsSync(),
-      isTrue,
-      reason: 'Missing pdf_krilla.wasm; run ./scripts/build_pdf_krilla.sh wasm',
-    );
+    if (!wasm.existsSync()) {
+      markTestSkipped(
+        'pdf_krilla.wasm is not built; run ./scripts/build_pdf_krilla.sh wasm to verify wasm output.',
+      );
+      return;
+    }
     final wasmMtime = wasm.lastModifiedSync();
     expect(
       wasmMtime.isBefore(libRs.lastModifiedSync()),

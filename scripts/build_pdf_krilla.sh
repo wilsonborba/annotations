@@ -16,6 +16,12 @@ MODE="${1:-all}"
 
 build_linux() {
   cargo build --manifest-path "$CRATE_DIR/Cargo.toml" --locked --release --lib
+  local default_out="$CRATE_DIR/target/release/libpdf_krilla.so"
+  local built_out="$TARGET_DIR/release/libpdf_krilla.so"
+  if [ "$built_out" != "$default_out" ] && [ -f "$built_out" ]; then
+    mkdir -p "$(dirname "$default_out")"
+    cp "$built_out" "$default_out"
+  fi
 }
 
 build_wasm() {
@@ -69,7 +75,11 @@ build_ios() {
   mkdir -p "$APPLE_OUT"
   if [ "${PLATFORM_NAME:-iphoneos}" = "iphonesimulator" ]; then
     cargo build --manifest-path "$CRATE_DIR/Cargo.toml" --locked --release --lib --target aarch64-apple-ios-sim
-    cp "$TARGET_DIR/aarch64-apple-ios-sim/release/libpdf_krilla.a" "$APPLE_OUT/libpdf_krilla_ios.a"
+    cargo build --manifest-path "$CRATE_DIR/Cargo.toml" --locked --release --lib --target x86_64-apple-ios
+    lipo -create \
+      "$TARGET_DIR/aarch64-apple-ios-sim/release/libpdf_krilla.a" \
+      "$TARGET_DIR/x86_64-apple-ios/release/libpdf_krilla.a" \
+      -output "$APPLE_OUT/libpdf_krilla_ios.a"
   else
     cargo build --manifest-path "$CRATE_DIR/Cargo.toml" --locked --release --lib --target aarch64-apple-ios
     cp "$TARGET_DIR/aarch64-apple-ios/release/libpdf_krilla.a" "$APPLE_OUT/libpdf_krilla_ios.a"
