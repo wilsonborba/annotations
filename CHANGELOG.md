@@ -2,6 +2,9 @@
 
 ### 🚀 Features
 
+- Add transcription API and model download core
+- Persist mandatory transcription feedback retries (#45)
+
 - *(ui)* Browser account menu, sign-in flow and My notes (#38)
 - *(ui)* Installed intro, writer workspace and note editor route (#38)
 - *(ui)* Installed sign-in with the native handoff and match code (#38)

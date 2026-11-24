@@ -454,14 +454,20 @@ final class TranscriptionApiAdapter {
       body: {'schema_version': 1, 'events': events},
       headers: session.headers(mutation: true),
     );
-    if (result['run_id'] != runId || result['events'] is! List) {
+    final returnedEvents = result['events'];
+    if (result['run_id'] != runId || returnedEvents is! List) {
       throw const FormatException('Invalid training feedback response.');
     }
-    return (result['events'] as List)
-        .whereType<Map>()
-        .map((event) => event['event_id'])
-        .whereType<String>()
-        .toSet();
+    final eventIds = <String>{};
+    for (final value in returnedEvents) {
+      if (value is! Map || value['event_id'] is! String) {
+        throw const FormatException('Invalid training feedback response.');
+      }
+      if (!eventIds.add(value['event_id'] as String)) {
+        throw const FormatException('Duplicate feedback acknowledgement.');
+      }
+    }
+    return eventIds;
   }
 
   Future<TranscriptionRun> cancelRun(
