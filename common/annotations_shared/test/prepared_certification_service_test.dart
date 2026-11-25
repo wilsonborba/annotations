@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:annotations_shared/dal/remote/api_adapter.dart';
@@ -26,10 +27,10 @@ void main() {
                   'id': 'study-1',
                   'title': 'Biology',
                   'status': 'draft',
-                  'config': {'language': 'pt-BR', 'count': 12},
                 },
                 'sources': [],
                 'quota': {'used_bytes': 0, 'max_bytes': 100},
+                'config': {'language': 'pt-BR', 'count': 12},
               }),
               201,
             );
@@ -46,8 +47,6 @@ void main() {
           PreparedCertificationSource(
             kind: 'note_original',
             revisionId: 'revision-original-3',
-            selectionKind: 'pages',
-            selectionSpec: '2-4',
           ),
         ],
         config: const PreparedCertificationConfig(language: 'pt-BR', count: 12),
@@ -67,8 +66,7 @@ void main() {
           {
             'kind': 'note_original',
             'revision_id': 'revision-original-3',
-            'selection_kind': 'pages',
-            'selection_spec': '2-4',
+            'selection_kind': 'all',
           },
         ],
         'config': {'language': 'pt-BR', 'count': 12},
@@ -95,17 +93,19 @@ void main() {
                     'id': 'study-2',
                     'title': 'Study',
                     'status': 'draft',
-                    'config': {'language': 'en', 'count': 10},
                   },
+                  'sources': [],
+                  'quota': {'used_bytes': 0, 'max_bytes': 100},
+                  'config': {'language': 'en', 'count': 10},
                 }),
                 201,
               );
             }
             return http.Response(
               jsonEncode({
-                'id': 'study-2',
-                'title': 'Study',
-                'status': 'draft',
+                'study': {'id': 'study-2', 'title': 'Study', 'status': 'draft'},
+                'sources': [],
+                'quota': {'used_bytes': 0, 'max_bytes': 100},
                 'config': {'language': 'th', 'count': 18},
               }),
               200,
@@ -151,12 +151,10 @@ void main() {
           }
           return http.Response(
             jsonEncode({
-              'data': {
-                'id': 'study-3',
-                'title': 'Study',
-                'status': 'draft',
-                'config': null,
-              },
+              'study': {'id': 'study-3', 'title': 'Study', 'status': 'draft'},
+              'sources': [],
+              'quota': {'used_bytes': 0, 'max_bytes': 100},
+              'config': null,
             }),
             200,
           );
@@ -185,9 +183,9 @@ void main() {
         client: MockClient(
           (_) async => http.Response(
             jsonEncode({
-              'id': 'study-4',
-              'title': 'Study',
-              'status': 'draft',
+              'study': {'id': 'study-4', 'title': 'Study', 'status': 'draft'},
+              'sources': [],
+              'quota': {'used_bytes': 0, 'max_bytes': 100},
               'config': {'language': 'fr', 'count': 0},
             }),
             200,
@@ -199,6 +197,34 @@ void main() {
 
     await expectLater(service.read('study-4'), throwsFormatException);
   });
+
+  test(
+    'requires the Certifications StudyDetail envelope when resuming',
+    () async {
+      final service = PreparedCertificationService(
+        api: ApiAdapter(
+          base: 'https://api.test',
+          client: MockClient(
+            (_) async => http.Response(
+              jsonEncode({
+                'id': 'study-flat',
+                'title': 'Study',
+                'status': 'draft',
+                'config': {'language': 'en', 'count': 10},
+              }),
+              200,
+            ),
+          ),
+        ),
+        session: session,
+      );
+
+      await expectLater(
+        service.read('study-flat'),
+        throwsA(isA<ApiError>().having((error) => error.status, 'status', 502)),
+      );
+    },
+  );
 
   test(
     'uploads only a selected local attachment after owner lookup misses',
@@ -246,6 +272,100 @@ void main() {
       );
       expect(requests.last.bodyBytes, [1, 2, 3]);
       expect(requests.last.headers['cookie'], 'sid=sid-test; csrf=csrf-test');
+    },
+  );
+
+  test('account change during attachment lookup prevents its upload', () async {
+    final lookupStarted = Completer<void>();
+    final releaseLookup = Completer<http.Response>();
+    final requests = <http.Request>[];
+    var current = true;
+    final service = PreparedCertificationService(
+      api: ApiAdapter(
+        base: 'https://api.test/apps/annotations/v1',
+        client: MockClient((request) {
+          requests.add(request);
+          if (request.method == 'GET') {
+            lookupStarted.complete();
+            return releaseLookup.future;
+          }
+          return Future.value(http.Response('{"file_id":"uploaded"}', 201));
+        }),
+      ),
+      session: session,
+    );
+
+    final preparation = service.prepareAttachmentSource(
+      fileId: 'local-file-2',
+      attachment: const LocalAttachment(
+        id: 'local-file-2',
+        name: 'selected.pdf',
+        type: 'application/pdf',
+        size: 3,
+        path: 'fixture-copy',
+      ),
+      bytes: const [1, 2, 3],
+      isCurrent: () => current,
+    );
+    await lookupStarted.future;
+    current = false;
+    releaseLookup.complete(http.Response('{"error":"not found"}', 404));
+
+    await expectLater(preparation, throwsA(isA<StateError>()));
+    expect(requests.map((request) => '${request.method} ${request.url.path}'), [
+      'GET /apps/annotations/v1/me/files/local-file-2',
+    ]);
+  });
+
+  test(
+    'account change during file reservation prevents content upload',
+    () async {
+      final reservationStarted = Completer<void>();
+      final releaseReservation = Completer<http.Response>();
+      final requests = <http.Request>[];
+      var current = true;
+      final service = PreparedCertificationService(
+        api: ApiAdapter(
+          base: 'https://api.test/apps/annotations/v1',
+          client: MockClient((request) {
+            requests.add(request);
+            if (request.method == 'GET') {
+              return Future.value(http.Response('{"error":"not found"}', 404));
+            }
+            if (request.method == 'POST') {
+              reservationStarted.complete();
+              return releaseReservation.future;
+            }
+            return Future.value(http.Response('{}', 404));
+          }),
+        ),
+        session: session,
+      );
+
+      final preparation = service.prepareAttachmentSource(
+        fileId: 'local-file-3',
+        attachment: const LocalAttachment(
+          id: 'local-file-3',
+          name: 'selected.pdf',
+          type: 'application/pdf',
+          size: 3,
+          path: 'fixture-copy',
+        ),
+        bytes: const [1, 2, 3],
+        isCurrent: () => current,
+      );
+      await reservationStarted.future;
+      current = false;
+      releaseReservation.complete(http.Response('{"file_id":"reserved"}', 201));
+
+      await expectLater(preparation, throwsA(isA<StateError>()));
+      expect(
+        requests.map((request) => '${request.method} ${request.url.path}'),
+        [
+          'GET /apps/annotations/v1/me/files/local-file-3',
+          'POST /apps/annotations/v1/me/files',
+        ],
+      );
     },
   );
 

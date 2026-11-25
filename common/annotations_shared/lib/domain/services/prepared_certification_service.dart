@@ -189,11 +189,7 @@ final class PreparedCertificationService {
         'config': config.toJson(),
       },
     );
-    final study = response['study'];
-    if (study is! Map) {
-      throw ApiError(502, 'The service returned an invalid prepared study.');
-    }
-    return _study(Map<String, dynamic>.from(study));
+    return _studyDetail(response, label: 'prepared study');
   }
 
   /// Creates the draft, then confirms that its chosen setup survived a server
@@ -232,11 +228,7 @@ final class PreparedCertificationService {
       '$certificationsPath/${Uri.encodeComponent(studyId)}',
       headers: session.authHeaders(),
     );
-    final study = response['study'] ?? response['data'] ?? response;
-    if (study is! Map) {
-      throw ApiError(502, 'The service returned an invalid study.');
-    }
-    return _study(Map<String, dynamic>.from(study));
+    return _studyDetail(response, label: 'study');
   }
 
   /// Reuses a ready owner file or uploads its local bytes after explicit
@@ -245,6 +237,7 @@ final class PreparedCertificationService {
     required String fileId,
     LocalAttachment? attachment,
     List<int>? bytes,
+    bool Function()? isCurrent,
   }) async {
     if (attachment != null &&
         (bytes == null || bytes.isEmpty || bytes.length != attachment.size)) {
@@ -255,10 +248,16 @@ final class PreparedCertificationService {
         '/me/files/${Uri.encodeComponent(fileId)}',
         headers: session.authHeaders(),
       );
+      if (isCurrent != null && !isCurrent()) {
+        throw StateError('The active account changed during source lookup.');
+      }
       if (existing['status'] == 'ready') return fileId;
       throw ApiError(409, 'The selected file is not ready.');
     } on ApiError catch (error) {
       if (error.status != 404) rethrow;
+    }
+    if (isCurrent != null && !isCurrent()) {
+      throw StateError('The active account changed before source upload.');
     }
     if (attachment == null || bytes == null) {
       throw ApiError(404, 'The selected file is not available.');
@@ -279,6 +278,9 @@ final class PreparedCertificationService {
     final uploadedFileId = reservation['file_id'] ?? reservation['id'];
     if (uploadedFileId is! String || uploadedFileId.isEmpty) {
       throw ApiError(502, 'The service returned an invalid file reservation.');
+    }
+    if (isCurrent != null && !isCurrent()) {
+      throw StateError('The active account changed before source upload.');
     }
     final request =
         http.Request(
@@ -378,22 +380,45 @@ final class PreparedCertificationService {
     }
   }
 
-  PreparedCertificationStudy _study(Map<String, dynamic> json) {
-    final id = json['id'];
-    if (id is! String || id.isEmpty) {
-      throw ApiError(502, 'The service returned a study without an id.');
+  PreparedCertificationStudy _studyDetail(
+    Map<String, dynamic> detail, {
+    required String label,
+  }) {
+    // Certifications returns StudyDetail: config is a sibling of `study`,
+    // while `study` itself is only the StudySummary.
+    final study = detail['study'];
+    if (study is! Map) {
+      throw ApiError(502, 'The service returned an invalid $label.');
     }
-    final configJson = json['config'];
+    final config = detail['config'];
+    if (config != null && config is! Map) {
+      throw ApiError(502, 'The service returned an invalid study config.');
+    }
+    return _study(
+      Map<String, dynamic>.from(study),
+      config: config == null ? null : Map<String, dynamic>.from(config),
+    );
+  }
+
+  PreparedCertificationStudy _study(
+    Map<String, dynamic> json, {
+    required Map<String, dynamic>? config,
+  }) {
+    final id = json['id'];
+    final title = json['title'];
+    final status = json['status'];
+    if (id is! String ||
+        id.trim().isEmpty ||
+        title is! String ||
+        status is! String) {
+      throw ApiError(502, 'The service returned an invalid study summary.');
+    }
     return PreparedCertificationStudy(
       id: id,
-      title: json['title'] is String
-          ? json['title'] as String
-          : (json['name'] is String ? json['name'] as String : ''),
-      status: json['status'] is String ? json['status'] as String : 'unknown',
-      config: configJson is Map
-          ? PreparedCertificationConfig.fromJson(
-              Map<String, dynamic>.from(configJson),
-            )
+      title: title,
+      status: status,
+      config: config != null
+          ? PreparedCertificationConfig.fromJson(config)
           : null,
     );
   }

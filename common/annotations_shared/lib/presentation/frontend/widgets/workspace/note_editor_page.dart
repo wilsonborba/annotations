@@ -100,13 +100,20 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
     final prepareFailedDialogMessage = context.tr('quizPrepareFailed');
     final handler = _handler;
     final note = _note;
-    final session = _installed?.activeSession;
+    final generation = _openGeneration;
+    final installed = _installed;
+    final session = installed?.activeSession;
     final workspace = scope.workspace;
+    bool isCurrent() =>
+        installed != null &&
+        session != null &&
+        _isCurrentPrepare(generation, installed, session);
     if (handler == null ||
         note == null ||
         workspace == null ||
+        installed == null ||
         session == null ||
-        !_installed!.signedIn ||
+        !installed.signedIn ||
         session.verifiedUserId == null ||
         note.accountId != session.verifiedUserId ||
         note.serverNoteId == null ||
@@ -117,7 +124,7 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
     }
 
     final latest = await workspace.store.load(note.id);
-    if (!mounted) return;
+    if (!isCurrent()) return;
     if (latest == null ||
         latest.syncState != LocalSyncState.synced ||
         latest.accountId != session.verifiedUserId ||
@@ -134,6 +141,7 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
     try {
       catalog = await service.readNoteSourceCatalog(latest.serverNoteId!);
     } on ApiError catch (error) {
+      if (!isCurrent()) return;
       final staleStudyId = latest.preparedStudyId;
       if (staleStudyId != null &&
           (error.status == 401 || error.status == 403 || error.status == 404)) {
@@ -144,7 +152,7 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
           studyId: staleStudyId,
         );
       }
-      if (mounted) {
+      if (isCurrent()) {
         _showMessage(
           error.status == 401 || error.status == 403 || error.status == 404
               ? studyUnavailableMessage
@@ -153,7 +161,7 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
       }
       return;
     }
-    if (!mounted) return;
+    if (!isCurrent()) return;
     if (catalog.revision != latest.serverRevision) {
       _showMessage(requiresSyncMessage);
       return;
@@ -162,12 +170,14 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
     if (studyId != null) {
       try {
         final saved = await service.read(studyId);
+        if (!isCurrent()) return;
         if (saved.config == null) {
           _showMessage(prepareFailedDialogMessage);
           return;
         }
-        await _continueInBrowser(saved.id, session);
+        await _continueInBrowser(saved.id, session, isCurrent: isCurrent);
       } on ApiError catch (error) {
+        if (!isCurrent()) return;
         if (error.status == 401 || error.status == 403 || error.status == 404) {
           await workspace.store.clearPreparedStudyReference(
             latest.id,
@@ -175,17 +185,17 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
             serverNoteId: latest.serverNoteId!,
             studyId: studyId,
           );
-          if (mounted) _showMessage(studyUnavailableMessage);
+          if (isCurrent()) _showMessage(studyUnavailableMessage);
         } else if (mounted) {
           _showMessage(prepareFailedDialogMessage);
         }
       } on Object {
-        if (mounted) _showMessage(prepareFailedDialogMessage);
+        if (isCurrent()) _showMessage(prepareFailedDialogMessage);
       }
       return;
     }
     final options = await _quizSources(catalog, workspace.store);
-    if (!mounted) return;
+    if (!isCurrent()) return;
     if (options.isEmpty) {
       _showMessage(noEligibleSourceMessage);
       return;
@@ -196,12 +206,14 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
       sourceLimitMessage,
       options,
     );
-    if (!mounted || choice == null) return;
+    if (!isCurrent() || choice == null) return;
 
     var prepared = false;
     try {
       await handler.autosave.flush();
+      if (!isCurrent()) return;
       final current = await workspace.store.load(latest.id);
+      if (!isCurrent()) return;
       if (current == null ||
           current.syncState != LocalSyncState.synced ||
           current.accountId != session.verifiedUserId ||
@@ -220,15 +232,19 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
         final bytes = attachment == null
             ? null
             : await workspace.store.readAttachment(attachment.id);
+        if (!isCurrent()) return;
         final fileId = await service.prepareAttachmentSource(
           fileId: option.fileId!,
           attachment: attachment,
           bytes: bytes,
+          isCurrent: isCurrent,
         );
+        if (!isCurrent()) return;
         selectedSources.add(
           PreparedCertificationSource(kind: 'file', fileId: fileId),
         );
       }
+      if (!isCurrent()) return;
       final study = await service.create(
         noteId: current.serverNoteId!,
         title: choice.title,
@@ -236,6 +252,7 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
         sources: selectedSources,
         config: choice.config,
       );
+      if (!isCurrent()) return;
       await workspace.store.savePreparedStudyReference(
         current.id,
         accountId: session.verifiedUserId!,
@@ -243,30 +260,58 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
         serverRevision: catalog.revision,
         studyId: study.id,
       );
+      if (!isCurrent()) return;
       prepared = true;
       final withStudy = await workspace.store.load(current.id);
+      if (!isCurrent()) return;
       if (mounted && withStudy != null) setState(() => _note = withStudy);
       final saved = await service.read(study.id);
+      if (!isCurrent()) return;
       if (saved.config?.language != choice.config.language ||
           saved.config?.count != choice.config.count) {
         throw const PreparedCertificationPersistenceException();
       }
-      await _continueInBrowser(saved.id, session);
+      await _continueInBrowser(saved.id, session, isCurrent: isCurrent);
     } on Object {
-      if (mounted) {
+      if (isCurrent()) {
         _showMessage(prepared ? openFailedMessage : prepareFailedMessage);
       }
     }
   }
 
-  Future<void> _continueInBrowser(String studyId, NativeSession session) async {
+  bool _isCurrentPrepare(
+    int generation,
+    InstalledAccount installed,
+    NativeSession session,
+  ) {
+    final active = installed.activeSession;
+    return mounted &&
+        generation == _openGeneration &&
+        identical(_installed, installed) &&
+        installed.signedIn &&
+        active != null &&
+        active.sessionId == session.sessionId &&
+        active.csrfToken == session.csrfToken &&
+        active.verifiedUserId == session.verifiedUserId;
+  }
+
+  Future<void> _continueInBrowser(
+    String studyId,
+    NativeSession session, {
+    required bool Function() isCurrent,
+  }) async {
     String? handoffId;
     try {
+      if (!isCurrent()) return;
       final handoff = await CertificationsBrowserHandoffService().create(
         session: session,
         studyId: studyId,
       );
       handoffId = handoff.handoffId;
+      if (!isCurrent()) {
+        await _cancelHandoff(session, handoffId);
+        return;
+      }
       final opened = await launchUrl(
         handoff.launchUri,
         mode: LaunchMode.externalApplication,
@@ -274,16 +319,20 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
       if (!opened) throw StateError('browser launch was not accepted');
     } on Object {
       if (handoffId != null) {
-        try {
-          await CertificationsBrowserHandoffService().cancel(
-            session: session,
-            handoffId: handoffId,
-          );
-        } on Object {
-          // The continuation expires server-side if cancellation also fails.
-        }
+        await _cancelHandoff(session, handoffId);
       }
       rethrow;
+    }
+  }
+
+  Future<void> _cancelHandoff(NativeSession session, String handoffId) async {
+    try {
+      await CertificationsBrowserHandoffService().cancel(
+        session: session,
+        handoffId: handoffId,
+      );
+    } on Object {
+      // The continuation expires server-side if cancellation also fails.
     }
   }
 
