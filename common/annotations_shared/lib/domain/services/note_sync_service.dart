@@ -266,6 +266,7 @@ class NoteSyncService {
               serverRevision: serverRevision,
               serverOriginalRevisionId: origRevId,
               serverTypedRevisionId: typedRevId,
+              preparedStudyId: note.preparedStudyId,
             );
       }
       final nextCursor = resp['next_cursor'] as String?;
@@ -379,6 +380,7 @@ class NoteSyncService {
           serverRevision: serverRevision,
           serverOriginalRevisionId: serverOriginalRevisionId,
           serverTypedRevisionId: serverTypedRevisionId,
+          preparedStudyId: current.preparedStudyId,
           isConflictCopy: current.isConflictCopy,
         );
   }
