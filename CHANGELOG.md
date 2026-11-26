@@ -38,6 +38,12 @@
 - *(ui)* Redesign the landing pages after the owner's design review (#53)
 - *(#41)* Wire krilla + icu_segmenter PDF backend via FFI and wasm32
 - *(#41)* Rename pdf_krilla, add build_pdf_krilla.sh, wire macOS/iOS, remove tracked wasm
+- *(domain)* Share Instant room edits per item, with room operations for groups and the page (#44)
+- *(domain)* The editor saves through a port; an Instant room shares through it (#44)
+- *(domain)* Instant room files for the editor (#44)
+- *(ui)* The Instant room page with the shared editor (#44)
+- *(ui)* Simple typed controls for an Instant room on phones (#44)
+- *(44)* Add QR sharing for active rooms
 - Add Reports embed data adapters
 - *(reports)* Merge authorized embed adapters (#49)
 - *(ui)* Browser account menu, sign-in flow and My notes, work in progress (#38)
@@ -45,11 +51,13 @@
 - *(ui)* Installed sign-in with the native handoff and match code (#38)
 - *(ui)* Sync, publish, unpublish and delete everywhere in the writer workspace (#38)
 - *(ui)* Projects and tags for a note from the workspace menu (#38)
-- Add Certifications browser continuation adapter
-- *(notes)* Prepare and resume selected quiz sources
 - *(ui)* Public browsing, author and project pages and the reader, work in progress (#40)
 - *(64)* Link landing notes to public reader
 - *(65)* Add local expandable QR sharing
+- Reuse canonical QR share control in Instant rooms
+- Add Certifications browser continuation adapter
+- *(notes)* Prepare and resume selected quiz sources
+- *(instant)* Integrate reviewed room editor and sharing fixes (#44)
 
 ### 🐛 Bug Fixes
 
@@ -83,6 +91,7 @@
 - *(krilla)* Pass fresh-worktree analyze and test gates (#41)
 - *(sync)* Persist server note identity and revisions for cloud calls (#63)
 - *(sync)* Isolate conflict copies and require revision ids (#63)
+- *(ui)* A shared change to the open text block closes it (#44)
 - Enforce Reports reference and cache identity
 - *(66)* Retain typed body focus across rebuilds
 - *(editor)* Merge retained phone body focus (#66)
@@ -92,7 +101,6 @@
 - *(workspace)* Isolate notes by verified account
 - *(auth)* Guard installed session checks against replacement
 - *(web)* Keep native device store out of bundle
-- *(notes)* Parse study detail and stop stale prepare flows
 - Prevent narrow app bar overflow
 - Prevent app bar overflow across viewport widths
 - Scale wide navigation cutoff with text size
@@ -101,6 +109,11 @@
 - *(40)* Sync browse query with route
 - Remove unused QR component import
 - Use public QR origin in native development
+- Guard instant room lifecycle and page conflicts
+- *(notes)* Parse study detail and stop stale prepare flows
+- Stop room file selection when disconnected
+- Close instant room failure and edit gates
+- Report disabled room edits as editor rejections
 
 ### 💼 Other
 
@@ -166,6 +179,7 @@
 ### 🚜 Refactor
 
 - *(workspace)* Split the app into apps/cloud, apps/local and common/annotations_shared
+- *(ui)* One join link for the Instant room (#44)
 
 ### 📚 Documentation
 
@@ -209,18 +223,20 @@
 - *(ui)* Installed intro and writer workspace tests (#38)
 - *(ui)* Installed sign-in, match code, Finish, dead session and Fernet reference (#38)
 - *(auth)* Initialize preferences for integrated sign-out checks
-- Cover stale prepared handoff cancellation
 - Cover annotations toolbar breakpoints
 - Update wide navigation boundary expectations
 - *(ui)* Browsing, author and project pages, reader views and locks (#40)
 - *(64)* Expect legacy article not found
 - Scope QR dialog label assertion
+- Cover stale prepared handoff cancellation
 - Make prepared editor race fixtures explicit
 
 ### ⚙️ Miscellaneous Tasks
 
 - *(test)* Format contract files and fix backend references/content_jobs text rule
 - *(changelog)* Record public reader and QR sharing
+- *(changelog)* Record prepared quiz handoff
+
 ## [1.1.0] - 2026-10-26
 
 ### 🚀 Features
