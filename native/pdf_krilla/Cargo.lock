@@ -434,6 +434,7 @@ version = "0.1.0"
 dependencies = [
  "icu_segmenter",
  "krilla",
+ "rustybuzz",
  "serde",
  "serde_json",
 ]
