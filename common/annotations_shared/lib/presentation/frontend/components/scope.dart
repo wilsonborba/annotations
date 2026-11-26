@@ -40,5 +40,6 @@ class AppScope extends InheritedWidget {
 }
 
 extension ContextStrings on BuildContext {
-  String tr(String key) => translate(key, AppScope.of(this).preferences.locale);
+  String tr(String key, [Map<String, String> args = const {}]) =>
+      translate(key, AppScope.of(this).preferences.locale, args);
 }

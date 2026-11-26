@@ -419,6 +419,107 @@ const strings = <String, List<String>>{
     'ไม่พบบันทึกนี้หรือบันทึกนี้ไม่ได้เผยแพร่',
   ],
   'retry': ['Try again', 'Tentar novamente', 'ลองอีกครั้ง'],
+  'reportsLive': ['Live', 'Ao vivo', 'สด'],
+  'reportsSnapshot': ['Snapshot', 'Instantâneo', 'ภาพถ่ายข้อมูล'],
+  'reportsCaptured': [
+    'Captured {date}',
+    'Capturado em {date}',
+    'บันทึกเมื่อ {date}',
+  ],
+  'reportsOffline': ['Offline', 'Sem conexão', 'ออฟไลน์'],
+  'reportsLastSaved': [
+    'Last saved {date}',
+    'Salvo em {date}',
+    'บันทึกล่าสุด {date}',
+  ],
+  'reportsRestricted': [
+    'This report is restricted.',
+    'Este relatório tem acesso restrito.',
+    'รายงานนี้จำกัดสิทธิ์การเข้าถึง',
+  ],
+  'reportsSignInRequired': [
+    'Sign in to view this report.',
+    'Entre para ver este relatório.',
+    'เข้าสู่ระบบเพื่อดูรายงานนี้',
+  ],
+  'reportsUnavailable': [
+    'This report is unavailable.',
+    'Este relatório não está disponível.',
+    'รายงานนี้ไม่พร้อมใช้งาน',
+  ],
+  'reportsOfflineUnavailable': [
+    'No saved report is available offline.',
+    'Não há relatório salvo disponível sem conexão.',
+    'ไม่มีรายงานที่บันทึกไว้สำหรับดูออฟไลน์',
+  ],
+  'reportsLoading': [
+    'Loading report…',
+    'Carregando relatório…',
+    'กำลังโหลดรายงาน…',
+  ],
+  'reportsOpen': ['Open in Reports', 'Abrir no Reports', 'เปิดใน Reports'],
+  'reportsRetry': ['Retry', 'Tentar novamente', 'ลองอีกครั้ง'],
+  'reportsSignIn': ['Sign in', 'Entrar', 'เข้าสู่ระบบ'],
+  'reportsSearchTitle': [
+    'Add a Reports chart',
+    'Adicionar um gráfico do Reports',
+    'เพิ่มแผนภูมิ Reports',
+  ],
+  'reportsSearchLabel': [
+    'Search reports',
+    'Pesquisar relatórios',
+    'ค้นหารายงาน',
+  ],
+  'reportsSearchAction': ['Search', 'Pesquisar', 'ค้นหา'],
+  'reportsSearchError': [
+    'Reports could not load this result.',
+    'Não foi possível carregar este resultado do Reports.',
+    'ไม่สามารถโหลดผลลัพธ์จาก Reports ได้',
+  ],
+  'reportsSearchEmpty': [
+    'No reports are available here.',
+    'Nenhum relatório disponível.',
+    'ไม่มีรายงานที่ใช้ได้',
+  ],
+  'reportsNoDatasets': [
+    'No chart data is available.',
+    'Não há dados de gráfico disponíveis.',
+    'ไม่มีข้อมูลแผนภูมิ',
+  ],
+  'reportsSearchBack': [
+    'Back to results',
+    'Voltar aos resultados',
+    'กลับไปที่ผลลัพธ์',
+  ],
+  'reportsAdd': ['Add chart', 'Adicionar gráfico', 'เพิ่มแผนภูมิ'],
+  'reportsSaving': [
+    'Saving snapshot…',
+    'Salvando instantâneo…',
+    'กำลังบันทึกภาพข้อมูล…',
+  ],
+  'reportsAudiencePublic': ['Public', 'Público', 'สาธารณะ'],
+  'reportsAudienceSignedIn': [
+    'Signed-in',
+    'Com sessão iniciada',
+    'เข้าสู่ระบบแล้ว',
+  ],
+  'reportsAudiencePersonal': ['Personal', 'Pessoal', 'ส่วนตัว'],
+  'reportsAudienceRestricted': ['Restricted', 'Restrito', 'จำกัดสิทธิ์'],
+  'taskDue': ['Due', 'Prazo', 'กำหนดส่ง'],
+  'taskCompleted': ['Completed', 'Concluída', 'เสร็จแล้ว'],
+  'taskOpen': ['Open', 'Aberta', 'ยังไม่เสร็จ'],
+  'taskRestricted': [
+    'Task is restricted.',
+    'A tarefa tem acesso restrito.',
+    'งานนี้จำกัดสิทธิ์การเข้าถึง',
+  ],
+  'taskUnavailable': [
+    'Task is unavailable.',
+    'A tarefa não está disponível.',
+    'งานนี้ไม่พร้อมใช้งาน',
+  ],
+  'taskLoading': ['Loading task…', 'Carregando tarefa…', 'กำลังโหลดงาน…'],
+  'taskRetry': ['Retry', 'Tentar novamente', 'ลองอีกครั้ง'],
   'reference': ['Reference', 'Referência', 'รหัสอ้างอิง'],
   'waitTitle': [
     'A little room for more voices.',
@@ -834,13 +935,21 @@ const strings = <String, List<String>>{
   'qrRoom': ['Room QR code', 'Código QR da sala', 'คิวอาร์โค้ดห้อง'],
   'openNote': ['Open note', 'Abrir anotação', 'เปิดบันทึก'],
 };
-String translate(String key, String locale) {
+String translate(
+  String key,
+  String locale, [
+  Map<String, String> args = const {},
+]) {
   final index = locale == 'pt-BR'
       ? 1
       : locale == 'th'
       ? 2
       : 0;
-  return (strings[key] ?? landingStrings[key])?[index] ?? key;
+  var value = (strings[key] ?? landingStrings[key])?[index] ?? key;
+  for (final entry in args.entries) {
+    value = value.replaceAll('{${entry.key}}', entry.value);
+  }
+  return value;
 }
 
 String partialReportRowsLabel(int shown, int total, String locale) {
