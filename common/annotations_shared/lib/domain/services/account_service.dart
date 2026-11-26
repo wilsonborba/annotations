@@ -109,6 +109,7 @@ class AccountService extends ChangeNotifier {
       signedIn &&
       guard.revision == _sessionGeneration &&
       guard._csrf != null &&
+      guard._csrf == _sessionCsrf &&
       guard._csrf == platform.readCookie('csrf');
 
   /// Reads the live session once at a time.

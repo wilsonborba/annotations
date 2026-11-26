@@ -405,6 +405,34 @@ void main() {
     });
 
     test(
+      'a new cookie is not current until its identity is verified',
+      () async {
+        final g = signedIn();
+        await g.account.check();
+        expect(g.account.signedIn, isTrue);
+        expect(
+          g.account.isCurrentSession(g.account.captureSessionGuard()),
+          isTrue,
+        );
+
+        g.cookies['csrf'] = 'csrf-b';
+        final unverified = g.account.captureSessionGuard();
+        expect(
+          g.account.isCurrentSession(unverified),
+          isFalse,
+          reason: 'signed-in identity A must remain bound to its verified CSRF',
+        );
+
+        await g.account.check();
+        expect(g.account.signedIn, isTrue);
+        expect(
+          g.account.isCurrentSession(g.account.captureSessionGuard()),
+          isTrue,
+        );
+      },
+    );
+
+    test(
       'logout waits for a pending exchange and revokes its new session',
       () async {
         final g = FakeGateway();
@@ -566,7 +594,10 @@ void main() {
       final delayed = Completer<http.Response>();
       g.holdNextNotesResponse = delayed;
       await openApp(tester, g, '/v1/me/notes', settle: false);
-      await tester.pumpAndSettle();
+      await tester.pump();
+      await tester.idle();
+      await tester.pump();
+      expect(g.count('GET /apps/annotations/v1/me/notes'), 1);
       expect(find.byKey(const Key('my-notes-loading')), findsOneWidget);
 
       g.cookies['csrf'] = 'csrf-b';
@@ -595,6 +626,50 @@ void main() {
       );
       await tester.pump();
       expect(find.text('A private note'), findsNothing);
+      await tester.pumpAndSettle();
+      expect(find.text('B private note'), findsOneWidget);
+      expect(find.text('A private note'), findsNothing);
+    });
+
+    testWidgets('old rendered notes stay hidden while the new session loads', (
+      tester,
+    ) async {
+      final g = signedIn()
+        ..notes = [
+          {
+            'note_id': 'private-a',
+            'title': 'A private note',
+            'updated_at': 1794996000,
+            'published': null,
+          },
+        ];
+      await openApp(tester, g, '/v1/me/notes');
+      expect(find.text('A private note'), findsOneWidget);
+
+      final delayedB = Completer<http.Response>();
+      g.cookies['csrf'] = 'csrf-b';
+      g.email = 'bea@example.com';
+      g.notes = [
+        {
+          'note_id': 'private-b',
+          'title': 'B private note',
+          'updated_at': 1794996000,
+          'published': null,
+        },
+      ];
+      g.holdNextNotesResponse = delayedB;
+      await g.account.check();
+      await tester.pump();
+
+      expect(find.byKey(const Key('my-notes-loading')), findsOneWidget);
+      expect(find.text('A private note'), findsNothing);
+      delayedB.complete(
+        FakeGateway.json({
+          'items': g.notes,
+          'next_cursor': null,
+          'sync_cursor': 'new-b',
+        }),
+      );
       await tester.pumpAndSettle();
       expect(find.text('B private note'), findsOneWidget);
       expect(find.text('A private note'), findsNothing);
