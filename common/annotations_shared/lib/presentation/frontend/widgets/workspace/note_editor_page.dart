@@ -844,6 +844,8 @@ class _NoteEditorPageState extends State<NoteEditorPage>
                           final quizCards =
                               installed != null &&
                                   installed.signedIn &&
+                                  note.accountId != null &&
+                                  note.accountId == installed.localOwnerId &&
                                   installed.activeSession?.verifiedUserId ==
                                       note.accountId &&
                                   note.accountId == installed.userId
@@ -856,6 +858,23 @@ class _NoteEditorPageState extends State<NoteEditorPage>
                                   ),
                                 )
                               : null;
+                          final exportGeneration = _openGeneration;
+                          final exportSession = installed?.activeSession;
+                          bool exportQuizScopeIsCurrent() =>
+                              mounted &&
+                              _openGeneration == exportGeneration &&
+                              identical(_installed, installed) &&
+                              _note?.id == note.id &&
+                              installed != null &&
+                              installed.signedIn &&
+                              note.accountId != null &&
+                              note.accountId == installed.userId &&
+                              note.accountId == installed.localOwnerId &&
+                              identical(
+                                installed.activeSession,
+                                exportSession,
+                              ) &&
+                              exportSession?.verifiedUserId == note.accountId;
                           final language = scope.preferences.locale;
                           final export = ExportHandler(
                             note: note,
@@ -904,7 +923,15 @@ class _NoteEditorPageState extends State<NoteEditorPage>
                                   },
                             loadQuizSummary: quizCards == null
                                 ? null
-                                : quizCards.readOwnerSummary,
+                                : (quizId) async {
+                                    if (!exportQuizScopeIsCurrent())
+                                      return null;
+                                    final summary = await quizCards
+                                        .readOwnerSummary(quizId);
+                                    return exportQuizScopeIsCurrent()
+                                        ? summary
+                                        : null;
+                                  },
                           );
                           await showExportDialog(context, export);
                           export.dispose();

@@ -51,17 +51,22 @@ final class QuizSummary {
 /// Reads the authenticated owner's existing quiz references. The backend
 /// enforces owner/admin access; callers supply a session-bound [ApiAdapter].
 final class QuizCardService {
-  const QuizCardService(this.api);
+  QuizCardService(this.api)
+    : _certificationsApi = ApiAdapter(
+        client: api.client,
+        base: Uri.parse(api.base).origin,
+      );
 
   final ApiAdapter api;
+  final ApiAdapter _certificationsApi;
 
   Future<QuizSummary> readOwnerSummary(String quizId) async {
     final normalizedId = quizId.trim();
     if (normalizedId.isEmpty) {
       throw const FormatException('Invalid quiz reference.');
     }
-    final response = await api.request(
-      '/me/quizzes/${Uri.encodeComponent(normalizedId)}/summary',
+    final response = await _certificationsApi.request(
+      '/apps/certifications/v1/me/quizzes/${Uri.encodeComponent(normalizedId)}/summary',
       method: 'GET',
     );
     final summary = QuizSummary.fromJson(response);

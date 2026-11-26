@@ -25,6 +25,7 @@ class NoteEmbeddedCardsLayer extends StatefulWidget {
     this.language = 'en',
     this.loadTask,
     this.loadQuiz,
+    this.quizOnly = false,
     this.onSignIn,
   });
 
@@ -36,6 +37,7 @@ class NoteEmbeddedCardsLayer extends StatefulWidget {
   final String language;
   final Future<TaskSummary?> Function(String taskId)? loadTask;
   final Future<QuizSummary?> Function(String quizId)? loadQuiz;
+  final bool quizOnly;
   final VoidCallback? onSignIn;
 
   @override
@@ -65,7 +67,8 @@ class _NoteEmbeddedCardsLayerState extends State<NoteEmbeddedCardsLayer> {
         old.publicProjection != widget.publicProjection ||
         old.language != widget.language ||
         old.loadTask != widget.loadTask ||
-        old.loadQuiz != widget.loadQuiz) {
+        old.loadQuiz != widget.loadQuiz ||
+        old.quizOnly != widget.quizOnly) {
       _reports.clear();
       _tasks.clear();
       _quizzes.clear();
@@ -85,6 +88,7 @@ class _NoteEmbeddedCardsLayerState extends State<NoteEmbeddedCardsLayer> {
       ? (widget.document.toJson()['items'] as List? ?? const [])
             .whereType<Map>()
             .map((item) => Map<String, dynamic>.from(item))
+            .where((item) => !widget.quizOnly || item['kind'] == 'quiz_card')
             .toList(growable: false)
       : const [];
 

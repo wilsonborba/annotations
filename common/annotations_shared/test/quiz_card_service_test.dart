@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:annotations_shared/core/settings.dart';
 import 'package:annotations_shared/dal/remote/api_adapter.dart';
 import 'package:annotations_shared/domain/services/quiz_card_service.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -11,8 +12,14 @@ void main() {
     'reads the exact owner-summary route and preserves zero/null fields',
     () async {
       http.Request? seen;
+      final previousSettings = Settings.current;
+      Settings.use(
+        const Settings(
+          apiBase: 'https://gateway.asodya.com/apps/annotations/v1',
+        ),
+      );
+      addTearDown(() => Settings.use(previousSettings));
       final api = ApiAdapter(
-        base: 'https://certifications.asodya.com/v1',
         client: MockClient((request) async {
           seen = request;
           return http.Response(
@@ -31,7 +38,10 @@ void main() {
       final summary = await QuizCardService(api).readOwnerSummary('quiz/alpha');
 
       expect(seen?.method, 'GET');
-      expect(seen?.url.path, '/v1/me/quizzes/quiz%2Falpha/summary');
+      expect(
+        seen?.url.path,
+        '/apps/certifications/v1/me/quizzes/quiz%2Falpha/summary',
+      );
       expect(summary.quizId, 'quiz/alpha');
       expect(summary.activeVersionId, 'version-1');
       expect(summary.title, isNull);
@@ -41,9 +51,13 @@ void main() {
   );
 
   test('rejects mismatched identity and malformed nullable fields', () async {
+    final previousSettings = Settings.current;
+    Settings.use(
+      const Settings(apiBase: 'https://gateway.asodya.com/apps/annotations/v1'),
+    );
+    addTearDown(() => Settings.use(previousSettings));
     final mismatch = QuizCardService(
       ApiAdapter(
-        base: 'https://certifications.asodya.com/v1',
         client: MockClient(
           (_) async =>
               http.Response(jsonEncode({'quiz_id': 'other-quiz'}), 200),
