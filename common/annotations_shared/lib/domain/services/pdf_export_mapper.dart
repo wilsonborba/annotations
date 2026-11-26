@@ -737,20 +737,25 @@ class PdfExportMapper {
 
     final breaks = <double>[0.0];
     var pageTop = 0.0;
+    var hasContentOnPage = false;
     for (final it in sorted) {
       final y = (it['y'] as num?)?.toDouble() ?? 0.0;
       final h = (it['height'] as num?)?.toDouble() ?? 40.0;
       if (h > printableHeight) {
-        // Oversized item gets its own dedicated page.
-        if (y > pageTop) breaks.add(y);
+        // Keep an oversized first unit with the title on page one. A break
+        // before it is needed only when real content already occupies the
+        // current page.
+        if (y > pageTop && hasContentOnPage) breaks.add(y);
         breaks.add(y + h);
         pageTop = y + h;
+        hasContentOnPage = false;
         continue;
       }
       if (y + h - pageTop > printableHeight && y > pageTop) {
         breaks.add(y);
         pageTop = y;
       }
+      hasContentOnPage = true;
     }
     return breaks;
   }
@@ -1635,7 +1640,7 @@ class PdfExportMapper {
                   pdfPreviews: pdfPreviews,
                   companions: companions,
                   printableW: printableW,
-                  printableH: printableH - 40,
+                  printableH: printableH - (p == 0 ? titleReservePt : 0.0),
                 )
               else
                 pw.Expanded(

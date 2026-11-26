@@ -40,6 +40,25 @@ Future<void> _writePdfEvidence(String name, Uint8List bytes) async {
   }
 }
 
+Future<int> _pdfPageCount(Uint8List bytes) async {
+  final directory = await Directory.systemTemp.createTemp('pdf_page_count_');
+  try {
+    final file = File('${directory.path}/export.pdf')..writeAsBytesSync(bytes);
+    final result = await Process.run('pdfinfo', [file.path]);
+    if (result.exitCode != 0) {
+      throw StateError('pdfinfo failed: ${result.stderr}');
+    }
+    final match = RegExp(
+      r'^Pages:\s+(\d+)$',
+      multiLine: true,
+    ).firstMatch('${result.stdout}');
+    if (match == null) throw const FormatException('PDF page count missing');
+    return int.parse(match.group(1)!);
+  } finally {
+    await directory.delete(recursive: true);
+  }
+}
+
 void main() {
   final paperSchema = DocumentSchema(DocumentFamily.original.schemaName, 1);
   final typedSchema = DocumentSchema(DocumentFamily.typed.schemaName, 1);
@@ -221,7 +240,9 @@ void main() {
         ],
       }, schema: paperSchema);
       final output = await PdfExportMapper().export(
-        title: 'Synthetic oversized original image',
+        title:
+            'Synthetic oversized original image with a deliberately long title '
+            'that wraps into several lines before the first oversized unit',
         slug: 'original-image',
         original: document,
         options: const PdfExportOptions(mode: PdfExportMode.original),
@@ -233,11 +254,12 @@ void main() {
 
       expect(output.preflight.ok, isTrue);
       expect(output.engine, 'pdf');
+      expect(await _pdfPageCount(output.pdfs.single.bytes), 1);
       await _writePdfEvidence(
         'oversized-original-image',
         output.pdfs.single.bytes,
       );
-      final raster = await PdfRaster.page(output.pdfs.single.bytes, page: 2);
+      final raster = await PdfRaster.page(output.pdfs.single.bytes);
       expect(
         raster.count((r, g, b) => g > 180 && r < 150 && b < 100),
         greaterThan(10),
@@ -465,7 +487,7 @@ void main() {
             .bytes,
         logo,
       );
-      final raster = await PdfRaster.page(output.pdfs.single.bytes, page: 2);
+      final raster = await PdfRaster.page(output.pdfs.single.bytes);
       expect(
         raster.count((r, g, b) => g > 180 && r < 150 && b < 100),
         greaterThan(10),
