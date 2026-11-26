@@ -520,6 +520,35 @@ const strings = <String, List<String>>{
   ],
   'taskLoading': ['Loading task…', 'Carregando tarefa…', 'กำลังโหลดงาน…'],
   'taskRetry': ['Retry', 'Tentar novamente', 'ลองอีกครั้ง'],
+  'quizCardTitleUnavailable': [
+    'Quiz title unavailable',
+    'Título do quiz indisponível',
+    'ไม่มีชื่อแบบทดสอบ',
+  ],
+  'quizCardSubjectUnavailable': [
+    'Subject unavailable',
+    'Assunto indisponível',
+    'ไม่มีหัวข้อ',
+  ],
+  'quizCardSubject': ['Subject', 'Assunto', 'หัวข้อ'],
+  'quizCardCountUnknown': [
+    'Question count unavailable',
+    'Número de perguntas indisponível',
+    'ไม่มีจำนวนคำถาม',
+  ],
+  'quizCardQuestions': ['questions', 'perguntas', 'คำถาม'],
+  'quizCardUnavailable': [
+    'Quiz details unavailable',
+    'Detalhes do quiz indisponíveis',
+    'รายละเอียดแบบทดสอบไม่พร้อมใช้งาน',
+  ],
+  'quizCardRestricted': [
+    'Quiz details are private',
+    'Os detalhes do quiz são privados',
+    'รายละเอียดแบบทดสอบเป็นส่วนตัว',
+  ],
+  'quizCardRetry': ['Retry', 'Tentar novamente', 'ลองอีกครั้ง'],
+  'quizCardOpen': ['Open quiz', 'Abrir quiz', 'เปิดแบบทดสอบ'],
   'reference': ['Reference', 'Referência', 'รหัสอ้างอิง'],
   'waitTitle': [
     'A little room for more voices.',

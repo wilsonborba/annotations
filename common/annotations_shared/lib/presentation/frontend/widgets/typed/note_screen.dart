@@ -10,6 +10,8 @@ import 'package:flutter_quill/flutter_quill.dart';
 import '../../../../core/platform_profile.dart';
 import '../../../../domain/models/note_document.dart';
 import '../../../../domain/services/ink_outline.dart';
+import '../../../../domain/services/quiz_card_service.dart';
+import '../../../../domain/services/task_card_service.dart';
 import '../../../../domain/services/note_views.dart';
 import '../../../../dal/local/quill_text_engine.dart';
 import '../../components/card_layout.dart';
@@ -31,12 +33,24 @@ import '../paper/paper_screen.dart';
 class NoteScreen extends StatelessWidget {
   final PaperHandler handler;
   final PlatformProfile profile;
-  const NoteScreen({super.key, required this.handler, required this.profile});
+  final Future<QuizSummary?> Function(String quizId)? loadQuizCard;
+  final Future<TaskSummary?> Function(String taskId)? loadTaskCard;
+  const NoteScreen({
+    super.key,
+    required this.handler,
+    required this.profile,
+    this.loadQuizCard,
+    this.loadTaskCard,
+  });
 
   @override
   Widget build(BuildContext context) =>
       switch (noteViewFor(profile, handler.document)) {
-        NoteView.paper => PaperScreen(handler: handler),
+        NoteView.paper => PaperScreen(
+          handler: handler,
+          loadQuizCard: loadQuizCard,
+          loadTaskCard: loadTaskCard,
+        ),
         NoteView.typed => TypedNoteEditor(paper: handler),
         NoteView.readOnly => NoteReader(handler: handler),
       };

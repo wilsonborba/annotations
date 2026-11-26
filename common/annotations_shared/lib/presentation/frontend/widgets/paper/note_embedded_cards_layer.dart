@@ -3,9 +3,12 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../../../domain/models/note_document.dart';
 import '../../../../domain/models/reports_embed_data.dart';
+import '../../../../domain/services/quiz_card_service.dart';
 import '../../../../domain/services/reports_embed_source.dart';
 import '../../../../domain/services/task_card_service.dart';
+import '../../../../core/landing_settings.dart';
 import '../../components/reports_embed_card.dart';
+import '../../components/quiz_card_view.dart';
 import '../../components/task_card_view.dart';
 import '../../handlers/paper_handler.dart';
 
@@ -21,6 +24,7 @@ class NoteEmbeddedCardsLayer extends StatefulWidget {
     this.publicProjection = false,
     this.language = 'en',
     this.loadTask,
+    this.loadQuiz,
     this.onSignIn,
   });
 
@@ -31,6 +35,7 @@ class NoteEmbeddedCardsLayer extends StatefulWidget {
   final bool publicProjection;
   final String language;
   final Future<TaskSummary?> Function(String taskId)? loadTask;
+  final Future<QuizSummary?> Function(String quizId)? loadQuiz;
   final VoidCallback? onSignIn;
 
   @override
@@ -40,6 +45,8 @@ class NoteEmbeddedCardsLayer extends StatefulWidget {
 class _NoteEmbeddedCardsLayerState extends State<NoteEmbeddedCardsLayer> {
   final _reports = <String, ReportsEmbedData>{};
   final _tasks = <String, TaskSummary>{};
+  final _quizzes = <String, QuizSummary>{};
+  final _quizFailures = <String>{};
   final _loading = <String>{};
   int _generation = 0;
 
@@ -57,9 +64,12 @@ class _NoteEmbeddedCardsLayerState extends State<NoteEmbeddedCardsLayer> {
         old.trustedAccountId != widget.trustedAccountId ||
         old.publicProjection != widget.publicProjection ||
         old.language != widget.language ||
-        old.loadTask != widget.loadTask) {
+        old.loadTask != widget.loadTask ||
+        old.loadQuiz != widget.loadQuiz) {
       _reports.clear();
       _tasks.clear();
+      _quizzes.clear();
+      _quizFailures.clear();
       _loading.clear();
       _loadAll();
     }
@@ -87,7 +97,39 @@ class _NoteEmbeddedCardsLayerState extends State<NoteEmbeddedCardsLayer> {
         _loadReport(item, id, seq);
       } else if (item['kind'] == 'task_card') {
         _loadTask(item, id, seq);
+      } else if (item['kind'] == 'quiz_card') {
+        _loadQuiz(item, id, seq);
       }
+    }
+  }
+
+  Future<void> _loadQuiz(Map<String, dynamic> item, String id, int seq) async {
+    if (widget.publicProjection) return;
+    final quizId = item['quiz_id'];
+    final load = widget.loadQuiz;
+    if (quizId is! String || quizId.trim().isEmpty || load == null) {
+      if (mounted && seq == _generation) {
+        setState(() => _quizFailures.add(id));
+      }
+      return;
+    }
+    setState(() => _loading.add(id));
+    try {
+      final result = await load(quizId);
+      if (!mounted || seq != _generation) return;
+      if (result == null || result.quizId != quizId) {
+        setState(() => _quizFailures.add(id));
+      } else {
+        setState(() {
+          _quizzes[id] = result;
+          _quizFailures.remove(id);
+        });
+      }
+    } on Object {
+      if (!mounted || seq != _generation) return;
+      setState(() => _quizFailures.add(id));
+    } finally {
+      if (mounted && seq == _generation) setState(() => _loading.remove(id));
     }
   }
 
@@ -195,6 +237,42 @@ class _NoteEmbeddedCardsLayerState extends State<NoteEmbeddedCardsLayer> {
                             item['id'] as String,
                             _generation,
                           ),
+                  ),
+                )
+              else if (item['kind'] == 'quiz_card')
+                Positioned(
+                  left: widget.view.toScreen(Offset(rect.left, rect.top)).dx,
+                  top: widget.view.toScreen(Offset(rect.left, rect.top)).dy,
+                  width: rect.width * widget.view.zoom,
+                  child: QuizCardView(
+                    quiz: _quizzes[item['id']],
+                    loading: _loading.contains(item['id']),
+                    restricted: widget.publicProjection,
+                    unavailable:
+                        !widget.publicProjection &&
+                        !_loading.contains(item['id']) &&
+                        (_quizFailures.contains(item['id']) ||
+                            _quizzes[item['id']] == null),
+                    onRetry: widget.publicProjection || widget.loadQuiz == null
+                        ? null
+                        : () => _loadQuiz(
+                            item,
+                            item['id'] as String,
+                            _generation,
+                          ),
+                    onOpen:
+                        item['quiz_id'] is String &&
+                            (item['quiz_id'] as String).trim().isNotEmpty
+                        ? () {
+                            final uri = Uri.parse(
+                              '${LandingSettings.certifications}/v1/quizzes/${Uri.encodeComponent((item['quiz_id'] as String).trim())}',
+                            );
+                            launchUrl(
+                              uri,
+                              mode: LaunchMode.externalApplication,
+                            );
+                          }
+                        : null,
                   ),
                 ),
       ],

@@ -4,6 +4,7 @@ import 'package:annotations_shared/domain/models/reports_embed_data.dart';
 import 'package:annotations_shared/dal/remote/api_adapter.dart';
 import 'package:annotations_shared/domain/services/annotations_service.dart';
 import 'package:annotations_shared/domain/services/preferences.dart';
+import 'package:annotations_shared/domain/services/quiz_card_service.dart';
 import 'package:annotations_shared/domain/services/task_card_service.dart';
 import 'package:annotations_shared/domain/services/reports_embed_source.dart';
 import 'package:annotations_shared/dal/remote/reports_api_adapter.dart';
@@ -12,6 +13,7 @@ import 'package:annotations_shared/presentation/frontend/handlers/paper_handler.
 import 'package:annotations_shared/presentation/frontend/components/reports_embed_card.dart';
 import 'package:annotations_shared/presentation/frontend/components/scope.dart';
 import 'package:annotations_shared/presentation/frontend/components/task_card_view.dart';
+import 'package:annotations_shared/presentation/frontend/components/quiz_card_view.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/testing.dart';
@@ -126,10 +128,11 @@ void main() {
   );
 
   testWidgets(
-    'public paper embed layer does not fetch private reports or tasks',
+    'public paper embed layer does not fetch private reports, tasks, or quizzes',
     (tester) async {
       var reportRequests = 0;
       var taskRequests = 0;
+      var quizRequests = 0;
       final source = ReportsEmbedSource(
         api: ReportsApiAdapter(
           client: MockClient((_) async {
@@ -168,6 +171,15 @@ void main() {
             'height': 120,
             'task_id': 'private-task-id',
           },
+          {
+            'id': 'private-quiz',
+            'kind': 'quiz_card',
+            'x': 20,
+            'y': 340,
+            'width': 300,
+            'height': 160,
+            'quiz_id': 'private-quiz-id',
+          },
         ],
       }, schema: DocumentSchema('note-original', 1));
       const view = PaperView(
@@ -201,6 +213,10 @@ void main() {
                     'status': 'open',
                   });
                 },
+                loadQuiz: (_) async {
+                  quizRequests++;
+                  return const QuizSummary(quizId: 'private-quiz-id');
+                },
               ),
             ),
           ),
@@ -211,10 +227,79 @@ void main() {
       }
       expect(reportRequests, 0);
       expect(taskRequests, 0);
+      expect(quizRequests, 0);
       expect(find.text('This report is restricted.'), findsOneWidget);
       expect(find.text('Task is restricted.'), findsOneWidget);
       expect(find.text('secret-report'), findsNothing);
       expect(find.text('SECRET TASK'), findsNothing);
+      expect(find.text('Quiz details are private'), findsOneWidget);
+      expect(find.text('private-quiz-id'), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'quiz card retries owner summary and keeps zero distinct from unknown',
+    (tester) async {
+      var requests = 0;
+      final document = NoteDocument.fromJson({
+        'page': {
+          'width': 1000,
+          'background': {'kind': 'blank'},
+        },
+        'items': [
+          {
+            'id': 'quiz-card-1',
+            'kind': 'quiz_card',
+            'x': 20,
+            'y': 20,
+            'width': 300,
+            'height': 160,
+            'quiz_id': 'quiz-1',
+          },
+        ],
+      }, schema: DocumentSchema('note-original', 1));
+      const view = PaperView(
+        zoom: 1,
+        scroll: Offset.zero,
+        size: Size(500, 500),
+      );
+      await tester.pumpWidget(
+        _host(
+          SizedBox.expand(
+            child: NoteEmbeddedCardsLayer(
+              document: document,
+              view: view,
+              loadQuiz: (quizId) async {
+                expect(quizId, 'quiz-1');
+                requests++;
+                if (requests == 1) throw StateError('offline');
+                return const QuizSummary(
+                  quizId: 'quiz-1',
+                  activeVersionId: 'version-1',
+                  title: 'Calculus practice',
+                  questionCount: 0,
+                  subject: null,
+                );
+              },
+            ),
+          ),
+        ),
+      );
+      for (var i = 0; i < 6; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+      expect(requests, 1);
+      expect(find.text('Quiz details unavailable'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('quiz-card-retry')));
+      for (var i = 0; i < 6; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+      expect(requests, 2);
+      expect(find.text('Calculus practice'), findsOneWidget);
+      expect(find.text('0 questions'), findsOneWidget);
+      expect(find.text('Subject unavailable'), findsOneWidget);
+      expect(find.byKey(const Key('quiz-card-open')), findsOneWidget);
+      expect(find.text('Question count unavailable'), findsNothing);
     },
   );
 

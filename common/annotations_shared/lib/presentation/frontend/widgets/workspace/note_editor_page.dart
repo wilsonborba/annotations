@@ -20,6 +20,7 @@ import '../../../../domain/services/note_autosave.dart';
 import '../../../../domain/services/note_history.dart';
 import '../../../../domain/services/native_auth_service.dart';
 import '../../../../domain/services/prepared_certification_service.dart';
+import '../../../../domain/services/quiz_card_service.dart';
 import '../../../../domain/services/reports_embed_source.dart';
 import '../../../../domain/services/task_card_service.dart';
 import '../../components/controls.dart';
@@ -514,6 +515,64 @@ class _NoteEditorPageState extends State<NoteEditorPage>
     }
   }
 
+  Future<QuizSummary?> _loadQuizCard(String quizId) async {
+    final note = _note;
+    final installed = _installed;
+    final session = installed?.activeSession;
+    if (!mounted ||
+        note == null ||
+        installed == null ||
+        !installed.signedIn ||
+        note.accountId == null ||
+        note.accountId != installed.userId ||
+        note.accountId != installed.localOwnerId ||
+        session == null ||
+        session.verifiedUserId != note.accountId) {
+      return null;
+    }
+    return QuizCardService(
+      ApiAdapter(client: SessionClient(installed, installed.client)),
+    ).readOwnerSummary(quizId);
+  }
+
+  bool _hasTrustedOwnerSession() {
+    final note = _note;
+    final installed = _installed;
+    final session = installed?.activeSession;
+    return mounted &&
+        note?.accountId != null &&
+        installed != null &&
+        installed.signedIn &&
+        note!.accountId == installed.userId &&
+        note.accountId == installed.localOwnerId &&
+        session != null &&
+        session.verifiedUserId == note.accountId;
+  }
+
+  Future<TaskSummary?> _loadTaskCard(String taskId) async {
+    final note = _note;
+    final installed = _installed;
+    final session = installed?.activeSession;
+    if (!mounted ||
+        note == null ||
+        installed == null ||
+        !installed.signedIn ||
+        note.accountId == null ||
+        note.accountId != installed.userId ||
+        note.accountId != installed.localOwnerId ||
+        session == null ||
+        session.verifiedUserId != note.accountId) {
+      return null;
+    }
+    final service = TaskCardService(
+      ApiAdapter(client: SessionClient(installed, installed.client)),
+    );
+    const cardId = 'note-live-task-card';
+    service.attachCard(cardId, taskId, isInstant: false);
+    await service.refreshTask(taskId);
+    return service.card(cardId)?.cached;
+  }
+
   Future<List<_QuizSourceOption>> _quizSources(
     PreparedCertificationNoteSourceCatalog catalog,
     LocalNoteStore store,
@@ -782,6 +841,21 @@ class _NoteEditorPageState extends State<NoteEditorPage>
                                   ),
                                 )
                               : null;
+                          final quizCards =
+                              installed != null &&
+                                  installed.signedIn &&
+                                  installed.activeSession?.verifiedUserId ==
+                                      note.accountId &&
+                                  note.accountId == installed.userId
+                              ? QuizCardService(
+                                  ApiAdapter(
+                                    client: SessionClient(
+                                      installed,
+                                      installed.client,
+                                    ),
+                                  ),
+                                )
+                              : null;
                           final language = scope.preferences.locale;
                           final export = ExportHandler(
                             note: note,
@@ -828,6 +902,9 @@ class _NoteEditorPageState extends State<NoteEditorPage>
                                     await taskCards.refreshTask(taskId);
                                     return taskCards.card(cardId)?.cached;
                                   },
+                            loadQuizSummary: quizCards == null
+                                ? null
+                                : quizCards.readOwnerSummary,
                           );
                           await showExportDialog(context, export);
                           export.dispose();
@@ -845,7 +922,16 @@ class _NoteEditorPageState extends State<NoteEditorPage>
                     )
                   : handler == null || workspace == null
                   ? const Center(child: CircularProgressIndicator())
-                  : NoteScreen(handler: handler, profile: workspace.profile),
+                  : NoteScreen(
+                      handler: handler,
+                      profile: workspace.profile,
+                      loadQuizCard: _hasTrustedOwnerSession()
+                          ? _loadQuizCard
+                          : null,
+                      loadTaskCard: _hasTrustedOwnerSession()
+                          ? _loadTaskCard
+                          : null,
+                    ),
             ),
           ],
         ),

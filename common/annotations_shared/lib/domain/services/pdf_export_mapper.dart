@@ -13,6 +13,7 @@ import 'editor_rules.dart';
 import 'ink_outline.dart';
 import 'krilla_pdf_backend.dart';
 import 'task_card_service.dart';
+import 'quiz_card_service.dart';
 
 enum PdfExportMode { original, typed, both }
 
@@ -180,6 +181,7 @@ class PdfExportMapper {
     Set<String> failedChartIds = const {},
     Set<String> partialChartIds = const {},
     Map<String, TaskSummary> taskSummaries = const {},
+    Map<String, QuizSummary> quizSummaries = const {},
     Set<String> invalidImageFileIds = const {},
     bool fontsAvailable = true,
   }) {
@@ -265,7 +267,7 @@ class PdfExportMapper {
           final quizId = _quizReferenceId(Map<String, dynamic>.from(node));
           if (quizId.isEmpty) {
             unavailable('${node['id'] ?? kind}', 'Quiz reference is invalid.');
-          } else {
+          } else if (!quizSummaries.containsKey(quizId)) {
             unavailable(quizId, 'Quiz details are unavailable.');
           }
         }
@@ -702,12 +704,16 @@ class PdfExportMapper {
     Map<String, Uint8List> reportImages = const {},
     Map<String, Uint8List> attachments = const {},
     Map<String, TaskSummary> taskSummaries = const {},
+    Map<String, QuizSummary> quizSummaries = const {},
     pw.Font? baseFont,
     pw.Font? boldFont,
     pw.Font? thaiFont,
     Uint8List? regularFontBytes,
     Uint8List? boldFontBytes,
   }) async {
+    final exportQuizSummaries = options.audience == PdfAudience.public
+        ? const <String, QuizSummary>{}
+        : quizSummaries;
     final exportReportImages = options.audience == PdfAudience.public
         ? const <String, Uint8List>{}
         : reportImages;
@@ -759,6 +765,7 @@ class PdfExportMapper {
       failedChartIds: failedChartIds,
       partialChartIds: partialChartIds,
       taskSummaries: taskSummaries,
+      quizSummaries: exportQuizSummaries,
       invalidImageFileIds: invalidImageFileIds,
       fontsAvailable: useKrilla || (baseFont != null && thaiFont != null),
     );
@@ -781,6 +788,7 @@ class PdfExportMapper {
               attachments: attachments,
               companions: companions,
               taskSummaries: taskSummaries,
+              quizSummaries: exportQuizSummaries,
               regularFontBytes: resolvedRegular,
               boldFontBytes: resolvedBold,
             )
@@ -792,6 +800,7 @@ class PdfExportMapper {
               renderableAttachments: renderableAttachments,
               reportImages: exportReportImages,
               taskSummaries: taskSummaries,
+              quizSummaries: exportQuizSummaries,
               companions: companions,
               baseFont: baseFont,
               boldFont: boldFont,
@@ -809,6 +818,7 @@ class PdfExportMapper {
               document: typed,
               options: options,
               taskSummaries: taskSummaries,
+              quizSummaries: exportQuizSummaries,
               regularFontBytes: resolvedRegular,
               boldFontBytes: resolvedBold,
             )
@@ -819,6 +829,7 @@ class PdfExportMapper {
               reportImages: exportReportImages,
               attachments: renderableAttachments,
               taskSummaries: taskSummaries,
+              quizSummaries: exportQuizSummaries,
               baseFont: baseFont,
               boldFont: boldFont,
               thaiFont: thaiFont,
@@ -839,6 +850,7 @@ class PdfExportMapper {
     required String kind,
     required PdfExportOptions options,
     required Map<String, TaskSummary> taskSummaries,
+    Map<String, QuizSummary> quizSummaries = const {},
   }) {
     if ((kind == 'task_card' || kind == 'quiz_card') &&
         options.audience == PdfAudience.public) {
@@ -885,7 +897,20 @@ class PdfExportMapper {
     }
     if (kind == 'quiz_card') {
       final quizId = _quizReferenceId(item);
-      return 'Quiz details unavailable (reference $quizId; marked placeholder)';
+      final quiz = quizSummaries[quizId];
+      if (quiz == null) {
+        return 'Quiz details unavailable (reference $quizId; marked placeholder)';
+      }
+      final title = quiz.title?.trim();
+      final subject = quiz.subject?.trim();
+      final questionCount = quiz.questionCount;
+      return [
+        'Quiz: ${title == null || title.isEmpty ? 'Title unavailable' : title}',
+        'Subject: ${subject == null || subject.isEmpty ? 'Unavailable' : subject}',
+        questionCount == null
+            ? 'Question count unavailable'
+            : '$questionCount questions',
+      ].join('\n');
     }
     if (kind == 'link_card' ||
         kind == 'website_card' ||
@@ -932,6 +957,7 @@ class PdfExportMapper {
     required Map<String, Uint8List> attachments,
     required List<PdfCompanionFile> companions,
     required Map<String, TaskSummary> taskSummaries,
+    Map<String, QuizSummary> quizSummaries = const {},
     required Uint8List regularFontBytes,
     Uint8List? boldFontBytes,
   }) async {
@@ -1129,6 +1155,7 @@ class PdfExportMapper {
               kind: kind,
               options: options,
               taskSummaries: taskSummaries,
+              quizSummaries: quizSummaries,
             );
             if ((kind == 'website_card' || kind == 'youtube_card') &&
                 item['preview_file_id'] is String) {
@@ -1177,6 +1204,7 @@ class PdfExportMapper {
     required NoteDocument document,
     required PdfExportOptions options,
     required Map<String, TaskSummary> taskSummaries,
+    Map<String, QuizSummary> quizSummaries = const {},
     required Uint8List regularFontBytes,
     Uint8List? boldFontBytes,
   }) async {
@@ -1305,6 +1333,7 @@ class PdfExportMapper {
           kind: kind,
           options: options,
           taskSummaries: taskSummaries,
+          quizSummaries: quizSummaries,
         );
         if ((kind == 'website_card' || kind == 'youtube_card') &&
             b['preview_file_id'] is String) {
@@ -1419,6 +1448,7 @@ class PdfExportMapper {
     required Map<String, Uint8List> reportImages,
     required List<PdfCompanionFile> companions,
     required Map<String, TaskSummary> taskSummaries,
+    Map<String, QuizSummary> quizSummaries = const {},
     pw.Font? baseFont,
     pw.Font? boldFont,
     pw.Font? thaiFont,
@@ -1500,6 +1530,7 @@ class PdfExportMapper {
                             reportImages: reportImages,
                             attachments: renderableAttachments,
                             taskSummaries: taskSummaries,
+                            quizSummaries: quizSummaries,
                           ),
                     ],
                   ),
@@ -1652,6 +1683,7 @@ class PdfExportMapper {
     required Map<String, Uint8List> reportImages,
     required Map<String, Uint8List> attachments,
     required Map<String, TaskSummary> taskSummaries,
+    Map<String, QuizSummary> quizSummaries = const {},
   }) {
     final x = ((item['x'] as num?)?.toDouble() ?? 0.0) * scale;
     final y = (((item['y'] as num?)?.toDouble() ?? 0.0) - yOrigin) * scale;
@@ -1692,6 +1724,7 @@ class PdfExportMapper {
           reportImages: reportImages,
           attachments: attachments,
           taskSummaries: taskSummaries,
+          quizSummaries: quizSummaries,
         ),
       ),
     );
@@ -1740,6 +1773,7 @@ class PdfExportMapper {
     Map<String, Uint8List> reportImages = const {},
     Map<String, Uint8List> attachments = const {},
     Map<String, TaskSummary> taskSummaries = const {},
+    Map<String, QuizSummary> quizSummaries = const {},
   }) {
     if (kind == 'reports_embed') {
       if (options.audience == PdfAudience.public) {
@@ -1789,6 +1823,7 @@ class PdfExportMapper {
         kind: kind,
         options: options,
         taskSummaries: taskSummaries,
+        quizSummaries: quizSummaries,
       );
       return pw.Column(
         crossAxisAlignment: pw.CrossAxisAlignment.start,
@@ -1811,6 +1846,7 @@ class PdfExportMapper {
           kind: kind,
           options: options,
           taskSummaries: taskSummaries,
+          quizSummaries: quizSummaries,
         ),
         style: const pw.TextStyle(fontSize: 9),
       );
@@ -1850,6 +1886,7 @@ class PdfExportMapper {
     required Map<String, Uint8List> reportImages,
     required Map<String, Uint8List> attachments,
     required Map<String, TaskSummary> taskSummaries,
+    Map<String, QuizSummary> quizSummaries = const {},
     pw.Font? baseFont,
     pw.Font? boldFont,
     pw.Font? thaiFont,
@@ -1883,6 +1920,7 @@ class PdfExportMapper {
               reportImages: reportImages,
               attachments: attachments,
               taskSummaries: taskSummaries,
+              quizSummaries: quizSummaries,
               typedItems: typedItems,
             ),
         ],
@@ -1898,6 +1936,7 @@ class PdfExportMapper {
     required Map<String, Uint8List> reportImages,
     required Map<String, Uint8List> attachments,
     required Map<String, TaskSummary> taskSummaries,
+    Map<String, QuizSummary> quizSummaries = const {},
     required Map<String, DocumentItem> typedItems,
   }) {
     final b = blocks[index];
@@ -1935,6 +1974,7 @@ class PdfExportMapper {
               reportImages: reportImages,
               attachments: attachments,
               taskSummaries: taskSummaries,
+              quizSummaries: quizSummaries,
             ),
           ),
         ),
@@ -1953,6 +1993,7 @@ class PdfExportMapper {
             reportImages: reportImages,
             attachments: attachments,
             taskSummaries: taskSummaries,
+            quizSummaries: quizSummaries,
           ),
         ),
       ];
@@ -2099,6 +2140,7 @@ class PdfExportMapper {
             kind: kind,
             options: options,
             taskSummaries: taskSummaries,
+            quizSummaries: quizSummaries,
           ),
           style: const pw.TextStyle(fontSize: 9),
         ),
