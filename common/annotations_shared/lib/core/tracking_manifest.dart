@@ -385,6 +385,11 @@ const annotationElements = <String, TrailElement>{
     label: 'Workspace note back',
     path: 'workspace > note > back',
   ),
+  'workspace.note.prepare_quiz': TrailElement(
+    id: 'workspace.note.prepare_quiz',
+    label: 'Workspace note prepare quiz',
+    path: 'workspace > note > prepare_quiz',
+  ),
   'account.installed.start': TrailElement(
     id: 'account.installed.start',
     label: 'Account installed start',

@@ -592,6 +592,13 @@
       "source": "lib/presentation/frontend/widgets/workspace/note_editor_page.dart"
     },
     {
+      "id": "workspace.note.prepare_quiz",
+      "label": "Workspace note prepare quiz",
+      "path": "workspace > note > prepare_quiz",
+      "description": "Prepare a quiz from sources selected in the note.",
+      "source": "lib/presentation/frontend/widgets/workspace/note_editor_page.dart"
+    },
+    {
       "id": "account.installed.start",
       "label": "Account installed start",
       "path": "account > installed > start",

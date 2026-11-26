@@ -45,6 +45,8 @@
 - *(ui)* Installed sign-in with the native handoff and match code (#38)
 - *(ui)* Sync, publish, unpublish and delete everywhere in the writer workspace (#38)
 - *(ui)* Projects and tags for a note from the workspace menu (#38)
+- Add Certifications browser continuation adapter
+- *(notes)* Prepare and resume selected quiz sources
 - *(ui)* Public browsing, author and project pages and the reader, work in progress (#40)
 - *(64)* Link landing notes to public reader
 - *(65)* Add local expandable QR sharing
@@ -90,6 +92,7 @@
 - *(workspace)* Isolate notes by verified account
 - *(auth)* Guard installed session checks against replacement
 - *(web)* Keep native device store out of bundle
+- *(notes)* Parse study detail and stop stale prepare flows
 - Prevent narrow app bar overflow
 - Prevent app bar overflow across viewport widths
 - Scale wide navigation cutoff with text size
@@ -206,15 +209,18 @@
 - *(ui)* Installed intro and writer workspace tests (#38)
 - *(ui)* Installed sign-in, match code, Finish, dead session and Fernet reference (#38)
 - *(auth)* Initialize preferences for integrated sign-out checks
+- Cover stale prepared handoff cancellation
 - Cover annotations toolbar breakpoints
 - Update wide navigation boundary expectations
 - *(ui)* Browsing, author and project pages, reader views and locks (#40)
 - *(64)* Expect legacy article not found
 - Scope QR dialog label assertion
+- Make prepared editor race fixtures explicit
 
 ### ⚙️ Miscellaneous Tasks
 
 - *(test)* Format contract files and fix backend references/content_jobs text rule
+- *(changelog)* Record public reader and QR sharing
 ## [1.1.0] - 2026-10-26
 
 ### 🚀 Features
