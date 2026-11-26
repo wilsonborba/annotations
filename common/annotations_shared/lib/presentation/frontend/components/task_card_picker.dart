@@ -264,6 +264,8 @@ class _TaskCreateDialogState extends State<_TaskCreateDialog> {
       _uncertain &&
       _checkedTasks != null &&
       !_saving &&
+      !_checking &&
+      !_checkingMore &&
       _scopeIsCurrent &&
       _title.text.trim().isNotEmpty &&
       _validDate(_dueDate.text.trim());
@@ -340,7 +342,11 @@ class _TaskCreateDialogState extends State<_TaskCreateDialog> {
 
   Future<void> _checkTasks() async {
     final loadPage = widget.loadTaskPage;
-    if (loadPage == null || _checking || _checkingMore || !_scopeIsCurrent) {
+    if (loadPage == null ||
+        _checking ||
+        _checkingMore ||
+        _saving ||
+        !_scopeIsCurrent) {
       return;
     }
     final generation = ++_checkGeneration;
@@ -371,6 +377,7 @@ class _TaskCreateDialogState extends State<_TaskCreateDialog> {
     if (loadPage == null ||
         cursor == null ||
         _checkingMore ||
+        _saving ||
         !_scopeIsCurrent) {
       return;
     }
@@ -511,7 +518,7 @@ class _TaskCreateDialogState extends State<_TaskCreateDialog> {
                                   )
                                 : '${context.tr('taskDue')}: ${task.dueDate}',
                           ),
-                          onTap: _scopeIsCurrent
+                          onTap: _scopeIsCurrent && !_saving
                               ? () => Navigator.of(context).pop(task)
                               : null,
                         );

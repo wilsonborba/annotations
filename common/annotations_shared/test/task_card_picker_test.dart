@@ -320,6 +320,137 @@ void main() {
     expect((await result)?.taskId, 'task-explicit-retry');
   });
 
+  testWidgets(
+    'blocks checked-task selection while an explicit retry is pending',
+    (tester) async {
+      var postCount = 0;
+      var listCount = 0;
+      final retryResponse = Completer<http.Response>();
+      final service = TaskCardService(
+        ApiAdapter(
+          client: MockClient((request) async {
+            if (request.method == 'POST' &&
+                request.url.path.endsWith('/me/tasks')) {
+              postCount++;
+              if (postCount == 1) {
+                throw const SocketException('response lost');
+              }
+              return retryResponse.future;
+            }
+            if (request.method == 'GET' &&
+                request.url.path.endsWith('/me/tasks')) {
+              listCount++;
+              return http.Response(
+                jsonEncode({
+                  'items': [
+                    {
+                      'task_id': 'older-task',
+                      'title': 'Older existing task',
+                      'status': 'open',
+                    },
+                  ],
+                  'next_cursor': null,
+                }),
+                200,
+              );
+            }
+            fail('Unexpected request: ${request.method} ${request.url.path}');
+          }),
+        ),
+      );
+      Future<TaskSummary?>? result;
+      await tester.pumpWidget(
+        host(
+          Builder(
+            builder: (context) => TextButton(
+              onPressed: () {
+                result = showTaskCardPicker(
+                  context,
+                  tasks: const [],
+                  createTask:
+                      ({
+                        required title,
+                        description,
+                        dueDate,
+                        required completed,
+                      }) => service.createTask(
+                        title: title,
+                        description: description,
+                        dueDate: dueDate,
+                        completed: completed,
+                        isInstant: false,
+                      ),
+                  loadTaskPage: service.listOwnTaskPage,
+                );
+              },
+              child: const Text('Open picker'),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('Open picker'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('task-create-open')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('task-create-title')),
+        'New task under retry',
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('task-create-submit')));
+      await tester.pumpAndSettle();
+      expect(postCount, 1);
+
+      await tester.tap(find.byKey(const Key('task-create-check-existing')));
+      await tester.pumpAndSettle();
+      expect(listCount, 1);
+      final olderTask = find.byKey(const Key('task-create-found-older-task'));
+      expect(olderTask, findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('task-create-confirm-retry')));
+      await tester.pump();
+      expect(postCount, 2);
+      expect(find.byKey(const Key('task-create-uncertain')), findsOneWidget);
+      expect(
+        tester
+            .widget<OutlinedButton>(
+              find.byKey(const Key('task-create-check-again')),
+            )
+            .onPressed,
+        isNull,
+      );
+      expect(
+        tester
+            .widget<FilledButton>(
+              find.byKey(const Key('task-create-confirm-retry')),
+            )
+            .onPressed,
+        isNull,
+      );
+      expect(tester.widget<ListTile>(olderTask).onTap, isNull);
+      await tester.ensureVisible(olderTask);
+      await tester.tap(olderTask);
+      await tester.pump();
+      expect(find.byKey(const Key('task-create-uncertain')), findsOneWidget);
+      expect(listCount, 1);
+
+      retryResponse.complete(
+        http.Response(
+          jsonEncode({
+            'task_id': 'new-task-after-retry',
+            'title': 'New task under retry',
+            'status': 'open',
+          }),
+          201,
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect((await result)?.taskId, 'new-task-after-retry');
+      expect(postCount, 2);
+      expect(listCount, 1);
+    },
+  );
+
   testWidgets('loads the next owner task page and selects its older task', (
     tester,
   ) async {
