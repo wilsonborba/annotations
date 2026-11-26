@@ -1933,12 +1933,12 @@ class PdfExportMapper {
       };
       inkPad = math.max(inkPad, lineWidth / 2).toDouble();
     }
-    left = left! - inkPad;
-    top = top! - inkPad;
-    right = right! + inkPad;
-    bottom = bottom! + inkPad;
-    final sourceWidth = math.max(1.0, right! - left!);
-    final sourceHeight = math.max(1.0, bottom! - top!);
+    final sourceLeft = left! - inkPad;
+    final sourceTop = top! - inkPad;
+    final sourceRight = right! + inkPad;
+    final sourceBottom = bottom! + inkPad;
+    final sourceWidth = math.max(1.0, sourceRight - sourceLeft);
+    final sourceHeight = math.max(1.0, sourceBottom - sourceTop);
     final scale = math
         .min(width / sourceWidth, height / sourceHeight)
         .toDouble();
@@ -1954,15 +1954,15 @@ class PdfExportMapper {
                 _originalInkWidget(
                   item,
                   typedItems[item['id']],
-                  xOrigin: left,
-                  yOrigin: top,
+                  xOrigin: sourceLeft,
+                  yOrigin: sourceTop,
                   scale: scale,
                 )
               else
                 _buildPositionedOriginalItem(
                   item,
-                  xOrigin: left,
-                  yOrigin: top,
+                  xOrigin: sourceLeft,
+                  yOrigin: sourceTop,
                   scale: scale,
                   options: options,
                   reportImages: reportImages,
