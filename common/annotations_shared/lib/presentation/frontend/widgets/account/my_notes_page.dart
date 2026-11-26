@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../../../core/tracking_manifest.dart';
@@ -21,6 +23,7 @@ class MyNotesPage extends StatefulWidget {
 
 class _MyNotesPageState extends State<MyNotesPage> {
   Future<List<MyNoteSummary>>? _notes;
+  int? _notesRevision;
   AccountService? _account;
 
   @override
@@ -29,6 +32,8 @@ class _MyNotesPageState extends State<MyNotesPage> {
     final account = AppScope.of(context).account;
     if (account != _account) {
       _account?.removeListener(_changed);
+      _notes = null;
+      _notesRevision = null;
       _account = account?..addListener(_changed);
       _changed();
     }
@@ -41,27 +46,46 @@ class _MyNotesPageState extends State<MyNotesPage> {
   }
 
   void _changed() {
-    if (_account?.signedIn == true && _notes == null) _load();
-    if (_account?.signedIn != true && _notes != null) {
+    final account = _account;
+    if (account?.signedIn == true) {
+      if (_notes == null || _notesRevision != account!.sessionRevision) {
+        _load();
+      }
+    } else if (_notes != null || _notesRevision != null) {
       setState(() {
         _notes = null;
+        _notesRevision = null;
       });
     }
   }
 
   void _load() {
+    final account = _account;
     final service = AppScope.of(context).myNotes;
     if (service == null) return;
-    final notes = service.list();
+    if (account?.signedIn != true) return;
+    final guard = account!.captureSessionGuard();
+    final notes = service.list().then((items) {
+      if (!account.isCurrentSession(guard)) {
+        unawaited(account.check());
+        throw const MyNotesError(0);
+      }
+      return items;
+    });
     // A refused call: the session is dead. Signed out once, no loop.
     notes.then(
       (_) {},
       onError: (Object e) {
-        if (e is MyNotesError && e.refused) _account?.expire();
+        if (!account.isCurrentSession(guard)) {
+          unawaited(account.check());
+        } else if (e is MyNotesError && e.refused) {
+          account.expireIfCurrent(guard);
+        }
       },
     );
     setState(() {
       _notes = notes;
+      _notesRevision = guard.revision;
     });
   }
 
@@ -95,6 +119,7 @@ class _MyNotesPageState extends State<MyNotesPage> {
                 _SignedOut()
               else
                 FutureBuilder<List<MyNoteSummary>>(
+                  key: ObjectKey(account),
                   future: _notes,
                   builder: (context, snap) {
                     if (snap.hasError) {
