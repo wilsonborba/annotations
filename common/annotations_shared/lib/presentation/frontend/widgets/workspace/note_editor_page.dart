@@ -37,6 +37,7 @@ import '../../handlers/reports_pdf_capture.dart';
 import '../export/export_dialog.dart';
 import '../../components/reports_search_dialog.dart';
 import '../../components/reports_create_dialog.dart';
+import '../../components/task_card_picker.dart';
 import '../typed/note_screen.dart';
 
 /// `/v1/write/<id>`: one local note in the editor of this platform.
@@ -161,6 +162,69 @@ class _NoteEditorPageState extends State<NoteEditorPage>
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(context.tr('reportsSearchError'))),
         );
+      }
+    }
+  }
+
+  Future<void> _addTaskCard(
+    BuildContext dialogContext,
+    PaperHandler handler,
+    AttachmentHandler attachments,
+  ) async {
+    final note = _note;
+    final installed = _installed;
+    final session = installed?.activeSession;
+    if (note == null || installed == null || session == null) return;
+
+    final generation = _openGeneration;
+    bool current() =>
+        mounted &&
+        generation == _openGeneration &&
+        identical(handler, _handler) &&
+        identical(note, _note) &&
+        identical(installed, _installed) &&
+        identical(session, installed.activeSession) &&
+        installed.signedIn &&
+        note.accountId != null &&
+        note.accountId == installed.userId &&
+        note.accountId == installed.localOwnerId &&
+        session.verifiedUserId == note.accountId;
+
+    if (!current()) return;
+    final service = TaskCardService(
+      ApiAdapter(client: SessionClient(installed, installed.client)),
+    );
+    try {
+      final tasks = await service.listOwnTasks();
+      if (!current() || !dialogContext.mounted) return;
+      final task = await showTaskCardPicker(
+        dialogContext,
+        tasks: tasks,
+        isOwnerScopeCurrent: current,
+        ownerScopeRevision: _reportsOwnerScopeRevision,
+        expectedOwnerScopeRevision: generation,
+      );
+      if (!current() || task == null) return;
+
+      final item = <String, Object?>{
+        'id': _newCardId(),
+        'kind': 'task_card',
+        'width': math.min(360.0, math.max(1.0, handler.pageWidth - 48)),
+        'height': 160,
+        'task_id': task.taskId,
+      };
+      if (!attachments.addStructuredCard(item)) {
+        if (mounted && current()) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(context.tr('taskUnavailable'))),
+          );
+        }
+      }
+    } on Object {
+      if (mounted && current()) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(context.tr('taskUnavailable'))));
       }
     }
   }
@@ -1326,6 +1390,9 @@ class _NoteEditorPageState extends State<NoteEditorPage>
                               _installed?.signedIn == true &&
                               note.accountId == _installed?.userId
                           ? _addReportsCard
+                          : null,
+                      onAddTaskCard: _hasTrustedOwnerSession()
+                          ? _addTaskCard
                           : null,
                       onCreateReport:
                           reportsSource != null && _hasTrustedOwnerSession()

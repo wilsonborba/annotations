@@ -86,6 +86,12 @@ class PaperScreen extends StatefulWidget {
     PaperHandler handler,
     AttachmentHandler attachments,
   )?
+  onAddTaskCard;
+  final Future<void> Function(
+    BuildContext context,
+    PaperHandler handler,
+    AttachmentHandler attachments,
+  )?
   onCreateReport;
 
   /// Loads one account-authorized task by its saved reference.
@@ -120,6 +126,7 @@ class PaperScreen extends StatefulWidget {
     this.publicProjection = false,
     this.reportsLanguage = 'en',
     this.onAddReport,
+    this.onAddTaskCard,
     this.onCreateReport,
     this.loadTaskCard,
     this.loadQuizCard,
@@ -250,6 +257,9 @@ class _PaperScreenState extends State<PaperScreen> {
       onAddReport: widget.onAddReport == null
           ? null
           : () => widget.onAddReport!(context, widget.handler, attachments),
+      onAddTaskCard: widget.onAddTaskCard == null
+          ? null
+          : () => widget.onAddTaskCard!(context, widget.handler, attachments),
       onCreateReport: widget.onCreateReport == null
           ? null
           : () => widget.onCreateReport!(context, widget.handler, attachments),

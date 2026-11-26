@@ -50,6 +50,7 @@ class PaperToolbar extends StatefulWidget {
   /// The Add menu and the card actions (annotations#34).
   final AttachmentHandler? attachments;
   final VoidCallback? onAddReport;
+  final VoidCallback? onAddTaskCard;
   final VoidCallback? onCreateReport;
   final ToolbarPlacement placement;
   final ValueChanged<ToolbarPlacement> onPlacement;
@@ -77,6 +78,7 @@ class PaperToolbar extends StatefulWidget {
     this.selection,
     this.attachments,
     this.onAddReport,
+    this.onAddTaskCard,
     this.onCreateReport,
     required this.placement,
     required this.onPlacement,
@@ -358,6 +360,7 @@ class _PaperToolbarState extends State<PaperToolbar> {
           AddMenu(
             attachments: files,
             onAddReport: widget.onAddReport,
+            onAddTaskCard: widget.onAddTaskCard,
             onCreateReport: widget.onCreateReport,
           ),
         );

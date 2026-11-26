@@ -17,11 +17,13 @@ import '../../handlers/paper_handler.dart';
 class AddMenu extends StatelessWidget {
   final AttachmentHandler attachments;
   final VoidCallback? onAddReport;
+  final VoidCallback? onAddTaskCard;
   final VoidCallback? onCreateReport;
   const AddMenu({
     super.key,
     required this.attachments,
     this.onAddReport,
+    this.onAddTaskCard,
     this.onCreateReport,
   });
 
@@ -52,6 +54,13 @@ class AddMenu extends StatelessWidget {
           label: context.tr('reportsAdd'),
           icon: AppIcons.fileText,
           onSelected: onAddReport!,
+        ),
+      if (onAddTaskCard != null)
+        AppMenuEntry(
+          key: const Key('add-task-card'),
+          label: context.tr('taskAddToNote'),
+          icon: AppIcons.fileText,
+          onSelected: onAddTaskCard!,
         ),
       if (onCreateReport != null)
         AppMenuEntry(

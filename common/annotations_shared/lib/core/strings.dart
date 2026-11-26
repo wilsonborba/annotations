@@ -554,6 +554,16 @@ const strings = <String, List<String>>{
   'reportsAudiencePersonal': ['Personal', 'Pessoal', 'ส่วนตัว'],
   'reportsAudienceRestricted': ['Restricted', 'Restrito', 'จำกัดสิทธิ์'],
   'taskDue': ['Due', 'Prazo', 'กำหนดส่ง'],
+  'taskAddToNote': [
+    'Add existing task',
+    'Adicionar tarefa existente',
+    'เพิ่มงานที่มีอยู่',
+  ],
+  'taskPickerEmpty': [
+    'You have no tasks to add to this note.',
+    'Você não tem tarefas para adicionar a esta nota.',
+    'ไม่มีงานให้เพิ่มในบันทึกนี้',
+  ],
   'taskCompleted': ['Completed', 'Concluída', 'เสร็จแล้ว'],
   'taskOpen': ['Open', 'Aberta', 'ยังไม่เสร็จ'],
   'taskRestricted': [

@@ -52,6 +52,12 @@ void main() {
       PaperHandler handler,
       AttachmentHandler attachments,
     )?
+    onAddTaskCard,
+    Future<void> Function(
+      BuildContext context,
+      PaperHandler handler,
+      AttachmentHandler attachments,
+    )?
     onCreateReport,
   }) async {
     await setWindow(tester, size);
@@ -84,6 +90,7 @@ void main() {
               draw: draw,
               points: points,
               onAddReport: onAddReport,
+              onAddTaskCard: onAddTaskCard,
               onCreateReport: onCreateReport,
             ),
           ),
@@ -165,6 +172,23 @@ void main() {
     await tester.pumpAndSettle();
     expect(byKey('create-reports-chart'), findsOneWidget);
     await tester.tap(byKey('create-reports-chart'));
+    await tester.pumpAndSettle();
+    expect(invoked, isTrue);
+    await finish(tester);
+  });
+
+  testWidgets('Add menu reaches the existing task-card action', (tester) async {
+    var invoked = false;
+    await pump(
+      tester,
+      onAddTaskCard: (context, handler, attachments) async {
+        invoked = true;
+      },
+    );
+    await tester.tap(byKey('add-menu'));
+    await tester.pumpAndSettle();
+    expect(byKey('add-task-card'), findsOneWidget);
+    await tester.tap(byKey('add-task-card'));
     await tester.pumpAndSettle();
     expect(invoked, isTrue);
     await finish(tester);
