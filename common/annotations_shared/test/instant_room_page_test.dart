@@ -165,6 +165,13 @@ void main() {
   ) async {
     final server = FakeRoomServer();
     await openRoom(tester, server);
+    final initialScreen = tester.widget<PaperScreen>(find.byType(PaperScreen));
+    final canvas = tester.getRect(find.byType(PaperCanvas));
+    final tapPoint = canvas.topLeft + const Offset(160, 160);
+    await tester.tapAt(tapPoint);
+    await tester.pump();
+    expect(initialScreen.text!.editing, isNotNull);
+
     server.offline = true;
     await tester.pump(const Duration(seconds: 3));
     await tester.pump();
@@ -175,8 +182,7 @@ void main() {
     expect((paper.document.toJson()['items'] as List), isEmpty);
     expect(paper.view.value, isNotNull);
 
-    final canvas = tester.getRect(find.byType(PaperCanvas));
-    await tester.tapAt(canvas.topLeft + const Offset(160, 160));
+    await tester.tapAt(tapPoint);
     await tester.pump(const Duration(milliseconds: 50));
     expect(
       tester.widget<PaperScreen>(find.byType(PaperScreen)).text!.editing,

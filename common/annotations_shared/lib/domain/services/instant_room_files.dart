@@ -32,11 +32,20 @@ final class RoomFiles implements EditorFiles {
   Future<LocalAttachment> importFile(
     String sourcePath, {
     required String type,
-  }) async => importBytes(
-    await readPath(sourcePath),
-    name: sourcePath.split(RegExp(r'[\\/]')).last,
-    type: type,
-  );
+  }) async {
+    if (!room.canEdit) {
+      throw StateError('Cannot upload while room is ${room.state}');
+    }
+    final bytes = await readPath(sourcePath);
+    if (!room.canEdit) {
+      throw StateError('Cannot upload while room is ${room.state}');
+    }
+    return importBytes(
+      bytes,
+      name: sourcePath.split(RegExp(r'[\\/]')).last,
+      type: type,
+    );
+  }
 
   @override
   Future<LocalAttachment> importBytes(

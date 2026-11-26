@@ -109,6 +109,25 @@ void main() {
     },
   );
 
+  test('a closed room does not read a newly selected local file', () async {
+    final server = FakeRoomServer();
+    final (room, _) = await join(server);
+    var reads = 0;
+    final files = RoomFiles(
+      room,
+      readPath: (_) async {
+        reads++;
+        return png;
+      },
+    );
+    room.expire();
+    await expectLater(
+      files.importFile('/private/local.png', type: 'image/png'),
+      throwsA(isA<StateError>()),
+    );
+    expect(reads, 0);
+  });
+
   test(
     'a delayed content response cannot restore local file state after expiry',
     () async {
