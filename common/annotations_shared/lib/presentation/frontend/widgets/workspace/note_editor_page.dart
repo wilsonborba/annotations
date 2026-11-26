@@ -1,17 +1,23 @@
+import 'dart:async';
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../../core/features.dart';
+import '../../../../core/note_limits.dart';
 import '../../../../core/tracking_manifest.dart';
 import '../../../../dal/remote/api_adapter.dart';
 import '../../../../dal/remote/reports_api_adapter.dart';
 import '../../../../domain/models/local_note.dart';
+import '../../../../domain/models/note_document.dart';
 import '../../../../domain/models/reports_embed_data.dart';
 import '../../../../domain/services/certifications_browser_handoff.dart';
 import '../../../../domain/services/installed_account.dart';
 import '../../../../domain/services/local_note_store.dart';
 import '../../../../domain/services/note_autosave.dart';
+import '../../../../domain/services/note_history.dart';
 import '../../../../domain/services/native_auth_service.dart';
 import '../../../../domain/services/prepared_certification_service.dart';
 import '../../../../domain/services/reports_embed_source.dart';
@@ -34,14 +40,32 @@ class NoteEditorPage extends StatefulWidget {
   State<NoteEditorPage> createState() => _NoteEditorPageState();
 }
 
-class _NoteEditorPageState extends State<NoteEditorPage> {
+class _NoteEditorPageState extends State<NoteEditorPage>
+    with WidgetsBindingObserver {
   PaperHandler? _handler;
   LocalNote? _note;
   bool _missing = false;
   bool _preparingQuiz = false;
   InstalledAccount? _installed;
   int _openGeneration = 0;
+  int _returnCheckSerial = 0;
+  _PreparedQuizReturn? _pendingQuizReturn;
   bool _hasOpened = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) return;
+    final pending = _pendingQuizReturn;
+    if (pending == null) return;
+    _pendingQuizReturn = null;
+    unawaited(_checkPreparedQuizReturn(pending));
+  }
 
   @override
   void didChangeDependencies() {
@@ -59,6 +83,7 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
 
   Future<void> _open() async {
     final generation = ++_openGeneration;
+    _pendingQuizReturn = null;
     final prior = _handler;
     _handler = null;
     _note = null;
@@ -181,7 +206,14 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
           _showMessage(prepareFailedDialogMessage);
           return;
         }
-        await _continueInBrowser(saved.id, session, isCurrent: isCurrent);
+        await _continueInBrowser(
+          saved.id,
+          session,
+          installed: installed,
+          note: latest,
+          generation: generation,
+          isCurrent: isCurrent,
+        );
       } on ApiError catch (error) {
         if (!isCurrent()) return;
         if (error.status == 401 || error.status == 403 || error.status == 404) {
@@ -277,7 +309,16 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
           saved.config?.count != choice.config.count) {
         throw const PreparedCertificationPersistenceException();
       }
-      await _continueInBrowser(saved.id, session, isCurrent: isCurrent);
+      final returnNote = withStudy ?? await workspace.store.load(current.id);
+      if (!isCurrent() || returnNote == null) return;
+      await _continueInBrowser(
+        saved.id,
+        session,
+        installed: installed,
+        note: returnNote,
+        generation: generation,
+        isCurrent: isCurrent,
+      );
     } on Object {
       if (isCurrent()) {
         _showMessage(prepared ? openFailedMessage : prepareFailedMessage);
@@ -304,6 +345,9 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
   Future<void> _continueInBrowser(
     String studyId,
     NativeSession session, {
+    required InstalledAccount installed,
+    required LocalNote note,
+    required int generation,
     required bool Function() isCurrent,
   }) async {
     String? handoffId;
@@ -323,6 +367,20 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
         mode: LaunchMode.externalApplication,
       );
       if (!opened) throw StateError('browser launch was not accepted');
+      if (isCurrent()) {
+        _pendingQuizReturn = _PreparedQuizReturn(
+          serial: ++_returnCheckSerial,
+          studyId: studyId,
+          installed: installed,
+          session: session,
+          noteId: note.id,
+          ownerId: session.verifiedUserId!,
+          serverNoteId: note.serverNoteId!,
+          serverRevision: note.serverRevision!,
+          localRevision: note.revision,
+          generation: generation,
+        );
+      }
     } on Object {
       if (handoffId != null) {
         await _cancelHandoff(session, handoffId);
@@ -339,6 +397,119 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
       );
     } on Object {
       // The continuation expires server-side if cancellation also fails.
+    }
+  }
+
+  bool _isCurrentQuizReturn(_PreparedQuizReturn pending) {
+    final active = pending.installed.activeSession;
+    return mounted &&
+        pending.serial == _returnCheckSerial &&
+        pending.generation == _openGeneration &&
+        identical(_installed, pending.installed) &&
+        pending.installed.signedIn &&
+        pending.installed.localOwnerId == pending.ownerId &&
+        active != null &&
+        active.sessionId == pending.session.sessionId &&
+        active.csrfToken == pending.session.csrfToken &&
+        active.verifiedUserId == pending.ownerId &&
+        widget.noteId == pending.noteId &&
+        _note?.id == pending.noteId &&
+        _handler != null;
+  }
+
+  bool _matchesQuizReturnNote(LocalNote? note, _PreparedQuizReturn pending) =>
+      note != null &&
+      note.id == pending.noteId &&
+      note.revision == pending.localRevision &&
+      note.accountId == pending.ownerId &&
+      note.serverNoteId == pending.serverNoteId &&
+      note.serverRevision == pending.serverRevision &&
+      note.preparedStudyId == pending.studyId;
+
+  Future<void> _checkPreparedQuizReturn(_PreparedQuizReturn pending) async {
+    final handler = _handler;
+    final scope = AppScope.of(context);
+    final workspace = scope.workspace;
+    final api = scope.service.api;
+    if (!_isCurrentQuizReturn(pending) ||
+        handler == null ||
+        workspace == null) {
+      return;
+    }
+    try {
+      await handler.autosave.flush();
+      if (!_isCurrentQuizReturn(pending)) return;
+      final before = await workspace.store.load(pending.noteId);
+      if (!_isCurrentQuizReturn(pending) ||
+          !_matchesQuizReturnNote(before, pending)) {
+        return;
+      }
+      final study = await PreparedCertificationService(
+        api: api,
+        session: pending.session,
+      ).read(pending.studyId);
+      final quizId = study.quizId;
+      if (!_isCurrentQuizReturn(pending) || quizId == null) return;
+
+      await handler.autosave.flush();
+      if (!_isCurrentQuizReturn(pending)) return;
+      final current = await workspace.store.load(pending.noteId);
+      if (!_isCurrentQuizReturn(pending) ||
+          !_matchesQuizReturnNote(current, pending)) {
+        return;
+      }
+      final document = handler.document;
+      if (document is! PaperDocument) return;
+      final existing = document.itemsJson.cast<Map<String, Object?>>().where(
+        (item) =>
+            item['kind'] == 'quiz_card' &&
+            (item['study_id'] == pending.studyId || item['quiz_id'] == quizId),
+      );
+      final Map<String, Object?> operation;
+      final match = existing.firstOrNull;
+      if (match != null) {
+        if (match['study_id'] == pending.studyId &&
+            match['quiz_id'] == quizId) {
+          return;
+        }
+        operation = {
+          'op': 'update',
+          'id': match['id'],
+          'changes': {'study_id': pending.studyId, 'quiz_id': quizId},
+        };
+      } else {
+        final width = math.max(
+          EditorGrid.cell,
+          math.min(320, EditorGrid.floor(handler.pageWidth)),
+        );
+        final x = EditorGrid.floor((handler.pageWidth - width) / 2);
+        final y = EditorGrid.ceil(
+          handler.page.contentBottom(document) + EditorGrid.cell,
+        );
+        operation = {
+          'op': 'add',
+          'item': {
+            'id':
+                'quiz-${DateTime.now().microsecondsSinceEpoch.toRadixString(36)}',
+            'kind': 'quiz_card',
+            'x': x,
+            'y': y,
+            'width': width,
+            'height': 120,
+            'study_id': pending.studyId,
+            'quiz_id': quizId,
+          },
+        };
+      }
+      final decision = handler.apply(
+        HistoryCommand(CommandKind.card),
+        (rules, document) => rules.check(document, operation),
+      );
+      if (!decision.accepted) return;
+      await handler.autosave.flush();
+    } on Object {
+      // A failed status read leaves the local note unchanged; Continue can
+      // perform another one-shot check on the next browser return.
     }
   }
 
@@ -517,6 +688,8 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
   @override
   void dispose() {
     _openGeneration++;
+    _pendingQuizReturn = null;
+    WidgetsBinding.instance.removeObserver(this);
     _installed?.removeListener(_accountChanged);
     final handler = _handler;
     // Keep the last edit, then release the editor.
@@ -669,4 +842,30 @@ final class _QuizSourceOption {
   final String? fileId;
   final PreparedCertificationSource? source;
   final LocalAttachment? attachment;
+}
+
+final class _PreparedQuizReturn {
+  const _PreparedQuizReturn({
+    required this.serial,
+    required this.studyId,
+    required this.installed,
+    required this.session,
+    required this.noteId,
+    required this.ownerId,
+    required this.serverNoteId,
+    required this.serverRevision,
+    required this.localRevision,
+    required this.generation,
+  });
+
+  final int serial;
+  final String studyId;
+  final InstalledAccount installed;
+  final NativeSession session;
+  final String noteId;
+  final String ownerId;
+  final String serverNoteId;
+  final int serverRevision;
+  final int localRevision;
+  final int generation;
 }
