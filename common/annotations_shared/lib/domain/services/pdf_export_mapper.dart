@@ -1634,6 +1634,7 @@ class PdfExportMapper {
     required double printableW,
     required double printableH,
     String? companionName,
+    pw.Widget? contentPreview,
   }) {
     final id = '${item['id'] ?? 'item'}';
     final fileId = item['file_id'] as String?;
@@ -1659,12 +1660,17 @@ class PdfExportMapper {
       ),
       child: pw.Column(
         crossAxisAlignment: pw.CrossAxisAlignment.start,
-        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+        mainAxisAlignment: pw.MainAxisAlignment.start,
         children: [
           pw.Text(
             'Preview, see full content',
             style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold),
           ),
+          if (contentPreview != null) ...[
+            pw.SizedBox(height: 8),
+            pw.Expanded(child: contentPreview),
+            pw.SizedBox(height: 8),
+          ],
           pw.Text('Item: $id (${item['kind'] ?? 'object'})'),
           pw.Text(
             publicLink != null
@@ -1889,7 +1895,8 @@ class PdfExportMapper {
         (count, row) => math.max(count, row.length),
       );
       final columnCount = math.min(maxColumns, 5);
-      final visibleRows = rows.take(8).toList(growable: false);
+      final rowCapacity = ((height - 28) / 14).floor().clamp(0, 8).toInt();
+      final visibleRows = rows.take(rowCapacity).toList(growable: false);
       final omitted =
           rows.length > visibleRows.length || maxColumns > columnCount;
       return pw.Container(
@@ -1902,48 +1909,54 @@ class PdfExportMapper {
         child: pw.Column(
           crossAxisAlignment: pw.CrossAxisAlignment.stretch,
           children: [
-            pw.Table(
-              border: pw.TableBorder.all(color: PdfColors.grey300, width: 0.35),
-              columnWidths: {
-                for (var column = 0; column < columnCount; column++)
-                  column: const pw.FlexColumnWidth(),
-              },
-              children: [
-                for (
-                  var rowIndex = 0;
-                  rowIndex < visibleRows.length;
-                  rowIndex++
-                )
-                  pw.TableRow(
-                    decoration: rowIndex == 0
-                        ? const pw.BoxDecoration(color: PdfColors.grey200)
-                        : null,
-                    children: [
-                      for (var column = 0; column < columnCount; column++)
-                        pw.Padding(
-                          padding: const pw.EdgeInsets.all(2),
-                          child: pw.Text(
-                            column < visibleRows[rowIndex].length
-                                ? _pdfCellPreview(visibleRows[rowIndex][column])
-                                : '',
-                            maxLines: 1,
-                            style: pw.TextStyle(
-                              fontSize: 6.5,
-                              fontWeight: rowIndex == 0
-                                  ? pw.FontWeight.bold
-                                  : pw.FontWeight.normal,
+            if (visibleRows.isNotEmpty)
+              pw.Table(
+                border: pw.TableBorder.all(
+                  color: PdfColors.grey300,
+                  width: 0.35,
+                ),
+                columnWidths: {
+                  for (var column = 0; column < columnCount; column++)
+                    column: const pw.FlexColumnWidth(),
+                },
+                children: [
+                  for (
+                    var rowIndex = 0;
+                    rowIndex < visibleRows.length;
+                    rowIndex++
+                  )
+                    pw.TableRow(
+                      decoration: rowIndex == 0
+                          ? const pw.BoxDecoration(color: PdfColors.grey200)
+                          : null,
+                      children: [
+                        for (var column = 0; column < columnCount; column++)
+                          pw.Padding(
+                            padding: const pw.EdgeInsets.all(2),
+                            child: pw.Text(
+                              column < visibleRows[rowIndex].length
+                                  ? _pdfCellPreview(
+                                      visibleRows[rowIndex][column],
+                                    )
+                                  : '',
+                              maxLines: 1,
+                              style: pw.TextStyle(
+                                fontSize: 6.5,
+                                fontWeight: rowIndex == 0
+                                    ? pw.FontWeight.bold
+                                    : pw.FontWeight.normal,
+                              ),
                             ),
                           ),
-                        ),
-                    ],
-                  ),
-              ],
-            ),
+                      ],
+                    ),
+                ],
+              ),
             if (omitted)
               pw.Padding(
                 padding: const pw.EdgeInsets.only(top: 2),
                 child: pw.Text(
-                  'CSV preview is partial; save as ZIP to include the original file.',
+                  'CSV preview is partial (shows ${visibleRows.length} of ${rows.length} rows); ZIP includes the original file.',
                   style: pw.TextStyle(fontSize: 6.5),
                 ),
               ),
@@ -2158,6 +2171,12 @@ class PdfExportMapper {
         printableW: printableW,
         printableH: previewHeight,
         companionName: 'companion-typed-$id.json',
+        contentPreview: _typedHandwritingWidget(
+          block,
+          typedItems,
+          maxWidth: printableW - 48,
+          maxHeight: previewHeight - 92,
+        ),
       );
       doc.addPage(
         pw.Page(
@@ -2257,7 +2276,9 @@ class PdfExportMapper {
     }
     if (kind == 'reports_embed' ||
         kind == 'website_card' ||
-        kind == 'youtube_card') {
+        kind == 'youtube_card' ||
+        kind == 'csv_table' ||
+        kind == 'pdf_preview') {
       return [
         pw.Padding(
           padding: const pw.EdgeInsets.symmetric(vertical: 4),
@@ -2459,8 +2480,10 @@ class PdfExportMapper {
 
   pw.Widget _typedHandwritingWidget(
     Map<String, dynamic> json,
-    Map<String, DocumentItem> typedItems,
-  ) {
+    Map<String, DocumentItem> typedItems, {
+    double maxWidth = 400,
+    double maxHeight = double.infinity,
+  }) {
     final item = typedItems['${json['id'] ?? ''}'];
     if (item is! HandwritingBlock) {
       return pw.Text(
@@ -2468,9 +2491,11 @@ class PdfExportMapper {
         style: pw.TextStyle(fontSize: 9),
       );
     }
-    const width = 400.0;
+    final width = math.min(400.0, maxWidth);
     final scale = width / math.max(1.0, item.width.toDouble());
-    final height = math.max(1.0, item.height.toDouble() * scale);
+    final sourceHeight = math.max(1.0, item.height.toDouble());
+    final height = math.max(1.0, math.min(sourceHeight * scale, maxHeight));
+    final previewScale = math.min(scale, height / sourceHeight);
     final fills = <({List<List<InkVec>> pieces, int argb})>[
       for (final ink in item.ink) ...inkFills(ink),
     ];
@@ -2497,11 +2522,14 @@ class PdfExportMapper {
                   for (final piece in fill.pieces) {
                     if (piece.length < 3) continue;
                     canvas.moveTo(
-                      piece.first.x * scale,
-                      size.y - piece.first.y * scale,
+                      piece.first.x * previewScale,
+                      size.y - piece.first.y * previewScale,
                     );
                     for (final point in piece.skip(1)) {
-                      canvas.lineTo(point.x * scale, size.y - point.y * scale);
+                      canvas.lineTo(
+                        point.x * previewScale,
+                        size.y - point.y * previewScale,
+                      );
                     }
                     canvas.closePath();
                   }

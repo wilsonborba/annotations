@@ -1,12 +1,15 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:annotations_shared/domain/models/local_note.dart';
+import 'package:annotations_shared/domain/models/ink.dart';
 import 'package:annotations_shared/domain/models/note_document.dart';
 import 'package:annotations_shared/domain/services/local_note_store.dart';
 import 'package:annotations_shared/domain/services/krilla_pdf_backend.dart';
+import 'package:annotations_shared/domain/services/editor_rules.dart';
 import 'package:annotations_shared/domain/services/pdf_export_mapper.dart';
 import 'package:annotations_shared/domain/services/task_card_service.dart';
 import 'package:annotations_shared/presentation/frontend/handlers/export_handler.dart';
@@ -50,11 +53,43 @@ void main() {
     'Original and Typed file cards print CSV rows and a PDF page image; export ZIP retains source files',
     () async {
       final sourceCsv = Uint8List.fromList(
-        utf8.encode('Name,Value\nCSV_CONTENT_SENTINEL,42\n'),
+        utf8.encode(
+          'Name,Value\nCSV_CONTENT_SENTINEL,42\nRow2,20\nRow3,13\nRow4,8\nRow5,5\n',
+        ),
       );
       final sourcePdfDocument = pw.Document()
-        ..addPage(pw.Page(build: (_) => pw.Text('PDF_SOURCE_SENTINEL')));
+        ..addPage(
+          pw.Page(
+            build: (_) => pw.Column(
+              children: [
+                pw.Text('PDF_SOURCE_SENTINEL — original portrait page'),
+                pw.Image(pw.MemoryImage(logo), width: 180),
+              ],
+            ),
+          ),
+        );
       final sourcePdf = await sourcePdfDocument.save();
+      final sourceDir = await Directory.systemTemp.createTemp(
+        'pdf_card_source_',
+      );
+      addTearDown(() => sourceDir.delete(recursive: true));
+      File('${sourceDir.path}/source.pdf').writeAsBytesSync(sourcePdf);
+      final previewProcess = await Process.run('pdftoppm', [
+        '-png',
+        '-r',
+        '96',
+        '-f',
+        '1',
+        '-l',
+        '1',
+        '-singlefile',
+        '${sourceDir.path}/source.pdf',
+        '${sourceDir.path}/preview',
+      ]);
+      expect(previewProcess.exitCode, 0, reason: '${previewProcess.stderr}');
+      final firstPagePreview = File(
+        '${sourceDir.path}/preview.png',
+      ).readAsBytesSync();
       final original = NoteDocument.fromJson({
         'page': {
           'width': 1000,
@@ -103,12 +138,13 @@ void main() {
           'csv-source': [
             ['Name', 'Value'],
             ['CSV_CONTENT_SENTINEL', '42'],
+            ['Row2', '20'],
+            ['Row3', '13'],
+            ['Row4', '8'],
+            ['Row5', '5'],
           ],
         },
-        // In production this is the PNG from the existing first-page PDF
-        // renderer. Reuse the real bundled logo bytes as a deterministic
-        // raster input to verify the mapper places an image XObject.
-        pdfPreviews: {'pdf-source': Uint8List.fromList(logo)},
+        pdfPreviews: {'pdf-source': firstPagePreview},
         baseFont: baseFont,
         boldFont: boldFont,
         thaiFont: thaiFont,
@@ -128,6 +164,9 @@ void main() {
         final text = await _extractPdfText(file.bytes);
         expect(text, contains('CSV_CONTENT_SENTINEL'));
         expect(text, isNot(contains('CSV file: csv-source')));
+        if (file.filename.contains('original')) {
+          expect(text, contains('CSV preview is partial (shows 4 of 6 rows)'));
+        }
         expect(
           latin1.decode(file.bytes, allowInvalid: true),
           contains('/Subtype/Image'),
@@ -542,8 +581,33 @@ void main() {
   test(
     'legal tall Typed handwriting uses a visible preview page and exact companion',
     () async {
-      final stroke = handwriting(8, hz: 24, seconds: 0.2);
+      Map<String, Object?> strokeFor(double height) {
+        final capture = StrokeCapture(
+          const BrushSettings(
+            tool: InkTool.round,
+            width: 3,
+            color: '#DC2626FF',
+          ),
+          pageWidth: 180,
+        );
+        for (var i = 0; i < 60; i++) {
+          final t = i / 59;
+          final yEnd = math.min(height - 20, 900.0);
+          capture.add(
+            90 + 42 * math.sin(t * math.pi * 10),
+            10 + yEnd * t,
+            i * 8,
+            pressure: 0.65,
+            tilt: 0.4,
+          );
+        }
+        return capture.toItem('tall-ink')!;
+      }
+
+      late Map<String, Object?> tallStroke;
       Future<PdfExportOutput> exportHeight(double height) {
+        final stroke = strokeFor(height);
+        if (height == 1000) tallStroke = stroke;
         final typed = NoteDocument.fromJson({
           'blocks': [
             {
@@ -589,7 +653,7 @@ void main() {
           jsonDecode(utf8.decode(tall.companions.single.bytes))
               as Map<String, dynamic>;
       expect(savedBlock['height'], 1000);
-      expect(savedBlock['ink'], [stroke]);
+      expect(savedBlock['ink'], [tallStroke]);
       final previewText = await _extractPdfText(tall.pdfs.single.bytes);
       expect(previewText, contains('Preview, see full content'));
       expect(previewText, contains('companion-typed-tall-ink.json'));
@@ -598,6 +662,7 @@ void main() {
         previewRaster.count((r, g, b) => r < 230 && g < 230 && b < 230),
         greaterThan(100),
       );
+      expect(previewRaster.count(isRed), greaterThan(100));
     },
   );
 
