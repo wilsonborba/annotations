@@ -13,8 +13,11 @@ import '../../../domain/models/local_note.dart';
 import '../../../domain/models/note_document.dart';
 import '../../../domain/models/reports_embed_data.dart';
 import '../../../domain/services/local_note_store.dart';
+import '../../../domain/services/card_content.dart';
 import '../../../domain/services/pdf_export_mapper.dart';
 import '../../../domain/services/task_card_service.dart';
+import 'pdf_page_renderer.dart'
+    show PdfPageRenderer, pdfPagePixels, renderFirstPdfPage;
 
 /// Draws every page of a PDF for the print preview; throws on failure.
 typedef PdfPagesRenderer =
@@ -61,6 +64,7 @@ class ExportHandler extends ChangeNotifier {
     LocalNote? pairedNote,
     PdfExportMapper? mapper,
     PdfPagesRenderer? renderPages,
+    PdfPageRenderer? renderPdfPage,
     Future<String?> Function(String name)? saveLocation,
     this.audience = PdfAudience.personal,
     this.loadReportsEmbed,
@@ -69,6 +73,7 @@ class ExportHandler extends ChangeNotifier {
     this.untitledTitle = 'Untitled note',
   }) : _mapper = mapper ?? PdfExportMapper(),
        _render = renderPages ?? renderPdfPages,
+       _renderPdfPage = renderPdfPage ?? renderFirstPdfPage,
        _saveLocation = saveLocation ?? _pickSave {
     if (_isPairedRepresentation(pairedNote)) {
       _pairedNote = pairedNote;
@@ -87,6 +92,7 @@ class ExportHandler extends ChangeNotifier {
   final TaskSummaryLoader? loadTaskSummary;
   final PdfExportMapper _mapper;
   final PdfPagesRenderer _render;
+  final PdfPageRenderer _renderPdfPage;
   final Future<String?> Function(String name) _saveLocation;
 
   static Future<String?> _pickSave(String name) async =>
@@ -326,6 +332,33 @@ class ExportHandler extends ChangeNotifier {
     return ids;
   }
 
+  static Set<String> _referenceFileIds(
+    Iterable<NoteDocument?> documents,
+    String kind,
+  ) {
+    final ids = <String>{};
+    void scan(Object? value) {
+      if (value is Map) {
+        if (value['kind'] == kind && value['file_id'] is String) {
+          final id = (value['file_id'] as String).trim();
+          if (id.isNotEmpty) ids.add(id);
+        }
+        for (final child in value.values) {
+          scan(child);
+        }
+      } else if (value is List) {
+        for (final child in value) {
+          scan(child);
+        }
+      }
+    }
+
+    for (final document in documents) {
+      if (document != null) scan(document.toJson());
+    }
+    return ids;
+  }
+
   /// Runs the preflight and builds the PDF(s) and their preview.
   /// [placeholders] continues with marked placeholders after a preflight
   /// problem (B13 point 9: never a silent omission); omitting [placeholders]
@@ -364,6 +397,53 @@ class ExportHandler extends ChangeNotifier {
         if (includeOriginal) originalNote!.document,
         if (includeTyped) typedNote!.document,
       ];
+      final csvTables = <String, List<List<String>>>{};
+      for (final fileId in _referenceFileIds(selectedDocuments, 'csv_table')) {
+        final info = await store.attachment(fileId);
+        if (_disposed || seq != _buildSeq) return;
+        final bytes = attachments[fileId];
+        if (info?.type.toLowerCase() == 'text/csv' && bytes != null) {
+          csvTables[fileId] = parseCsvBytes(bytes);
+        }
+      }
+      final pdfPreviews = <String, Uint8List>{};
+      for (final fileId in _referenceFileIds(
+        selectedDocuments,
+        'pdf_preview',
+      )) {
+        final info = await store.attachment(fileId);
+        if (_disposed || seq != _buildSeq) return;
+        final bytes = attachments[fileId];
+        if (info?.type.toLowerCase() != 'application/pdf' || bytes == null) {
+          continue;
+        }
+        if (pdfInfo(bytes) == null) continue;
+        try {
+          final page = await _renderPdfPage(bytes, pdfPagePixels);
+          if (_disposed || seq != _buildSeq) {
+            page?.dispose();
+            return;
+          }
+          if (page != null) {
+            try {
+              final encoded = await page.toByteData(
+                format: ui.ImageByteFormat.png,
+              );
+              if (encoded != null) {
+                pdfPreviews[fileId] = Uint8List.view(
+                  encoded.buffer,
+                  encoded.offsetInBytes,
+                  encoded.lengthInBytes,
+                );
+              }
+            } finally {
+              page.dispose();
+            }
+          }
+        } on Object {
+          // A failed page render becomes an explicit PDF preview preflight item.
+        }
+      }
       final taskSummaries = <String, TaskSummary>{};
       final taskLoader = loadTaskSummary;
       if (audience == PdfAudience.personal && taskLoader != null) {
@@ -436,6 +516,8 @@ class ExportHandler extends ChangeNotifier {
         reportImages: reportImages,
         attachments: attachments,
         taskSummaries: taskSummaries,
+        csvTables: csvTables,
+        pdfPreviews: pdfPreviews,
         baseFont: _bundledLatin,
         thaiFont: _bundledThai,
       );
