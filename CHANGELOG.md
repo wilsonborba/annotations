@@ -2,6 +2,14 @@
 
 ### 🚀 Features
 
+- *(ui)* Browser account menu, sign-in flow and My notes (#38)
+- *(ui)* Installed intro, writer workspace and note editor route (#38)
+- *(ui)* Installed sign-in with the native handoff and match code (#38)
+- *(ui)* Sync, publish, unpublish and delete everywhere in the writer workspace (#38)
+- *(ui)* Projects and tags for a note from the workspace menu (#38)
+
+- Add Reports embed data adapters
+
 - *(telemetry)* Adopt shared tracking with mapped Annotations controls
 - *(core)* Add platform profiles and feature availability
 - *(core)* Share settings, logs, screen_trail tracking and client errors
@@ -33,6 +41,17 @@
 - *(domain)* Check only the changed items of each edit, Undo and Redo included, so a stroke on a 30-page note takes a few milliseconds (#62)
 
 ### 🐛 Bug Fixes
+
+- *(web)* Keep native device store out of bundle (#69)
+- *(ui)* The installed login says when it cannot start (#38)
+- *(ui)* Installed login messages in the interface language (#38)
+- Retry publication for local notes
+- *(workspace)* Isolate notes by verified account
+- *(auth)* Guard installed session checks against replacement
+
+- *(66)* Retain typed body focus across rebuilds
+
+- Enforce Reports reference and cache identity
 
 - *(sync)* Persist server note identity and revisions for cloud calls (#63)
 - *(sync)* Isolate conflict copies and require revision ids (#63)

@@ -325,6 +325,96 @@ const annotationElements = <String, TrailElement>{
     label: 'Shell theme toggle',
     path: 'shell > theme > toggle',
   ),
+  'shell.account.sign_in': TrailElement(
+    id: 'shell.account.sign_in',
+    label: 'Shell account sign in',
+    path: 'shell > account > sign_in',
+  ),
+  'shell.account.my_notes': TrailElement(
+    id: 'shell.account.my_notes',
+    label: 'Shell account my notes',
+    path: 'shell > account > my_notes',
+  ),
+  'shell.account.log_out': TrailElement(
+    id: 'shell.account.log_out',
+    label: 'Shell account log out',
+    path: 'shell > account > log_out',
+  ),
+  'landing.account.open': TrailElement(
+    id: 'landing.account.open',
+    label: 'Landing account open',
+    path: 'landing > account > open',
+  ),
+  'account.sync.retry': TrailElement(
+    id: 'account.sync.retry',
+    label: 'Account sync retry',
+    path: 'account > sync > retry',
+  ),
+  'account.notes.retry': TrailElement(
+    id: 'account.notes.retry',
+    label: 'Account notes retry',
+    path: 'account > notes > retry',
+  ),
+  'account.notes.sign_in': TrailElement(
+    id: 'account.notes.sign_in',
+    label: 'Account notes sign in',
+    path: 'account > notes > sign_in',
+  ),
+  'intro.skip': TrailElement(
+    id: 'intro.skip',
+    label: 'Intro skip',
+    path: 'intro > skip',
+  ),
+  'intro.next': TrailElement(
+    id: 'intro.next',
+    label: 'Intro next',
+    path: 'intro > next',
+  ),
+  'workspace.note.new': TrailElement(
+    id: 'workspace.note.new',
+    label: 'Workspace note new',
+    path: 'workspace > note > new',
+  ),
+  'workspace.backup.restore': TrailElement(
+    id: 'workspace.backup.restore',
+    label: 'Workspace backup restore',
+    path: 'workspace > backup > restore',
+  ),
+  'workspace.note.back': TrailElement(
+    id: 'workspace.note.back',
+    label: 'Workspace note back',
+    path: 'workspace > note > back',
+  ),
+  'account.installed.start': TrailElement(
+    id: 'account.installed.start',
+    label: 'Account installed start',
+    path: 'account > installed > start',
+  ),
+  'account.installed.finish': TrailElement(
+    id: 'account.installed.finish',
+    label: 'Account installed finish',
+    path: 'account > installed > finish',
+  ),
+  'account.installed.reopen': TrailElement(
+    id: 'account.installed.reopen',
+    label: 'Account installed reopen',
+    path: 'account > installed > reopen',
+  ),
+  'account.installed.cancel': TrailElement(
+    id: 'account.installed.cancel',
+    label: 'Account installed cancel',
+    path: 'account > installed > cancel',
+  ),
+  'account.installed.back': TrailElement(
+    id: 'account.installed.back',
+    label: 'Account installed back',
+    path: 'account > installed > back',
+  ),
+  'workspace.cloud.retry': TrailElement(
+    id: 'workspace.cloud.retry',
+    label: 'Workspace cloud retry',
+    path: 'workspace > cloud > retry',
+  ),
   'shell.navigation.instant': TrailElement(
     id: 'shell.navigation.instant',
     label: 'Shell navigation instant',

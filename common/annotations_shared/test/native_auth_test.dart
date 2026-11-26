@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:annotations_shared/core/logs.dart';
 import 'package:annotations_shared/core/tracking.dart';
+import 'package:annotations_shared/dal/local/reports_private_cache.dart';
 import 'package:annotations_shared/dal/remote/api_adapter.dart';
 import 'package:annotations_shared/domain/services/native_auth_service.dart';
 import 'package:flutter/foundation.dart';
@@ -9,6 +10,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -181,6 +183,7 @@ void main() {
       });
 
       // Offline sign-out works immediately with server revocation pending.
+      SharedPreferences.setMockInitialValues({});
       await auth.signOut();
       expect(await storage.readSession(), isNull);
       expect(auth.pendingServerRevocation, isTrue);
@@ -206,14 +209,18 @@ void main() {
         throwsA(isA<SecureStorageUnavailableException>()),
       );
 
-      final store = <String, String>{};
+      final store = <String, dynamic>{};
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(channel, (call) async {
             switch (call.method) {
               case 'write':
                 final args = Map<String, dynamic>.from(call.arguments as Map);
+                store.clear();
                 store['session_id'] = '${args['session_id']}';
                 store['csrf_token'] = '${args['csrf_token']}';
+                if (args['verified_user_id'] != null) {
+                  store['verified_user_id'] = args['verified_user_id'];
+                }
                 return null;
               case 'read':
                 return store.isEmpty ? null : Map<String, dynamic>.from(store);
@@ -229,11 +236,18 @@ void main() {
       );
 
       await storage.writeSession(
-        const NativeSession(sessionId: 'sid_os', csrfToken: 'csrf_os'),
+        const NativeSession(
+          sessionId: 'sid_os',
+          csrfToken: 'csrf_os',
+          verifiedUserId: 'owner_os',
+        ),
       );
       final read = await storage.readSession();
       expect(read?.sessionId, 'sid_os');
       expect(read?.csrfToken, 'csrf_os');
+      expect(read?.verifiedUserId, 'owner_os');
+      store.remove('verified_user_id');
+      expect((await storage.readSession())?.verifiedUserId, isNull);
       await storage.deleteSession();
       expect(await storage.readSession(), isNull);
     },
@@ -302,4 +316,22 @@ void main() {
       expect(allTelemetry, isNot(contains('hid_full_77')));
     },
   );
+
+  test('native sign out clears the Reports private cache', () async {
+    SharedPreferences.setMockInitialValues({});
+    final cache = PreferencesReportsPrivateCache();
+    await cache.write('account-a', 'card', {'payload': 'private'});
+    expect(await cache.read('account-a', 'card'), {'payload': 'private'});
+
+    await NativeAuthService(storage: InMemorySecureSessionStorage()).signOut();
+
+    expect(await cache.readActive('card'), isNull);
+    final preferences = await SharedPreferences.getInstance();
+    expect(
+      preferences.getKeys().where(
+        (key) => key.startsWith('annotations.reports.restricted.v1.'),
+      ),
+      isEmpty,
+    );
+  });
 }
