@@ -58,6 +58,7 @@
 - Add Certifications browser continuation adapter
 - *(notes)* Prepare and resume selected quiz sources
 - *(instant)* Integrate reviewed room editor and sharing fixes (#44)
+- *(notes)* Add saved quiz card on browser return
 
 ### 🐛 Bug Fixes
 
@@ -114,6 +115,12 @@
 - Stop room file selection when disconnected
 - Close instant room failure and edit gates
 - Report disabled room edits as editor rejections
+- *(account)* Guard browser session response races
+- *(account)* Discard stale private list results
+- *(account)* Reset private list on account replacement
+- *(account)* Verify exchange session after identity check
+- *(account)* Bind notes to verified session revision
+- *(notes)* Integrate reviewed account guard and saved quiz return (#38, #51)
 
 ### 💼 Other
 
@@ -175,6 +182,7 @@
 - Compact language switch for narrow app bar
 - Accept reviewed responsive navigation and locale coverage
 - Add readable public note and room QR sharing controls (#65)
+- Integrate verified account session guard
 
 ### 🚜 Refactor
 
@@ -205,6 +213,7 @@
 - *(changelog)* Record retained phone input focus (#66)
 - *(changelog)* Record installed workspace and verified session isolation
 - *(changelog)* Record browser storage build fix (#69)
+- *(changelog)* Record reviewed Instant room delivery
 
 ### ⚡ Performance
 
@@ -230,6 +239,7 @@
 - Scope QR dialog label assertion
 - Cover stale prepared handoff cancellation
 - Make prepared editor race fixtures explicit
+- *(notes)* Prepare account and quiz return integration review
 
 ### ⚙️ Miscellaneous Tasks
 
