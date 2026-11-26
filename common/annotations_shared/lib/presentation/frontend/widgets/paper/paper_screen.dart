@@ -452,7 +452,10 @@ class PaperStatusPanel extends StatelessWidget {
                 state: handler.saveState,
                 onRetry: handler.retrySave,
               ),
-          divider(),
+          // Instant's longer Shared/Retry status can fill a phone row. Keep
+          // the separator with the controls instead of stranding it after
+          // Retry when Wrap moves the controls to the next row.
+          if (status == null) divider(),
           if (background)
             ListenableBuilder(
               listenable: Listenable.merge([handler, handler.preview]),
