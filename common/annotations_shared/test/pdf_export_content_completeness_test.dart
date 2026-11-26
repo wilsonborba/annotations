@@ -10,6 +10,7 @@ import 'package:annotations_shared/domain/services/krilla_pdf_backend.dart';
 import 'package:annotations_shared/domain/services/pdf_export_mapper.dart';
 import 'package:annotations_shared/domain/services/task_card_service.dart';
 import 'package:annotations_shared/presentation/frontend/handlers/export_handler.dart';
+import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf/widgets.dart' as pw;
 
@@ -226,6 +227,22 @@ void main() {
     final pdfText = await tester.runAsync(() => _extractPdfText(pdf));
     expect(pdfText, contains('HANDLER_CSV_SENTINEL'));
     expect(latin1.decode(pdf, allowInvalid: true), contains('/Subtype/Image'));
+    final zip = ZipDecoder().decodeBytes(handler.bytes());
+    final entries = {
+      for (final entry in zip.files)
+        if (entry.isFile)
+          entry.name: Uint8List.fromList(entry.content as List<int>),
+    };
+    expect(
+      entries.keys,
+      containsAll([
+        'references-original.pdf',
+        'source-csv-file.csv',
+        'source-pdf-file.pdf',
+      ]),
+    );
+    expect(entries['source-csv-file.csv'], csvBytes);
+    expect(entries['source-pdf-file.pdf'], sourcePdf);
   });
 
   test(
