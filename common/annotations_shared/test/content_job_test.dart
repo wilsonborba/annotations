@@ -5,6 +5,7 @@ import 'package:annotations_shared/dal/remote/api_adapter.dart';
 import 'package:annotations_shared/domain/services/content_job_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 
 import 'support/annotations_api_contract.dart';
 
@@ -96,7 +97,8 @@ void main() {
               return http.Response(
                 jsonEncode({
                   'job_id': 'job_99',
-                  'output_text': 'Extracted summary',
+                  'status': 'completed',
+                  'draft': {'format': 'markdown', 'text': 'Extracted summary'},
                 }),
                 200,
               );
@@ -180,6 +182,50 @@ void main() {
       } finally {
         if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
       }
+    },
+  );
+
+  test(
+    'completed job rejects a malformed producer draft without saving it',
+    () async {
+      final persistence = InMemoryContentJobPersistence();
+      await persistence.saveRef(
+        const ContentJobRef(
+          noteId: 'n1',
+          clientJobId: 'client-1',
+          jobId: 'job-1',
+          lastEventSeq: 1,
+          status: 'running',
+          uploadedFileIds: [],
+        ),
+      );
+      final client = MockClient((request) async {
+        if (request.url.path.endsWith('/events')) {
+          return http.Response(
+            'id: 2\nevent: completed\ndata: {"status":"completed"}\n\n',
+            200,
+          );
+        }
+        if (request.url.path.endsWith('/job-1')) {
+          return http.Response(
+            jsonEncode({
+              'job_id': 'job-1',
+              'draft': {'format': 'markdown'},
+            }),
+            200,
+          );
+        }
+        return http.Response('{}', 404);
+      });
+      final service = ContentJobService(
+        api: ApiAdapter(client: client, base: 'https://api.test'),
+        persistence: persistence,
+        enabled: true,
+      );
+
+      await expectLater(service.resumeJob('n1'), throwsFormatException);
+      expect(await persistence.loadDraft('n1'), isNull);
+      client.close();
     },
   );
 }

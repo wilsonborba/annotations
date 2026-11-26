@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -505,6 +506,167 @@ void main() {
       client.close();
     },
   );
+
+  test('cloud progress is delivered before the SSE response closes', () async {
+    final client = _LiveEventsClient();
+    final service = _service(
+      client: client,
+      store: MemoryPendingTranscriptionFeedbackStore(),
+      session: _session('owner-a'),
+    );
+    final received = <TranscriptionEvent>[];
+    final firstEvent = Completer<void>();
+    final waiting = service.waitForCloudResult(
+      'run-1',
+      onEvent: (event) {
+        received.add(event);
+        if (!firstEvent.isCompleted) firstEvent.complete();
+      },
+    );
+    await client.eventRequestStarted.future;
+
+    final prefix = utf8.encode(
+      'id: 1\r\nevent: progress\r\ndata: {"status":"running","text":"',
+    );
+    final thai = utf8.encode('กิ');
+    client.events.add([...prefix, thai.first]);
+    client.events.add([...thai.skip(1), ...utf8.encode('"}\r')]);
+    client.events.add(utf8.encode('\n\r\n'));
+    await firstEvent.future.timeout(const Duration(seconds: 2));
+
+    expect(received, hasLength(1));
+    expect(received.single.id, 1);
+    expect(received.single.stage, 'progress');
+    expect(received.single.data['text'], 'กิ');
+    expect(client.getRunCalls, 1);
+
+    client.events.close();
+    final run = await waiting;
+    expect(run.status, 'completed');
+    expect(client.getRunCalls, 2);
+    client.close();
+  });
+
+  test(
+    'account change during SSE prevents delivering its old-owner event',
+    () async {
+      var current = true;
+      final session = TranscriptionSession(
+        accountId: 'owner-a',
+        readHeaders: {'authorization': 'Bearer owner-a'},
+        mutationHeaders: {'authorization': 'Bearer owner-a'},
+        isCurrent: () => current,
+      );
+      final client = _LiveEventsClient();
+      final service = _service(
+        client: client,
+        store: MemoryPendingTranscriptionFeedbackStore(),
+        session: session,
+      );
+      var callbacks = 0;
+      final waiting = service.waitForCloudResult(
+        'run-1',
+        onEvent: (_) => callbacks++,
+      );
+      await client.eventRequestStarted.future;
+      final expectedFailure = expectLater(
+        waiting,
+        throwsA(isA<TranscriptionSessionChangedException>()),
+      );
+      current = false;
+      client.events.add(
+        utf8.encode('id: 1\nevent: progress\ndata: {"status":"running"}\n\n'),
+      );
+      await expectedFailure;
+      expect(callbacks, 0);
+      client.close();
+    },
+  );
+
+  test(
+    'account change during the final run read rejects the old result',
+    () async {
+      var current = true;
+      final session = TranscriptionSession(
+        accountId: 'owner-a',
+        readHeaders: {'authorization': 'Bearer owner-a'},
+        mutationHeaders: {'authorization': 'Bearer owner-a'},
+        isCurrent: () => current,
+      );
+      final finalRead = Completer<http.Response>();
+      var getCalls = 0;
+      final client = MockClient((request) async {
+        if (request.url.path.endsWith('/events')) {
+          return http.Response(
+            'id: 1\nevent: progress\ndata: {"status":"running"}\n\n',
+            200,
+            headers: {'content-type': 'text/event-stream'},
+          );
+        }
+        getCalls++;
+        if (getCalls == 1) {
+          return http.Response(jsonEncode(_cloudRun('registered', 0)), 200);
+        }
+        return finalRead.future;
+      });
+      final service = _service(
+        client: client,
+        store: MemoryPendingTranscriptionFeedbackStore(),
+        session: session,
+      );
+      final waiting = service.waitForCloudResult('run-1', onEvent: (_) {});
+      while (getCalls < 2) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      current = false;
+      finalRead.complete(
+        http.Response(jsonEncode(_cloudRun('completed', 1)), 200),
+      );
+      await expectLater(
+        waiting,
+        throwsA(isA<TranscriptionSessionChangedException>()),
+      );
+      client.close();
+    },
+  );
+
+  test(
+    'account change during the initial run read rejects the old result',
+    () async {
+      var current = true;
+      final session = TranscriptionSession(
+        accountId: 'owner-a',
+        readHeaders: {'authorization': 'Bearer owner-a'},
+        mutationHeaders: {'authorization': 'Bearer owner-a'},
+        isCurrent: () => current,
+      );
+      final initialRead = Completer<http.Response>();
+      var requested = false;
+      final client = MockClient((_) {
+        requested = true;
+        return initialRead.future;
+      });
+      final service = _service(
+        client: client,
+        store: MemoryPendingTranscriptionFeedbackStore(),
+        session: session,
+      );
+
+      final waiting = service.waitForCloudResult('run-1', onEvent: (_) {});
+      while (!requested) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      current = false;
+      initialRead.complete(
+        http.Response(jsonEncode(_cloudRun('completed', 0)), 200),
+      );
+      await expectLater(
+        waiting,
+        throwsA(isA<TranscriptionSessionChangedException>()),
+      );
+      client.close();
+    },
+  );
 }
 
 TranscriptionRunService _service({
@@ -523,6 +685,41 @@ TranscriptionRunService _service({
   enabled: true,
   newEventId: eventId,
 );
+
+final class _LiveEventsClient extends http.BaseClient {
+  final eventRequestStarted = Completer<void>();
+  late StreamController<List<int>> events;
+  bool _eventsCreated = false;
+  int getRunCalls = 0;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    if (request.url.path.endsWith('/events')) {
+      events = StreamController<List<int>>();
+      _eventsCreated = true;
+      eventRequestStarted.complete();
+      return http.StreamedResponse(
+        events.stream,
+        200,
+        headers: {'content-type': 'text/event-stream'},
+      );
+    }
+    getRunCalls++;
+    final body = jsonEncode(
+      _cloudRun(getRunCalls == 1 ? 'registered' : 'completed', 1),
+    );
+    return http.StreamedResponse(
+      Stream<List<int>>.value(utf8.encode(body)),
+      200,
+      headers: {'content-type': 'application/json'},
+    );
+  }
+
+  @override
+  void close() {
+    if (_eventsCreated && !events.isClosed) events.close();
+  }
+}
 
 final class _FixtureRuntime implements TranscriptionRuntime {
   const _FixtureRuntime(this.document);
@@ -594,6 +791,12 @@ Map<String, Object?> _run(String status) => {
   'last_event_id': 0,
   if (status == 'completed') 'result': {'event_id': 'result-event-1'},
   'source_revision_id': 'revision-1',
+};
+
+Map<String, Object?> _cloudRun(String status, int lastEventId) => {
+  ..._run(status),
+  'mode': 'cloud',
+  'last_event_id': lastEventId,
 };
 
 TranscriptionSession _session(String accountId) => TranscriptionSession(

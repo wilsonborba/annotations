@@ -396,11 +396,11 @@ final class TranscriptionApiAdapter {
     );
   }
 
-  Future<List<TranscriptionEvent>> events(
+  Stream<TranscriptionEvent> events(
     TranscriptionSession session,
     String runId, {
     int after = 0,
-  }) async {
+  }) async* {
     _requireVisible(runId, 'run id');
     if (after < 0) throw ArgumentError.value(after, 'after');
     session.requireCurrent();
@@ -411,13 +411,114 @@ final class TranscriptionApiAdapter {
       ).replace(queryParameters: {'after': '$after'}),
     )..headers.addAll(session.headers(mutation: false));
     request.headers['accept'] = 'text/event-stream';
-    final response = await http.Response.fromStream(
-      await api.client.send(request),
-    );
+    final response = await api.client.send(request);
+    session.requireCurrent();
     if (response.statusCode >= 400) {
-      throw ApiError(response.statusCode, _errorMessage(response.body));
+      final body = await response.stream.bytesToString();
+      session.requireCurrent();
+      throw ApiError(response.statusCode, _errorMessage(body));
     }
-    return _parseEvents(response.body);
+
+    const maxEventCharacters = 64 * 1024;
+    int? id;
+    String? stage;
+    final data = <String>[];
+    var frameCharacters = 0;
+
+    TranscriptionEvent? flush() {
+      final eventId = id;
+      final eventStage = stage;
+      final hasContent =
+          eventId != null || eventStage != null || data.isNotEmpty;
+      if (!hasContent) return null;
+      if (eventId == null || eventStage == null || data.isEmpty) {
+        throw const FormatException('Invalid transcription event frame.');
+      }
+      final decoded = jsonDecode(data.join('\n'));
+      if (decoded is! Map) {
+        throw const FormatException('Invalid transcription event data.');
+      }
+      return TranscriptionEvent(
+        id: eventId,
+        stage: eventStage,
+        data: Map<String, dynamic>.from(decoded),
+      );
+    }
+
+    TranscriptionEvent? consumeLine(String line) {
+      frameCharacters += line.length + 1;
+      if (frameCharacters > maxEventCharacters) {
+        throw const FormatException('Transcription event frame is too large.');
+      }
+      if (line.isEmpty) {
+        final event = flush();
+        id = null;
+        stage = null;
+        data.clear();
+        frameCharacters = 0;
+        return event;
+      }
+      if (line.startsWith(':')) return null;
+      if (line.startsWith('id:')) {
+        id = int.tryParse(line.substring(3).trim());
+      } else if (line.startsWith('event:')) {
+        stage = line.substring(6).trim();
+      } else if (line.startsWith('data:')) {
+        data.add(line.substring(5).trim());
+      }
+      return null;
+    }
+
+    var pendingLine = '';
+    await for (final chunk in response.stream.transform(utf8.decoder)) {
+      session.requireCurrent();
+      final text = pendingLine + chunk;
+      var lineStart = 0;
+      for (var i = 0; i < text.length; i++) {
+        final code = text.codeUnitAt(i);
+        if (code != 10 && code != 13) continue;
+        // A CR at the end of a chunk may be the first half of CRLF. Keep it
+        // until the next chunk so it cannot become a false blank event line.
+        if (code == 13 && i == text.length - 1) break;
+        final event = consumeLine(text.substring(lineStart, i));
+        if (event != null) {
+          session.requireCurrent();
+          yield event;
+        }
+        if (code == 13 && text.codeUnitAt(i + 1) == 10) i++;
+        lineStart = i + 1;
+      }
+      pendingLine = text.substring(lineStart);
+      if (pendingLine.length > maxEventCharacters) {
+        throw const FormatException('Transcription event line is too large.');
+      }
+    }
+    if (pendingLine.endsWith('\r')) {
+      final event = consumeLine(
+        pendingLine.substring(0, pendingLine.length - 1),
+      );
+      if (event != null) {
+        session.requireCurrent();
+        yield event;
+      }
+      final finalEvent = consumeLine('');
+      if (finalEvent != null) {
+        session.requireCurrent();
+        yield finalEvent;
+      }
+    } else if (pendingLine.isNotEmpty) {
+      final event = consumeLine(pendingLine);
+      if (event != null) {
+        session.requireCurrent();
+        yield event;
+      }
+    }
+    session.requireCurrent();
+    final finalEvent = flush();
+    if (finalEvent != null) {
+      session.requireCurrent();
+      yield finalEvent;
+    }
   }
 
   static List<TranscriptionEvent> parseEvents(String body) =>

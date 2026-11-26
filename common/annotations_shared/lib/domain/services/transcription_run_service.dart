@@ -600,20 +600,26 @@ final class TranscriptionRunService {
   }) async {
     _requireEnabled();
     final session = await _requireSession();
+    session.requireCurrent();
     var run = await api.getRun(session, runId);
+    session.requireCurrent();
     var cursor = run.lastEventId;
     while (run.status == 'registered') {
-      final events = await api.events(session, runId, after: cursor);
-      for (final event in events) {
+      var receivedEvent = false;
+      await for (final event in api.events(session, runId, after: cursor)) {
+        session.requireCurrent();
+        receivedEvent = true;
         if (event.id > cursor) cursor = event.id;
         onEvent(event);
       }
       session.requireCurrent();
       run = await api.getRun(session, runId);
-      if (events.isEmpty && run.status == 'registered') {
+      session.requireCurrent();
+      if (!receivedEvent && run.status == 'registered') {
         throw const TranscriptionEventsEndedEarlyException();
       }
     }
+    session.requireCurrent();
     if (run.mode != 'cloud') throw const TranscriptionRunStateException();
     return run;
   }

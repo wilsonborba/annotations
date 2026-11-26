@@ -382,10 +382,18 @@ class ContentJobService {
 
     if (status == 'completed') {
       final job = await api.request('/me/content_jobs/${ref.jobId}');
+      final rawDraft = job['draft'];
+      if (job['job_id'] != ref.jobId ||
+          rawDraft is! Map ||
+          rawDraft['format'] != 'markdown' ||
+          rawDraft['text'] is! String ||
+          (rawDraft['text'] as String).trim().isEmpty) {
+        throw const FormatException('Invalid completed content job draft.');
+      }
       final draft = ContentJobDraft(
         noteId: noteId,
         jobId: ref.jobId!,
-        extractedText: '${job['output_text'] ?? ''}',
+        extractedText: rawDraft['text'] as String,
         accepted: false,
       );
       await persistence.saveDraft(draft);
