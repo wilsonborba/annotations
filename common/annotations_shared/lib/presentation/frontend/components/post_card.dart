@@ -4,6 +4,9 @@ import 'icons.dart';
 import 'tokens.dart';
 import 'package:go_router/go_router.dart';
 import '../../../domain/models/content.dart';
+import '../../../domain/services/discovery_reader_service.dart';
+import 'controls.dart';
+import 'scope.dart';
 
 class PostCard extends StatelessWidget {
   final Data post;
@@ -145,4 +148,140 @@ class PostGrid extends StatelessWidget {
       );
     },
   );
+}
+
+/// Recent published notes from public discovery. These cards deliberately use
+/// only fields in the public summary contract and link to the canonical reader.
+class PublicNoteGrid extends StatelessWidget {
+  final List<PublicNoteSummary> items;
+  const PublicNoteGrid({super.key, required this.items});
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, c) {
+      final columns = c.maxWidth > 950
+          ? 3
+          : c.maxWidth > 600
+          ? 2
+          : 1;
+      final width = (c.maxWidth - (columns - 1) * 20) / columns;
+      return Wrap(
+        spacing: 20,
+        runSpacing: 20,
+        children: [
+          for (final note in items)
+            SizedBox(
+              width: width,
+              child: PublicNoteCard(note: note),
+            ),
+        ],
+      );
+    },
+  );
+}
+
+class PublicNoteCard extends StatelessWidget {
+  final PublicNoteSummary note;
+  const PublicNoteCard({super.key, required this.note});
+
+  String _readerPath({String? view}) {
+    final path = '/v1/notes/${Uri.encodeComponent(note.id)}';
+    return view == null ? path : '$path?view=$view';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    final c = context.colors;
+    final views = note.views
+        .where((view) => view == 'original' || view == 'typed')
+        .toSet()
+        .toList();
+    return Material(
+      color: Theme.of(context).colorScheme.surface,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        key: Key('recent-note-${note.id}'),
+        decoration: BoxDecoration(
+          border: Border.all(color: Theme.of(context).dividerColor),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        padding: const EdgeInsets.all(22),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Wrap(
+              spacing: 8,
+              runSpacing: 6,
+              children: [
+                for (final tag in note.tags.take(3))
+                  Text(
+                    '#$tag',
+                    style: text.labelSmall!.copyWith(color: c.textSecondary),
+                  ),
+                if (note.language.isNotEmpty)
+                  Text(
+                    note.language.toUpperCase(),
+                    style: text.labelSmall!.copyWith(color: c.textSecondary),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            InkWell(
+              key: Key('recent-title-${note.id}'),
+              onTap: () => context.go(_readerPath()),
+              child: Text(
+                note.title,
+                style: text.titleLarge!.copyWith(color: c.link),
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            if (note.summary != null && note.summary!.trim().isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Text(
+                note.summary!,
+                style: text.bodyMedium,
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+            const SizedBox(height: 16),
+            if (note.authorName.isNotEmpty)
+              InkWell(
+                key: Key('recent-author-${note.id}'),
+                onTap: note.authorId.isEmpty
+                    ? null
+                    : () => context.go(
+                        '/v1/authors/${Uri.encodeComponent(note.authorId)}',
+                      ),
+                child: Text(
+                  note.authorName,
+                  style: text.bodySmall!.copyWith(
+                    color: note.authorId.isEmpty ? c.textSecondary : c.link,
+                  ),
+                ),
+              ),
+            if (views.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final view in views)
+                    AppButton.subtle(
+                      key: Key('recent-${note.id}-$view'),
+                      label: context.tr(
+                        view == 'typed' ? 'viewTyped' : 'viewOriginal',
+                      ),
+                      onPressed: () => context.go(_readerPath(view: view)),
+                    ),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
 }

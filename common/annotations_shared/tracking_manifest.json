@@ -632,6 +632,34 @@
       "path": "workspace > cloud > retry",
       "description": "Retry of a failed sync, publication or deletion in the writer workspace.",
       "source": "lib/presentation/frontend/widgets/workspace/workspace_page.dart"
+    },
+    {
+      "id": "discovery.more",
+      "label": "Discovery more",
+      "path": "discovery > more",
+      "description": "Show more results in public browsing.",
+      "source": "lib/presentation/frontend/widgets/discovery/discovery_pages.dart"
+    },
+    {
+      "id": "reader.view.switch",
+      "label": "Reader view switch",
+      "path": "reader > view > switch",
+      "description": "Switch between the Original and Typed views of a public note.",
+      "source": "lib/presentation/frontend/widgets/discovery/discovery_pages.dart"
+    },
+    {
+      "id": "reader.link.copy",
+      "label": "Reader link copy",
+      "path": "reader > link > copy",
+      "description": "Copy the canonical public reader link.",
+      "source": "lib/presentation/frontend/widgets/discovery/discovery_pages.dart"
+    },
+    {
+      "id": "reader.link.open",
+      "label": "Reader link open",
+      "path": "reader > link > open",
+      "description": "Open the canonical public reader link.",
+      "source": "lib/presentation/frontend/widgets/discovery/discovery_pages.dart"
     }
   ]
 }

@@ -8,6 +8,7 @@ import '../../../../dal/remote/browser/transfers.dart' as browser;
 import '../../../../domain/models/content.dart';
 import '../../components/controls.dart';
 import '../../components/landing_image.dart';
+import '../../components/qr_share.dart';
 import '../../components/scope.dart';
 import '../../components/tokens.dart';
 import '../../components/shell.dart';
@@ -227,6 +228,7 @@ class _InstantPageState extends State<InstantPage> {
             .ceil()
             .clamp(0, 900);
     final items = records(h.room!['items']);
+    final joinUri = publicAppUri(pathSegments: ['v1', 'instant', widget.code!]);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -237,27 +239,28 @@ class _InstantPageState extends State<InstantPage> {
             border: Border.all(color: Theme.of(context).dividerColor),
             borderRadius: BorderRadius.circular(7),
           ),
-          child: Wrap(
-            alignment: WrapAlignment.spaceBetween,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            runSpacing: 10,
-            spacing: 20,
-            children: [
-              Row(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final roomIdentity = Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   AppIcon(AppIcons.peopleGroup, color: context.colors.icon),
                   const SizedBox(width: 12),
-                  Text(
-                    widget.code!,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w700,
-                      fontSize: 19,
+                  Flexible(
+                    child: Text(
+                      widget.code!,
+                      key: const Key('instant-room-code-label'),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 19,
+                      ),
                     ),
                   ),
                 ],
-              ),
-              Row(
+              );
+              final timer = Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   const AppIcon(AppIcons.clock, size: 17),
@@ -265,7 +268,21 @@ class _InstantPageState extends State<InstantPage> {
                   Text(
                     '${seconds ~/ 60}:${(seconds % 60).toString().padLeft(2, '0')}',
                   ),
-                  const SizedBox(width: 20),
+                ],
+              );
+              final actions = Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  QrShareControl(
+                    key: const Key('instant-room-qr-share'),
+                    url: joinUri,
+                    caption: context.tr('qrInstantCaption'),
+                    semanticHint:
+                        '${context.tr('qrInstantCaption')}. Room code ${widget.code!}. Full link: $joinUri',
+                    labelKey: 'qrRoom',
+                  ),
                   track(
                     'instant.room.copy',
                     AppButton(
@@ -273,24 +290,45 @@ class _InstantPageState extends State<InstantPage> {
                       icon: AppIcons.link,
                       onPressed: () async {
                         await Clipboard.setData(
-                          ClipboardData(
-                            text: Uri.base
-                                .replace(
-                                  path: '/v1/instant/${widget.code}',
-                                  query: '',
-                                )
-                                .toString(),
-                          ),
+                          ClipboardData(text: joinUri.toString()),
                         );
-                        if (mounted) {
+                        if (context.mounted) {
                           showAppToast(context, context.tr('copied'));
                         }
                       },
                     ),
                   ),
                 ],
-              ),
-            ],
+              );
+
+              if (constraints.maxWidth <= 600) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(child: roomIdentity),
+                        const SizedBox(width: 12),
+                        timer,
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Align(alignment: Alignment.centerRight, child: actions),
+                  ],
+                );
+              }
+
+              return Row(
+                children: [
+                  Expanded(child: roomIdentity),
+                  const SizedBox(width: 20),
+                  timer,
+                  const SizedBox(width: 20),
+                  actions,
+                ],
+              );
+            },
           ),
         ),
         const SizedBox(height: 14),

@@ -8,6 +8,7 @@ import 'package:annotations_shared/domain/services/annotations_service.dart';
 import 'package:annotations_shared/domain/services/preferences.dart';
 import 'package:annotations_shared/presentation/frontend/components/controls.dart';
 import 'package:annotations_shared/presentation/frontend/components/interactive_card.dart';
+import 'package:annotations_shared/presentation/frontend/components/qr_share.dart';
 import 'package:annotations_shared/presentation/frontend/components/scope.dart';
 import 'package:annotations_shared/presentation/frontend/components/shell.dart';
 import 'package:annotations_shared/presentation/frontend/components/sketch_art.dart';
@@ -111,6 +112,157 @@ int primaryButtons(WidgetTester tester) => tester
 
 void main() {
   setUpAll(loadAppFonts);
+
+  testWidgets(
+    'recent public notes use strict v2 discovery and canonical views',
+    (tester) async {
+      final requests = <http.Request>[];
+      final service = fixtureService(
+        handler: (request) async {
+          requests.add(request);
+          if (request.url.path == '/notes' && request.method == 'GET') {
+            expect(request.url.queryParameters, {'limit': '6'});
+            return http.Response(
+              jsonEncode({
+                'items': [
+                  {
+                    'note_id': 'note_1',
+                    'author_id': 'author_1',
+                    'author_name': 'Public author',
+                    'title': 'Published note',
+                    'summary': 'A public summary',
+                    'language': 'en',
+                    'tags': ['biology'],
+                    'views': ['original', 'typed'],
+                    'default_view': 'original',
+                    'published_at': 1700000000,
+                  },
+                ],
+                'next_cursor': null,
+                'browse_token': null,
+              }),
+              200,
+              headers: {'content-type': 'application/json'},
+            );
+          }
+          final requestedView = request.url.queryParameters['view'];
+          if (request.url.path == '/notes/note_1' &&
+              request.method == 'GET' &&
+              (requestedView == 'original' || requestedView == 'typed')) {
+            return http.Response(
+              jsonEncode({
+                'note_id': 'note_1',
+                'author_id': 'author_1',
+                'author_name': 'Public author',
+                'title': 'Published note',
+                'language': 'en',
+                'tags': ['biology'],
+                'views': ['original', 'typed'],
+                'default_view': requestedView,
+                'can_switch_view': true,
+                'typed_uses_earlier_revision': false,
+                'representations': [
+                  {
+                    'representation': requestedView,
+                    'schema_version': 1,
+                    'document': requestedView == 'typed'
+                        ? {
+                            'blocks': [
+                              {
+                                'id': 'block_1',
+                                'kind': 'paragraph',
+                                'spans': [
+                                  {'text': 'Typed reader content'},
+                                ],
+                              },
+                            ],
+                          }
+                        : {
+                            'page': {'width': 1000, 'height': 1400},
+                            'items': [],
+                          },
+                  },
+                ],
+              }),
+              200,
+              headers: {'content-type': 'application/json'},
+            );
+          }
+          fail('Unexpected request ${request.method} ${request.url.path}');
+        },
+      );
+
+      await open(tester, '/v1/home', service: service);
+      await tester.ensureVisible(find.byKey(const Key('recent-note-note_1')));
+      expect(find.text('Published note'), findsOneWidget);
+      expect(find.text('A public summary'), findsOneWidget);
+      expect(requests.map((r) => r.url.path), ['/notes']);
+
+      await tester.ensureVisible(find.byKey(const Key('recent-note_1-typed')));
+      await tester.tap(find.byKey(const Key('recent-note_1-typed')));
+      await tester.pumpAndSettle();
+
+      expect(requests.map((r) => r.url.path), ['/notes', '/notes/note_1']);
+      expect(requests.last.url.queryParameters['view'], 'typed');
+      expect(find.text('Typed reader content'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('brand-home')));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(const Key('recent-note_1-original')),
+      );
+      await tester.tap(find.byKey(const Key('recent-note_1-original')));
+      await tester.pumpAndSettle();
+      expect(requests.last.url.path, '/notes/note_1');
+      expect(requests.last.url.queryParameters['view'], 'original');
+      expect(requests.any((r) => r.url.path.startsWith('/posts')), isFalse);
+    },
+  );
+
+  testWidgets('legacy article URLs show not found without making API calls', (
+    tester,
+  ) async {
+    final paths = <String>[];
+    final service = fixtureService(
+      handler: (request) async {
+        paths.add(request.url.path);
+        return http.Response('{}', 404);
+      },
+    );
+    await open(
+      tester,
+      '/v1/menu/old-channel/old-slug?lang=th',
+      service: service,
+    );
+    expect(find.byKey(const Key('not-found')), findsOneWidget);
+    expect(paths, isEmpty);
+  });
+
+  testWidgets('landing keeps empty and retry states for public discovery', (
+    tester,
+  ) async {
+    var attempts = 0;
+    final service = fixtureService(
+      handler: (request) async {
+        expect(request.method, 'GET');
+        expect(request.url.path, '/notes');
+        attempts++;
+        if (attempts == 1) return http.Response('{}', 503);
+        return http.Response(
+          jsonEncode({'items': [], 'next_cursor': null}),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      },
+    );
+    await open(tester, '/v1/home', service: service);
+    await tester.ensureVisible(find.text('Try again'));
+    expect(find.text('Try again'), findsOneWidget);
+    await tester.tap(find.text('Try again'));
+    await tester.pumpAndSettle();
+    expect(attempts, 2);
+    expect(find.text(translate('empty', 'en')), findsOneWidget);
+  });
 
   testWidgets('/ redirects to the Overview and every tab opens its own page', (
     tester,
@@ -260,10 +412,131 @@ void main() {
     expired = true;
     await tester.pump(const Duration(seconds: 4));
     await tester.pumpAndSettle();
+    expect(find.byKey(const Key('instant-room-qr-share')), findsNothing);
     expect(
       tester.getTopLeft(find.byKey(const Key('image-S02'))).dy,
       lessThan(tester.getTopLeft(find.byKey(const Key('room-expired'))).dy),
     );
+  });
+
+  testWidgets('active Instant shares its existing join route locally', (
+    tester,
+  ) async {
+    final requests = <Uri>[];
+    final service = fixtureService(
+      handler: (request) async {
+        requests.add(request.url);
+        return http.Response(
+          jsonEncode({
+            'code': 'transfer',
+            'revision': 0,
+            'expires_at': DateTime.now().millisecondsSinceEpoch ~/ 1000 + 900,
+            'items': [],
+          }),
+          200,
+        );
+      },
+    );
+    await open(tester, '/v1/instant/transfer', service: service);
+    final qr = tester.widget<QrShareControl>(
+      find.byKey(const Key('instant-room-qr-share')),
+    );
+    expect(qr.url, publicAppUri(pathSegments: ['v1', 'instant', 'transfer']));
+    expect(qr.caption, translate('qrInstantCaption', 'en'));
+    expect(qr.semanticHint, contains('Room code transfer'));
+    expect(qr.semanticHint, contains(qr.url.toString()));
+    expect(qr.labelKey, 'qrRoom');
+    expect(find.byType(QrCodeView), findsNothing);
+    final requestCount = requests.length;
+    await tester.ensureVisible(find.byKey(const Key('instant-room-qr-share')));
+    await tester.tap(find.byKey(const Key('instant-room-qr-share')));
+    await tester.pumpAndSettle();
+    final codes = tester.widgetList<QrCodeView>(find.byType(QrCodeView));
+    expect(codes, hasLength(1));
+    expect(codes.single.data, qr.url.toString());
+    expect(requests.length, requestCount);
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    expect(find.byType(Dialog), findsNothing);
+    expect(requests.length, requestCount);
+  });
+
+  testWidgets('maximum backend room code truncates visibly but stays intact', (
+    tester,
+  ) async {
+    final longCode = List.filled(100, 'r').join();
+    final semantics = tester.ensureSemantics();
+    for (final (width, locale) in [
+      (390.0, 'en'),
+      (390.0, 'pt-BR'),
+      (390.0, 'th'),
+      (1300.0, 'pt-BR'),
+    ]) {
+      final service = fixtureService(
+        handler: (_) async => http.Response(
+          jsonEncode({
+            'code': longCode,
+            'revision': 0,
+            'expires_at': DateTime.now().millisecondsSinceEpoch ~/ 1000 + 900,
+            'items': [],
+          }),
+          200,
+        ),
+      );
+      await open(
+        tester,
+        '/v1/instant/$longCode',
+        width: width,
+        locale: locale,
+        service: service,
+      );
+      expect(tester.takeException(), isNull, reason: '$width / $locale');
+
+      final codeLabel = tester.widget<Text>(
+        find.byKey(const Key('instant-room-code-label')),
+      );
+      expect(codeLabel.data, longCode);
+      expect(codeLabel.maxLines, 1);
+      expect(codeLabel.overflow, TextOverflow.ellipsis);
+
+      final qr = tester.widget<QrShareControl>(
+        find.byKey(const Key('instant-room-qr-share')),
+      );
+      expect(qr.url, publicAppUri(pathSegments: ['v1', 'instant', longCode]));
+      expect(qr.caption, translate('qrInstantCaption', locale));
+      expect(qr.semanticHint, contains(longCode));
+      expect(qr.semanticHint, contains(qr.url.toString()));
+      expect(find.text(translate('qrRoom', locale)), findsOneWidget);
+      expect(find.text(translate('copy', locale)), findsOneWidget);
+      final qrSemantics = tester.getSemantics(
+        find.byKey(const Key('instant-room-qr-share')),
+      );
+      expect(qrSemantics.label, translate('qrRoom', locale));
+      expect(qrSemantics.hint, contains(longCode));
+      expect(qrSemantics.hint, contains(qr.url.toString()));
+
+      await tester.ensureVisible(
+        find.byKey(const Key('instant-room-qr-share')),
+      );
+      await tester.tap(find.byKey(const Key('instant-room-qr-share')));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull, reason: 'dialog $width / $locale');
+      expect(
+        tester.widgetList<QrCodeView>(find.byType(QrCodeView)).single.data,
+        qr.url.toString(),
+      );
+      final urlPreview = tester.widget<Text>(
+        find.byWidgetPredicate(
+          (widget) => widget is Text && widget.data == qr.url.toString(),
+        ),
+      );
+      expect(urlPreview.data, qr.url.toString());
+      expect(urlPreview.maxLines, 2);
+      expect(tester.getSize(find.byType(QrCodeView)).width, lessThan(321));
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+    }
+    semantics.dispose();
   });
 
   group('Overview hero', () {

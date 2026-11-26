@@ -379,6 +379,8 @@ Path _path(List<List<InkVec>> pieces) {
 }
 
 AppIconData _blockIcon(DocumentItem item) => switch (item) {
+  // A card the reader may not open keeps its space and shows a lock (#40).
+  _ when item.toJson()['restricted'] == true => AppIcons.lock,
   ImageItem() => AppIcons.image,
   YoutubeCard() => AppIcons.video,
   LinkCard() => AppIcons.link,

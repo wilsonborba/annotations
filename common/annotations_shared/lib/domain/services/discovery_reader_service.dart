@@ -40,6 +40,13 @@ final class PublicNoteSummary {
   final String? projectId;
   final List<String> tags;
 
+  /// Card fields of the public header (annotations#40): summary, language,
+  /// published views and the publication time in Unix seconds.
+  final String? summary;
+  final String language;
+  final List<String> views;
+  final int publishedAt;
+
   const PublicNoteSummary({
     required this.id,
     required this.title,
@@ -47,6 +54,10 @@ final class PublicNoteSummary {
     required this.authorName,
     this.projectId,
     this.tags = const [],
+    this.summary,
+    this.language = '',
+    this.views = const [],
+    this.publishedAt = 0,
   });
 
   factory PublicNoteSummary.fromJson(Map<String, dynamic> j) =>
@@ -57,6 +68,10 @@ final class PublicNoteSummary {
         authorName: '${j['author_name'] ?? ''}',
         projectId: j['project_id'] as String?,
         tags: ((j['tags'] as List?) ?? const []).map((e) => '$e').toList(),
+        summary: j['summary'] as String?,
+        language: '${j['language'] ?? ''}',
+        views: ((j['views'] as List?) ?? const []).map((e) => '$e').toList(),
+        publishedAt: (j['published_at'] as num?)?.toInt() ?? 0,
       );
 }
 
@@ -371,4 +386,29 @@ class DiscoveryFeedController {
       }
     }
   }
+}
+
+/// A public document the editor model can read: the public projection strips
+/// private card payloads and leaves only id, kind, geometry, card reference, and
+/// `restricted: true`. Client [NoteDocument.fromJson] still requires `mode` and
+/// `source` on `reports_embed`, so this injects neutral `'live'` / `'reports'`
+/// placeholders while preserving `restricted: true`. Paper/typed readers draw a
+/// lock placeholder and block card open handlers on `restricted == true`.
+Map<String, dynamic> readablePublicDocument(Map<String, dynamic> document) {
+  Object? fix(Object? item) {
+    if (item is! Map || item['restricted'] != true) return item;
+    return {
+      ...item,
+      if (item['kind'] == 'reports_embed') ...{
+        'mode': item['mode'] ?? 'live',
+        'source': item['source'] ?? 'reports',
+      },
+    };
+  }
+
+  return {
+    ...document,
+    for (final key in ['items', 'blocks'])
+      if (document[key] is List) key: [for (final i in document[key]) fix(i)],
+  };
 }
