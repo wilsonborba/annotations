@@ -20,6 +20,11 @@ const strings = <String, List<String>>{
     'เนื้อหาบางส่วนยังไม่พร้อม',
   ],
   'issueMissingFile': ['Missing file', 'Arquivo ausente', 'ไม่พบไฟล์'],
+  'issueUnsupportedContent': [
+    'Some content needs a marked placeholder',
+    'Alguns conteúdos precisam de um marcador para impressão',
+    'เนื้อหาบางส่วนต้องใช้ข้อความแจ้งเตือนในเอกสาร',
+  ],
   'issueFailedChart': [
     'Report snapshot unavailable',
     'Instantâneo do relatório indisponível',

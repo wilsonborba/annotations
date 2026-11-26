@@ -21,6 +21,7 @@ import '../../../../domain/services/note_history.dart';
 import '../../../../domain/services/native_auth_service.dart';
 import '../../../../domain/services/prepared_certification_service.dart';
 import '../../../../domain/services/reports_embed_source.dart';
+import '../../../../domain/services/task_card_service.dart';
 import '../../components/controls.dart';
 import '../../components/icons.dart';
 import '../../components/scope.dart';
@@ -768,6 +769,19 @@ class _NoteEditorPageState extends State<NoteEditorPage>
                                           .readSession() !=
                                       null,
                                 );
+                          final taskCards =
+                              installed != null &&
+                                  installed.signedIn &&
+                                  note.accountId == installed.userId
+                              ? TaskCardService(
+                                  ApiAdapter(
+                                    client: SessionClient(
+                                      installed,
+                                      installed.client,
+                                    ),
+                                  ),
+                                )
+                              : null;
                           final language = scope.preferences.locale;
                           final export = ExportHandler(
                             note: note,
@@ -802,6 +816,18 @@ class _NoteEditorPageState extends State<NoteEditorPage>
                                   data,
                                   language: language,
                                 ),
+                            loadTaskSummary: taskCards == null
+                                ? null
+                                : (taskId) async {
+                                    final cardId = 'pdf-export-$taskId';
+                                    taskCards.attachCard(
+                                      cardId,
+                                      taskId,
+                                      isInstant: false,
+                                    );
+                                    await taskCards.refreshTask(taskId);
+                                    return taskCards.card(cardId)?.cached;
+                                  },
                           );
                           await showExportDialog(context, export);
                           export.dispose();

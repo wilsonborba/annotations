@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter/services.dart' show rootBundle;
+import 'package:image/image.dart' as img;
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
@@ -11,6 +12,7 @@ import '../models/note_document.dart';
 import 'editor_rules.dart';
 import 'ink_outline.dart';
 import 'krilla_pdf_backend.dart';
+import 'task_card_service.dart';
 
 enum PdfExportMode { original, typed, both }
 
@@ -28,6 +30,12 @@ String _reportImageKey(Map<String, dynamic> item) => jsonEncode([
   item['mode'] ?? '',
   item['snapshot_id'] ?? '',
 ]);
+
+String _quizReferenceId(Map<String, dynamic> item) {
+  final quizId = '${item['quiz_id'] ?? ''}'.trim();
+  if (quizId.isNotEmpty) return quizId;
+  return '${item['study_id'] ?? ''}'.trim();
+}
 
 final class PdfExportOptions {
   final PdfExportMode mode;
@@ -55,8 +63,7 @@ final class PdfExportOptions {
 }
 
 final class PdfPreflightIssue {
-  final String
-  kind; // missing_file | failed_chart | partial_chart | missing_font
+  final String kind;
   final String refId;
   final String message;
 
@@ -141,6 +148,8 @@ class PdfExportMapper {
 
   /// The editor's text size in page units (`annotationsTextStyle`).
   static const double editorTextSize = 16;
+  static const double _printTitleFontSize = 16;
+  static const double _printTitleLineHeight = 22;
   static final _thaiRegex = RegExp(r'[\u0E00-\u0E7F]');
   static final _thaiCombiningRegex = RegExp(
     r'[\u0E31\u0E34-\u0E3A\u0E47-\u0E4E]',
@@ -170,10 +179,37 @@ class PdfExportMapper {
     Set<String> availableFileIds = const {},
     Set<String> failedChartIds = const {},
     Set<String> partialChartIds = const {},
+    Map<String, TaskSummary> taskSummaries = const {},
+    Set<String> invalidImageFileIds = const {},
     bool fontsAvailable = true,
   }) {
     final issues = <PdfPreflightIssue>[];
+    final issueKeys = <String>{};
     var hasPrivateChartWarning = false;
+
+    void unavailable(String refId, String message) {
+      if (issueKeys.add('unsupported_content:$refId')) {
+        issues.add(
+          PdfPreflightIssue(
+            kind: 'unsupported_content',
+            refId: refId,
+            message: message,
+          ),
+        );
+      }
+    }
+
+    void missingFile(String fileId) {
+      if (issueKeys.add('missing_file:$fileId')) {
+        issues.add(
+          PdfPreflightIssue(
+            kind: 'missing_file',
+            refId: fileId,
+            message: 'Missing local or synced file $fileId.',
+          ),
+        );
+      }
+    }
 
     if (!fontsAvailable) {
       issues.add(
@@ -188,17 +224,50 @@ class PdfExportMapper {
     void scan(Object? node) {
       if (node is Map) {
         final kind = '${node['kind'] ?? node['type'] ?? ''}';
-        final fileId = node['file_id'] as String?;
-        if (fileId != null &&
-            fileId.isNotEmpty &&
-            !availableFileIds.contains(fileId)) {
-          issues.add(
-            PdfPreflightIssue(
-              kind: 'missing_file',
-              refId: fileId,
-              message: 'Missing local or synced file $fileId.',
-            ),
-          );
+        final fileIds = <String>{
+          if (node['file_id'] is String) node['file_id'] as String,
+          if ((kind == 'website_card' || kind == 'youtube_card') &&
+              node['preview_file_id'] is String)
+            node['preview_file_id'] as String,
+        };
+        for (final fileId in fileIds) {
+          if (fileId.isEmpty) continue;
+          if (!availableFileIds.contains(fileId)) {
+            missingFile(fileId);
+          } else if (invalidImageFileIds.contains(fileId)) {
+            unavailable(fileId, 'Image file $fileId cannot be printed.');
+          }
+        }
+
+        // Nested schema objects (for example `page.background.kind == blank`)
+        // also carry a `kind`, but only identified document items are export
+        // content. Do not report editor metadata as an unsupported item.
+        if (node.containsKey('id') &&
+            kind.isNotEmpty &&
+            !_knownKinds.contains(kind)) {
+          final id = '${node['id'] ?? kind}';
+          unavailable(id, 'Unsupported document item kind: $kind.');
+        }
+        if (node.containsKey('id') &&
+            kind == 'shape' &&
+            !_knownShapes.contains('${node['shape'] ?? ''}')) {
+          unavailable('${node['id'] ?? 'shape'}', 'Unsupported shape.');
+        }
+        if (kind == 'task_card' && options.audience == PdfAudience.personal) {
+          final taskId = '${node['task_id'] ?? ''}';
+          if (taskId.isEmpty) {
+            unavailable('${node['id'] ?? kind}', 'Task reference is invalid.');
+          } else if (!taskSummaries.containsKey(taskId)) {
+            unavailable(taskId, 'Task details are unavailable.');
+          }
+        }
+        if (kind == 'quiz_card' && options.audience == PdfAudience.personal) {
+          final quizId = _quizReferenceId(Map<String, dynamic>.from(node));
+          if (quizId.isEmpty) {
+            unavailable('${node['id'] ?? kind}', 'Quiz reference is invalid.');
+          } else {
+            unavailable(quizId, 'Quiz details are unavailable.');
+          }
         }
         if (kind == 'reports_embed') {
           final refId = '${node['report_id'] ?? ''}';
@@ -241,15 +310,143 @@ class PdfExportMapper {
 
     if (options.mode != PdfExportMode.typed && original != null) {
       scan(original.toJson());
+      for (final item
+          in (original is PaperDocument
+              ? original.items
+              : const <DocumentItem>[])) {
+        _preflightInk(item, unavailable, typed: false);
+      }
     }
     if (options.mode != PdfExportMode.original && typed != null) {
       scan(typed.toJson());
+      for (final item
+          in (typed is TypedDocument ? typed.blocks : const <DocumentItem>[])) {
+        _preflightInk(item, unavailable, typed: true);
+      }
     }
 
     return PdfPreflightResult(
       issues: issues,
       hasPrivateChartWarning: hasPrivateChartWarning,
     );
+  }
+
+  static const _knownKinds = <String>{
+    'text',
+    'image',
+    'group',
+    'stroke',
+    'shape',
+    'heading',
+    'paragraph',
+    'list',
+    'table',
+    'figure',
+    'handwriting',
+    'file', // Older file references remain printable as static references.
+    'task', // Legacy references remain printable from their stored summary.
+    'quiz', // Legacy references remain printable from their stored summary.
+    'h1',
+    'h2',
+    'h3',
+    'file_card',
+    'link_card',
+    'website_card',
+    'youtube_card',
+    'csv_table',
+    'pdf_preview',
+    'reports_embed',
+    'task_card',
+    'quiz_card',
+  };
+
+  static const _knownShapes = <String>{
+    'circle',
+    'rectangle',
+    'triangle',
+    'path',
+  };
+
+  static const _sharedCardKinds = <String>{
+    'file_card',
+    'link_card',
+    'website_card',
+    'youtube_card',
+    'csv_table',
+    'pdf_preview',
+    'reports_embed',
+    'task_card',
+    'quiz_card',
+    'task', // Legacy serialized references.
+    'quiz', // Legacy serialized references.
+  };
+
+  static const _paperKinds = <String>{
+    'text',
+    'image',
+    'group',
+    'stroke',
+    'shape',
+    ..._sharedCardKinds,
+    'file',
+  };
+
+  static const _typedKinds = <String>{
+    'heading',
+    'paragraph',
+    'list',
+    'table',
+    'figure',
+    'handwriting',
+    ..._sharedCardKinds,
+    'file',
+    'h1',
+    'h2',
+    'h3',
+  };
+
+  static bool _isSummaryKind(String kind) => const {
+    'reports_embed',
+    'task',
+    'quiz',
+    'task_card',
+    'quiz_card',
+  }.contains(kind);
+
+  static bool _isReferenceCardKind(String kind) => const {
+    'file',
+    'file_card',
+    'link_card',
+    'website_card',
+    'youtube_card',
+    'csv_table',
+    'pdf_preview',
+  }.contains(kind);
+
+  static void _preflightInk(
+    DocumentItem item,
+    void Function(String, String) unavailable, {
+    required bool typed,
+  }) {
+    if (item is OpaqueItem) {
+      final supportedFamilyKind = (typed ? _typedKinds : _paperKinds).contains(
+        item.kind,
+      );
+      if (!supportedFamilyKind || (typed && item.kind == 'image')) {
+        unavailable(item.id ?? item.kind, 'Unsupported document content.');
+      }
+    } else if (item is StrokeItem && strokeOutline(item) == null) {
+      unavailable(item.id, 'This handwriting brush is unsupported.');
+    } else if (item is ShapeItem && shapeOutline(item) == null) {
+      unavailable(item.id, 'This shape cannot be printed.');
+    } else if (item is HandwritingBlock) {
+      if (item.ink.isEmpty) {
+        unavailable(item.id, 'This handwriting block has no printable ink.');
+      }
+      for (final ink in item.ink) {
+        _preflightInk(ink, unavailable, typed: true);
+      }
+    }
   }
 
   /// The printed pages of an Original document. Pagination works on the
@@ -391,7 +588,40 @@ class PdfExportMapper {
     if (document is PaperDocument)
       for (final it in document.items)
         if (it.id case final String id) id: it,
+    if (document is TypedDocument)
+      for (final it in document.blocks)
+        if (it.id case final String id) id: it,
   };
+
+  static Set<String> _inlineImageFileIds(Iterable<NoteDocument?> documents) {
+    final ids = <String>{};
+    void scan(Object? value) {
+      if (value is Map) {
+        final kind = '${value['kind'] ?? value['type'] ?? ''}';
+        final key = kind == 'image' || kind == 'figure'
+            ? 'file_id'
+            : kind == 'website_card' || kind == 'youtube_card'
+            ? 'preview_file_id'
+            : null;
+        if (key != null && value[key] is String) {
+          final id = (value[key] as String).trim();
+          if (id.isNotEmpty) ids.add(id);
+        }
+        for (final child in value.values) {
+          scan(child);
+        }
+      } else if (value is List) {
+        for (final child in value) {
+          scan(child);
+        }
+      }
+    }
+
+    for (final document in documents) {
+      if (document != null) scan(document.toJson());
+    }
+    return ids;
+  }
 
   /// Computes page break Y positions for a long Original canvas at clear spaces
   /// so no item (drawing, card, group, text box) is cut mid-object.
@@ -427,6 +657,24 @@ class PdfExportMapper {
     return breaks;
   }
 
+  /// Reserves a conservative first-page title block for both renderers.
+  /// Krilla wraps with shaped glyph widths and ICU line breaks; this bound
+  /// intentionally uses fewer than the usual printable characters per line
+  /// so a long or Thai title cannot collide with fixed-position page content.
+  static double _titleReservePt(String title) {
+    if (title.isEmpty) return 0;
+    const conservativeRunesPerLine = 32;
+    var lines = 0;
+    for (final line in title.split('\n')) {
+      lines += math.max(
+        1,
+        (line.runes.length + conservativeRunesPerLine - 1) ~/
+            conservativeRunesPerLine,
+      );
+    }
+    return math.max(28.0, 6.0 + lines * _printTitleLineHeight).toDouble();
+  }
+
   Future<Uint8List?> _tryLoadBundledFont(String fileName) async {
     for (final path in [
       'packages/annotations_shared/lib/presentation/frontend/assets/fonts/$fileName',
@@ -453,6 +701,7 @@ class PdfExportMapper {
     Set<String> partialChartIds = const {},
     Map<String, Uint8List> reportImages = const {},
     Map<String, Uint8List> attachments = const {},
+    Map<String, TaskSummary> taskSummaries = const {},
     pw.Font? baseFont,
     pw.Font? boldFont,
     pw.Font? thaiFont,
@@ -471,10 +720,37 @@ class PdfExportMapper {
         ? (boldFontBytes ??
               await _tryLoadBundledFont('IBMPlexSansThai-Bold.ttf'))
         : null;
-    // The native Krilla bridge currently has no raster-image payload. Keep
-    // the generated preview and saved PDF on the same image-capable engine.
+    final selectedOriginal = options.mode == PdfExportMode.typed
+        ? null
+        : original;
+    final selectedTyped = options.mode == PdfExportMode.original ? null : typed;
+    final imageIds = _inlineImageFileIds([selectedOriginal, selectedTyped]);
+    final invalidImageFileIds = <String>{};
+    for (final id in imageIds) {
+      final bytes = attachments[id];
+      if (bytes == null) continue;
+      try {
+        if (img.decodeImage(bytes) == null) invalidImageFileIds.add(id);
+      } on Object {
+        invalidImageFileIds.add(id);
+      }
+    }
+    final hasAvailableInlineImages = imageIds.any(
+      (id) => attachments.containsKey(id) && !invalidImageFileIds.contains(id),
+    );
+    final hasTypedHandwriting =
+        selectedTyped is TypedDocument &&
+        selectedTyped.blocks.any((block) => block is HandwritingBlock);
+    final renderableAttachments = Map<String, Uint8List>.from(attachments)
+      ..removeWhere((id, _) => invalidImageFileIds.contains(id));
+    // Krilla's flow blocks have no raster-image or handwriting payload. Use
+    // the existing image-capable PDF path when those items are present.
     final useKrilla =
-        krillaReady && resolvedRegular != null && exportReportImages.isEmpty;
+        krillaReady &&
+        resolvedRegular != null &&
+        exportReportImages.isEmpty &&
+        !hasAvailableInlineImages &&
+        !hasTypedHandwriting;
     final pre = preflight(
       original: original,
       typed: typed,
@@ -482,6 +758,8 @@ class PdfExportMapper {
       availableFileIds: availableFileIds,
       failedChartIds: failedChartIds,
       partialChartIds: partialChartIds,
+      taskSummaries: taskSummaries,
+      invalidImageFileIds: invalidImageFileIds,
       fontsAvailable: useKrilla || (baseFont != null && thaiFont != null),
     );
 
@@ -502,6 +780,7 @@ class PdfExportMapper {
               options: options,
               attachments: attachments,
               companions: companions,
+              taskSummaries: taskSummaries,
               regularFontBytes: resolvedRegular,
               boldFontBytes: resolvedBold,
             )
@@ -510,7 +789,9 @@ class PdfExportMapper {
               document: original,
               options: options,
               attachments: attachments,
+              renderableAttachments: renderableAttachments,
               reportImages: exportReportImages,
+              taskSummaries: taskSummaries,
               companions: companions,
               baseFont: baseFont,
               boldFont: boldFont,
@@ -527,6 +808,7 @@ class PdfExportMapper {
               title: title,
               document: typed,
               options: options,
+              taskSummaries: taskSummaries,
               regularFontBytes: resolvedRegular,
               boldFontBytes: resolvedBold,
             )
@@ -535,6 +817,8 @@ class PdfExportMapper {
               document: typed,
               options: options,
               reportImages: exportReportImages,
+              attachments: renderableAttachments,
+              taskSummaries: taskSummaries,
               baseFont: baseFont,
               boldFont: boldFont,
               thaiFont: thaiFont,
@@ -554,7 +838,12 @@ class PdfExportMapper {
     Map<String, dynamic> item, {
     required String kind,
     required PdfExportOptions options,
+    required Map<String, TaskSummary> taskSummaries,
   }) {
+    if ((kind == 'task_card' || kind == 'quiz_card') &&
+        options.audience == PdfAudience.public) {
+      return 'Restricted content (lock notice)';
+    }
     if (kind == 'reports_embed') {
       if (options.audience == PdfAudience.public) {
         return 'Restricted content (lock notice)';
@@ -570,6 +859,21 @@ class PdfExportMapper {
           : '';
       return 'Task: $taskTitle [$status]$link';
     }
+    if (kind == 'task_card') {
+      final taskId = '${item['task_id'] ?? ''}';
+      final task = taskSummaries[taskId];
+      if (task == null) {
+        return 'Task details unavailable (reference $taskId; marked placeholder)';
+      }
+      final status = task.completed ? 'completed' : 'open';
+      return [
+        'Task: ${task.title} [$status]',
+        if (task.dueDate?.trim().isNotEmpty == true)
+          'Due: ${task.dueDate!.trim()}',
+        if (task.description?.trim().isNotEmpty == true)
+          'Description: ${task.description!.trim()}',
+      ].join('\n');
+    }
     if (kind == 'quiz') {
       final quizTitle = '${item['title'] ?? 'Quiz'}';
       final count = item['question_count'] ?? 0;
@@ -579,11 +883,46 @@ class PdfExportMapper {
           : '';
       return 'Quiz: $quizTitle ($count questions)$link';
     }
+    if (kind == 'quiz_card') {
+      final quizId = _quizReferenceId(item);
+      return 'Quiz details unavailable (reference $quizId; marked placeholder)';
+    }
+    if (kind == 'link_card' ||
+        kind == 'website_card' ||
+        kind == 'youtube_card') {
+      final title = '${item['title'] ?? ''}'.trim();
+      final site = '${item['site_name'] ?? ''}'.trim();
+      final description = '${item['description'] ?? ''}'.trim();
+      final url = '${item['url'] ?? ''}'.trim();
+      return [
+        if (title.isNotEmpty) title,
+        if (site.isNotEmpty && site != title) site,
+        if (description.isNotEmpty) description,
+        if (url.isNotEmpty) url,
+      ].join('\n');
+    }
+    if (kind == 'file_card' ||
+        kind == 'csv_table' ||
+        kind == 'pdf_preview' ||
+        kind == 'file') {
+      final name = '${item['name'] ?? ''}'.trim();
+      final fileId = '${item['file_id'] ?? ''}'.trim();
+      final label = kind == 'csv_table'
+          ? 'CSV file'
+          : kind == 'pdf_preview'
+          ? 'PDF file'
+          : 'File';
+      return '$label: ${name.isNotEmpty ? name : fileId}';
+    }
+    if (kind == 'image' || kind == 'figure') {
+      final fileId = '${item['file_id'] ?? ''}';
+      return 'Image unavailable (reference $fileId; marked placeholder)';
+    }
     if (kind == 'text') {
       final spans = (item['spans'] as List?) ?? const [];
       return spans.map((s) => s is Map ? '${s['text'] ?? ''}' : '$s').join();
     }
-    return '${item['name'] ?? item['title'] ?? kind}';
+    return 'Unsupported content (kind $kind; marked placeholder)';
   }
 
   Future<Uint8List> _buildOriginalPdfKrilla({
@@ -592,6 +931,7 @@ class PdfExportMapper {
     required PdfExportOptions options,
     required Map<String, Uint8List> attachments,
     required List<PdfCompanionFile> companions,
+    required Map<String, TaskSummary> taskSummaries,
     required Uint8List regularFontBytes,
     Uint8List? boldFontBytes,
   }) async {
@@ -606,11 +946,13 @@ class PdfExportMapper {
       4000.0,
     );
     final scale = printableW / canvasW;
+    final titleReservePt = _titleReservePt(title);
 
     final typedItems = _typedItems(document);
     final plan = planOriginalPages(
       document,
-      printableHeight: printableH / scale,
+      printableHeight:
+          math.max(1.0, printableH - titleReservePt).toDouble() / scale,
     );
 
     final pagesOut = <Map<String, dynamic>>[];
@@ -629,11 +971,11 @@ class PdfExportMapper {
           'x': marginPt,
           'y': marginPt + 16.0,
           'max_width': printableW,
-          'font_size': 16.0,
-          'line_height': 22.0,
+          'font_size': _printTitleFontSize,
+          'line_height': _printTitleLineHeight,
           'bold': true,
         });
-        contentTop += 28.0;
+        contentTop += titleReservePt;
       }
 
       final oversized = plan[p].oversized;
@@ -693,7 +1035,8 @@ class PdfExportMapper {
         for (final item in pageItems) {
           final kind = '${item['kind'] ?? 'text'}';
           if (kind == 'stroke' || kind == 'shape') {
-            for (final f in inkFills(typedItems[item['id']])) {
+            final itemFills = inkFills(typedItems[item['id']]);
+            for (final f in itemFills) {
               fills.add({
                 'argb': f.argb,
                 'pieces': [
@@ -706,6 +1049,26 @@ class PdfExportMapper {
                         ],
                     ],
                 ],
+              });
+            }
+            if (itemFills.isEmpty) {
+              final fallbackX = _inkItemCoordinate(item, 'x');
+              final fallbackY = _inkItemCoordinate(item, 'y');
+              rects.add({
+                'x': marginPt + fallbackX * scale,
+                'y': contentTop + (fallbackY - yStart) * scale,
+                'width': 150.0,
+                'height': 28.0,
+                'stroke_width': 0.8,
+                'gray': 170,
+              });
+              runs.add({
+                'text': 'Ink unavailable (marked placeholder)',
+                'x': marginPt + fallbackX * scale + 4.0,
+                'y': contentTop + (fallbackY - yStart) * scale + 13.0,
+                'max_width': 140.0,
+                'font_size': 8.0,
+                'line_height': 11.0,
               });
             }
             continue;
@@ -761,11 +1124,16 @@ class PdfExportMapper {
             continue;
           }
           {
-            final summary = _itemTextSummary(
+            var summary = _itemTextSummary(
               item,
               kind: kind,
               options: options,
+              taskSummaries: taskSummaries,
             );
+            if ((kind == 'website_card' || kind == 'youtube_card') &&
+                item['preview_file_id'] is String) {
+              summary = 'Preview unavailable (marked placeholder)\n$summary';
+            }
             final isRestricted =
                 kind == 'reports_embed' &&
                 options.audience == PdfAudience.public;
@@ -808,6 +1176,7 @@ class PdfExportMapper {
     required String title,
     required NoteDocument document,
     required PdfExportOptions options,
+    required Map<String, TaskSummary> taskSummaries,
     required Uint8List regularFontBytes,
     Uint8List? boldFontBytes,
   }) async {
@@ -882,6 +1251,13 @@ class PdfExportMapper {
       }
       if (kind == 'figure') {
         final caption = (b['caption'] as List?) ?? const [];
+        blocksOut.add({
+          'kind': 'figure_image_placeholder',
+          'text': 'Figure image unavailable (marked placeholder)',
+          'font_size': 9.5,
+          'line_height': 14.0,
+          'space_after': 3.0,
+        });
         if (caption.isNotEmpty) {
           final captionSpans = <Object?>[
             {'text': 'Figure: ', 'bold': true},
@@ -918,15 +1294,44 @@ class PdfExportMapper {
             bold: true,
           ),
         });
-      } else if (kind == 'reports_embed' || kind == 'task' || kind == 'quiz') {
+      } else if (_isSummaryKind(kind) || _isReferenceCardKind(kind)) {
         final isRestricted =
-            kind == 'reports_embed' && options.audience == PdfAudience.public;
+            (kind == 'reports_embed' ||
+                kind == 'task_card' ||
+                kind == 'quiz_card') &&
+            options.audience == PdfAudience.public;
+        var summary = _itemTextSummary(
+          b,
+          kind: kind,
+          options: options,
+          taskSummaries: taskSummaries,
+        );
+        if ((kind == 'website_card' || kind == 'youtube_card') &&
+            b['preview_file_id'] is String) {
+          summary = 'Preview unavailable (marked placeholder)\n$summary';
+        }
         blocksOut.add({
           'kind': kind,
-          'text': _itemTextSummary(b, kind: kind, options: options),
+          'text': summary,
           'font_size': 9.5,
           'line_height': 14.0,
           'muted': isRestricted,
+          'space_after': 6.0,
+        });
+      } else if (kind == 'image') {
+        blocksOut.add({
+          'kind': 'image_placeholder',
+          'text': 'Image unavailable (marked placeholder)',
+          'font_size': 9.5,
+          'line_height': 14.0,
+          'space_after': 6.0,
+        });
+      } else if (!_typedKinds.contains(kind)) {
+        blocksOut.add({
+          'kind': 'unsupported_content',
+          'text': 'Unsupported content (kind $kind; marked placeholder)',
+          'font_size': 9.5,
+          'line_height': 14.0,
           'space_after': 6.0,
         });
       } else {
@@ -1010,8 +1415,10 @@ class PdfExportMapper {
     required NoteDocument document,
     required PdfExportOptions options,
     required Map<String, Uint8List> attachments,
+    required Map<String, Uint8List> renderableAttachments,
     required Map<String, Uint8List> reportImages,
     required List<PdfCompanionFile> companions,
+    required Map<String, TaskSummary> taskSummaries,
     pw.Font? baseFont,
     pw.Font? boldFont,
     pw.Font? thaiFont,
@@ -1031,11 +1438,13 @@ class PdfExportMapper {
       4000.0,
     );
     final scale = printableW / canvasW;
+    final titleReservePt = _titleReservePt(title);
 
     final typedItems = _typedItems(document);
     final plan = planOriginalPages(
       document,
-      printableHeight: printableH / scale,
+      printableHeight:
+          math.max(1.0, printableH - titleReservePt).toDouble() / scale,
     );
 
     for (var p = 0; p < plan.length; p++) {
@@ -1076,8 +1485,9 @@ class PdfExportMapper {
                     children: [
                       for (final it in pageItems)
                         if (it['kind'] == 'stroke' || it['kind'] == 'shape')
-                          _buildInkLayer(
-                            inkFills(typedItems[it['id']]),
+                          _originalInkWidget(
+                            it,
+                            typedItems[it['id']],
                             yOrigin: yStart,
                             scale: scale,
                           )
@@ -1088,6 +1498,8 @@ class PdfExportMapper {
                             scale: scale,
                             options: options,
                             reportImages: reportImages,
+                            attachments: renderableAttachments,
+                            taskSummaries: taskSummaries,
                           ),
                     ],
                   ),
@@ -1188,12 +1600,58 @@ class PdfExportMapper {
     );
   }
 
+  pw.Widget _originalInkWidget(
+    Map<String, dynamic> json,
+    DocumentItem? item, {
+    required double yOrigin,
+    required double scale,
+  }) {
+    final fills = inkFills(item);
+    if (fills.isNotEmpty) {
+      return _buildInkLayer(fills, yOrigin: yOrigin, scale: scale);
+    }
+    final x = _inkItemCoordinate(json, 'x') * scale;
+    final y = (_inkItemCoordinate(json, 'y') - yOrigin) * scale;
+    return pw.Positioned(
+      left: math.max(0, x),
+      top: math.max(0, y),
+      child: pw.Container(
+        width: 150,
+        height: 28,
+        padding: const pw.EdgeInsets.all(3),
+        decoration: pw.BoxDecoration(
+          border: pw.Border.all(color: PdfColors.grey600),
+        ),
+        child: pw.Text(
+          'Ink unavailable (marked placeholder)',
+          style: pw.TextStyle(fontSize: 8),
+        ),
+      ),
+    );
+  }
+
+  static double _inkItemCoordinate(Map<String, dynamic> item, String axis) {
+    final direct = item[axis];
+    if (direct is num) return direct.toDouble();
+    final nodes = item['nodes'];
+    if (nodes is List) {
+      for (final node in nodes) {
+        if (node is Map && node[axis] is num) {
+          return (node[axis] as num).toDouble() / 100;
+        }
+      }
+    }
+    return 0;
+  }
+
   pw.Widget _buildPositionedOriginalItem(
     Map<String, dynamic> item, {
     required double yOrigin,
     required double scale,
     required PdfExportOptions options,
     required Map<String, Uint8List> reportImages,
+    required Map<String, Uint8List> attachments,
+    required Map<String, TaskSummary> taskSummaries,
   }) {
     final x = ((item['x'] as num?)?.toDouble() ?? 0.0) * scale;
     final y = (((item['y'] as num?)?.toDouble() ?? 0.0) - yOrigin) * scale;
@@ -1232,6 +1690,8 @@ class PdfExportMapper {
           width: w,
           height: h,
           reportImages: reportImages,
+          attachments: attachments,
+          taskSummaries: taskSummaries,
         ),
       ),
     );
@@ -1278,6 +1738,8 @@ class PdfExportMapper {
     required double width,
     required double height,
     Map<String, Uint8List> reportImages = const {},
+    Map<String, Uint8List> attachments = const {},
+    Map<String, TaskSummary> taskSummaries = const {},
   }) {
     if (kind == 'reports_embed') {
       if (options.audience == PdfAudience.public) {
@@ -1309,6 +1771,51 @@ class PdfExportMapper {
       );
     }
 
+    if (kind == 'image' || kind == 'figure') {
+      final bytes = attachments['${item['file_id'] ?? ''}'];
+      if (bytes != null) {
+        return pw.Image(pw.MemoryImage(bytes), fit: pw.BoxFit.contain);
+      }
+      return pw.Text(
+        'Image unavailable (marked placeholder)',
+        style: const pw.TextStyle(fontSize: 9),
+      );
+    }
+
+    if (kind == 'website_card' || kind == 'youtube_card') {
+      final preview = attachments['${item['preview_file_id'] ?? ''}'];
+      final summary = _itemTextSummary(
+        item,
+        kind: kind,
+        options: options,
+        taskSummaries: taskSummaries,
+      );
+      return pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          if (preview != null)
+            pw.Expanded(
+              child: pw.Image(pw.MemoryImage(preview), fit: pw.BoxFit.contain),
+            )
+          else if (item['preview_file_id'] is String)
+            pw.Text('Preview unavailable (marked placeholder)'),
+          pw.Text(summary, style: const pw.TextStyle(fontSize: 8)),
+        ],
+      );
+    }
+
+    if (_isSummaryKind(kind) || _isReferenceCardKind(kind)) {
+      return pw.Text(
+        _itemTextSummary(
+          item,
+          kind: kind,
+          options: options,
+          taskSummaries: taskSummaries,
+        ),
+        style: const pw.TextStyle(fontSize: 9),
+      );
+    }
+
     if (kind == 'quiz') {
       final quizTitle = '${item['title'] ?? 'Quiz'}';
       final count = item['question_count'] ?? 0;
@@ -1331,7 +1838,7 @@ class PdfExportMapper {
     }
 
     return pw.Text(
-      '${item['name'] ?? item['title'] ?? kind}',
+      'Unsupported content (kind $kind; marked placeholder)',
       style: const pw.TextStyle(fontSize: 9),
     );
   }
@@ -1341,6 +1848,8 @@ class PdfExportMapper {
     required NoteDocument document,
     required PdfExportOptions options,
     required Map<String, Uint8List> reportImages,
+    required Map<String, Uint8List> attachments,
+    required Map<String, TaskSummary> taskSummaries,
     pw.Font? baseFont,
     pw.Font? boldFont,
     pw.Font? thaiFont,
@@ -1352,6 +1861,7 @@ class PdfExportMapper {
     final blocks = ((document.toJson()['blocks'] as List?) ?? const [])
         .map((e) => Map<String, dynamic>.from(e as Map))
         .toList();
+    final typedItems = _typedItems(document);
 
     doc.addPage(
       pw.MultiPage(
@@ -1371,6 +1881,9 @@ class PdfExportMapper {
               i,
               options: options,
               reportImages: reportImages,
+              attachments: attachments,
+              taskSummaries: taskSummaries,
+              typedItems: typedItems,
             ),
         ],
       ),
@@ -1383,6 +1896,9 @@ class PdfExportMapper {
     int index, {
     required PdfExportOptions options,
     required Map<String, Uint8List> reportImages,
+    required Map<String, Uint8List> attachments,
+    required Map<String, TaskSummary> taskSummaries,
+    required Map<String, DocumentItem> typedItems,
   }) {
     final b = blocks[index];
     final kind = '${b['kind'] ?? b['type'] ?? 'paragraph'}';
@@ -1401,7 +1917,9 @@ class PdfExportMapper {
         ),
       ];
     }
-    if (kind == 'reports_embed' || kind == 'task' || kind == 'quiz') {
+    if (kind == 'reports_embed' ||
+        kind == 'website_card' ||
+        kind == 'youtube_card') {
       return [
         pw.Padding(
           padding: const pw.EdgeInsets.symmetric(vertical: 4),
@@ -1415,7 +1933,26 @@ class PdfExportMapper {
               width: 400,
               height: 320,
               reportImages: reportImages,
+              attachments: attachments,
+              taskSummaries: taskSummaries,
             ),
+          ),
+        ),
+      ];
+    }
+    if (_isSummaryKind(kind) || _isReferenceCardKind(kind)) {
+      return [
+        pw.Padding(
+          padding: const pw.EdgeInsets.symmetric(vertical: 3),
+          child: _renderItemBody(
+            b,
+            kind: kind,
+            options: options,
+            width: 400,
+            height: 40,
+            reportImages: reportImages,
+            attachments: attachments,
+            taskSummaries: taskSummaries,
           ),
         ),
       ];
@@ -1486,26 +2023,160 @@ class PdfExportMapper {
     }
     if (kind == 'figure') {
       final caption = (b['caption'] as List?) ?? const [];
-      if (caption.isEmpty) return const [];
+      final image = attachments['${b['file_id'] ?? ''}'];
+      final captionWidget = caption.isEmpty
+          ? null
+          : pw.RichText(
+              text: pw.TextSpan(
+                style: const pw.TextStyle(fontSize: 11),
+                children: [
+                  pw.TextSpan(
+                    text: 'Figure: ',
+                    style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+                  ),
+                  ..._typedTextSpans(caption, fontSize: 11),
+                ],
+              ),
+            );
+      if (caption.isEmpty && image == null) {
+        return [
+          pw.Text(
+            'Figure image unavailable (marked placeholder)',
+            style: pw.TextStyle(fontSize: 9),
+          ),
+        ];
+      }
       return [
         pw.Padding(
           padding: const pw.EdgeInsets.symmetric(vertical: 4),
-          child: pw.RichText(
-            text: pw.TextSpan(
-              style: const pw.TextStyle(fontSize: 11),
-              children: [
-                pw.TextSpan(
-                  text: 'Figure: ',
-                  style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+          child: pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              if (image != null)
+                pw.SizedBox(
+                  width: 400,
+                  height: 300,
+                  child: pw.Image(
+                    pw.MemoryImage(image),
+                    fit: pw.BoxFit.contain,
+                  ),
+                )
+              else
+                pw.Text(
+                  'Figure image unavailable (marked placeholder)',
+                  style: pw.TextStyle(fontSize: 9),
                 ),
-                ..._typedTextSpans(caption, fontSize: 11),
-              ],
-            ),
+              ?captionWidget,
+            ],
           ),
         ),
       ];
     }
+    if (kind == 'image') {
+      final image = attachments['${b['file_id'] ?? ''}'];
+      return [
+        if (image != null)
+          pw.SizedBox(
+            width: 400,
+            height: 300,
+            child: pw.Image(pw.MemoryImage(image), fit: pw.BoxFit.contain),
+          )
+        else
+          pw.Text(
+            'Image unavailable (marked placeholder)',
+            style: pw.TextStyle(fontSize: 9),
+          ),
+      ];
+    }
+    if (kind == 'handwriting') {
+      return [_typedHandwritingWidget(b, typedItems)];
+    }
+    if (kind == 'task_card' || kind == 'quiz_card') {
+      return [
+        pw.Text(
+          _itemTextSummary(
+            b,
+            kind: kind,
+            options: options,
+            taskSummaries: taskSummaries,
+          ),
+          style: const pw.TextStyle(fontSize: 9),
+        ),
+      ];
+    }
+    if (!_typedKinds.contains(kind)) {
+      return [
+        pw.Text(
+          'Unsupported content (kind $kind; marked placeholder)',
+          style: const pw.TextStyle(fontSize: 9),
+        ),
+      ];
+    }
     return [pw.Paragraph(text: text, style: const pw.TextStyle(fontSize: 11))];
+  }
+
+  pw.Widget _typedHandwritingWidget(
+    Map<String, dynamic> json,
+    Map<String, DocumentItem> typedItems,
+  ) {
+    final item = typedItems['${json['id'] ?? ''}'];
+    if (item is! HandwritingBlock) {
+      return pw.Text(
+        'Handwriting unavailable (marked placeholder)',
+        style: pw.TextStyle(fontSize: 9),
+      );
+    }
+    const width = 400.0;
+    final scale = width / math.max(1.0, item.width.toDouble());
+    final height = math.max(1.0, item.height.toDouble() * scale);
+    final fills = <({List<List<InkVec>> pieces, int argb})>[
+      for (final ink in item.ink) ...inkFills(ink),
+    ];
+    final hasUnsupportedInk =
+        fills.isEmpty || item.ink.any((ink) => inkFills(ink).isEmpty);
+    return pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      children: [
+        if (fills.isNotEmpty)
+          pw.SizedBox(
+            width: width,
+            height: height,
+            child: pw.CustomPaint(
+              painter: (canvas, size) {
+                for (final fill in fills) {
+                  canvas
+                    ..saveContext()
+                    ..setGraphicState(
+                      PdfGraphicState(
+                        fillOpacity: ((fill.argb >> 24) & 0xFF) / 255,
+                      ),
+                    )
+                    ..setFillColor(PdfColor.fromInt(fill.argb | 0xFF000000));
+                  for (final piece in fill.pieces) {
+                    if (piece.length < 3) continue;
+                    canvas.moveTo(
+                      piece.first.x * scale,
+                      size.y - piece.first.y * scale,
+                    );
+                    for (final point in piece.skip(1)) {
+                      canvas.lineTo(point.x * scale, size.y - point.y * scale);
+                    }
+                    canvas.closePath();
+                  }
+                  canvas
+                    ..fillPath()
+                    ..restoreContext();
+                }
+              },
+            ),
+          ),
+        if (hasUnsupportedInk)
+          pw.Text(
+            'Some handwriting is unavailable (marked placeholder)',
+            style: pw.TextStyle(fontSize: 9),
+          ),
+      ],
+    );
   }
 
   pw.Widget _typedRichText(

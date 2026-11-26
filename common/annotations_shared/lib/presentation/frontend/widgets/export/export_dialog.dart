@@ -36,6 +36,7 @@ class _ExportDialogState extends State<ExportDialog> {
 
   String _issue(PdfPreflightIssue issue) => switch (issue.kind) {
     'missing_file' => context.tr('issueMissingFile'),
+    'unsupported_content' => context.tr('issueUnsupportedContent'),
     'failed_chart' => context.tr('issueFailedChart'),
     'partial_chart' => context.tr('issuePartialReport'),
     _ => context.tr('issueMissingFont'),

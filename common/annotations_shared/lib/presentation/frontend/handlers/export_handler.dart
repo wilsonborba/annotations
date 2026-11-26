@@ -14,6 +14,7 @@ import '../../../domain/models/note_document.dart';
 import '../../../domain/models/reports_embed_data.dart';
 import '../../../domain/services/local_note_store.dart';
 import '../../../domain/services/pdf_export_mapper.dart';
+import '../../../domain/services/task_card_service.dart';
 
 /// Draws every page of a PDF for the print preview; throws on failure.
 typedef PdfPagesRenderer =
@@ -23,6 +24,7 @@ typedef ReportsEmbedLoader =
     Future<ReportsEmbedData> Function(Map<String, dynamic> item);
 typedef ReportsChartRenderer =
     Future<Uint8List> Function(ReportsEmbedData data, {required bool partial});
+typedef TaskSummaryLoader = Future<TaskSummary?> Function(String taskId);
 
 /// Rendered preview pages grouped by their exported PDF filename.
 final class ExportPreviewPdf {
@@ -63,6 +65,7 @@ class ExportHandler extends ChangeNotifier {
     this.audience = PdfAudience.personal,
     this.loadReportsEmbed,
     this.renderReportsChart,
+    this.loadTaskSummary,
     this.untitledTitle = 'Untitled note',
   }) : _mapper = mapper ?? PdfExportMapper(),
        _render = renderPages ?? renderPdfPages,
@@ -81,6 +84,7 @@ class ExportHandler extends ChangeNotifier {
   final PdfAudience audience;
   final ReportsEmbedLoader? loadReportsEmbed;
   final ReportsChartRenderer? renderReportsChart;
+  final TaskSummaryLoader? loadTaskSummary;
   final PdfExportMapper _mapper;
   final PdfPagesRenderer _render;
   final Future<String?> Function(String name) _saveLocation;
@@ -298,6 +302,30 @@ class ExportHandler extends ChangeNotifier {
     return items;
   }
 
+  static Set<String> _taskIds(Iterable<NoteDocument?> documents) {
+    final ids = <String>{};
+    void scan(Object? value) {
+      if (value is Map) {
+        if (value['kind'] == 'task_card' && value['task_id'] is String) {
+          final id = (value['task_id'] as String).trim();
+          if (id.isNotEmpty) ids.add(id);
+        }
+        for (final child in value.values) {
+          scan(child);
+        }
+      } else if (value is List) {
+        for (final child in value) {
+          scan(child);
+        }
+      }
+    }
+
+    for (final document in documents) {
+      if (document != null) scan(document.toJson());
+    }
+    return ids;
+  }
+
   /// Runs the preflight and builds the PDF(s) and their preview.
   /// [placeholders] continues with marked placeholders after a preflight
   /// problem (B13 point 9: never a silent omission); omitting [placeholders]
@@ -336,6 +364,24 @@ class ExportHandler extends ChangeNotifier {
         if (includeOriginal) originalNote!.document,
         if (includeTyped) typedNote!.document,
       ];
+      final taskSummaries = <String, TaskSummary>{};
+      final taskLoader = loadTaskSummary;
+      if (audience == PdfAudience.personal && taskLoader != null) {
+        for (final taskId in _taskIds(selectedDocuments)) {
+          try {
+            final summary = await taskLoader(taskId);
+            if (_disposed || seq != _buildSeq) return;
+            if (summary != null &&
+                summary.taskId == taskId &&
+                summary.title.trim().isNotEmpty) {
+              taskSummaries[taskId] = summary;
+            }
+          } on Object {
+            // Missing/offline owner metadata becomes an explicit preflight
+            // item. Retry invokes this loader again; the PDF never guesses.
+          }
+        }
+      }
       final reportImages = <String, Uint8List>{};
       final failedChartIds = <String>{};
       final partialChartIds = <String>{};
@@ -389,6 +435,7 @@ class ExportHandler extends ChangeNotifier {
         partialChartIds: partialChartIds,
         reportImages: reportImages,
         attachments: attachments,
+        taskSummaries: taskSummaries,
         baseFont: _bundledLatin,
         thaiFont: _bundledThai,
       );
