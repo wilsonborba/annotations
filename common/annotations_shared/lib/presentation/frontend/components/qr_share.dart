@@ -19,8 +19,13 @@ Uri publicAppUri({
   required List<String> pathSegments,
   Map<String, String>? queryParameters,
 }) {
-  final base = Settings.current.development
-      ? Uri.base
+  final currentOrigin = Uri.base;
+  final useBrowserOrigin =
+      Settings.current.development &&
+      (currentOrigin.scheme == 'http' || currentOrigin.scheme == 'https') &&
+      currentOrigin.host.isNotEmpty;
+  final base = useBrowserOrigin
+      ? currentOrigin
       : Uri.parse(LandingSettings.siteAddress);
   return Uri(
     scheme: base.scheme,

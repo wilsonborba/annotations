@@ -390,6 +390,17 @@ void main() {
       );
     });
 
+    test('native development QR uses the configured public app origin', () {
+      final previousSettings = Settings.current;
+      addTearDown(() => Settings.use(previousSettings));
+      Settings.use(const Settings(development: true));
+      expect(Uri.base.scheme, isNot(anyOf('http', 'https')));
+      expect(
+        publicAppUri(pathSegments: ['v1', 'notes', 'n1']),
+        Uri.parse('https://annotations.asodya.com/v1/notes/n1'),
+      );
+    });
+
     testWidgets('Original keeps the paper; restricted cards keep a lock', (
       tester,
     ) async {
