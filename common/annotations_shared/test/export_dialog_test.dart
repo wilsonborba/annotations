@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:annotations_shared/app.dart';
@@ -25,6 +24,7 @@ import 'package:annotations_shared/presentation/frontend/handlers/reports_pdf_ca
 import 'package:annotations_shared/presentation/frontend/widgets/export/export_dialog.dart';
 import 'package:archive/archive.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:pdfrx/pdfrx.dart';
@@ -38,6 +38,25 @@ import 'pdf_raster.dart';
 
 final _origSchema = DocumentSchema(DocumentFamily.original.schemaName, 1);
 final _typedSchema = DocumentSchema(DocumentFamily.typed.schemaName, 1);
+
+Future<ByteData> _reportsCaptureFont(String file) async => ByteData.sublistView(
+  Uint8List.fromList(
+    await File('lib/presentation/frontend/assets/fonts/$file').readAsBytes(),
+  ),
+);
+
+Future<void> _loadReportsCaptureFonts() async {
+  await loadAppFonts();
+  await (FontLoader(ReportPalette.font)
+        ..addFont(_reportsCaptureFont('UbuntuSans-Variable.ttf'))
+        ..addFont(_reportsCaptureFont('UbuntuSans-Italic-Variable.ttf')))
+      .load();
+  await (FontLoader(ReportPalette.thaiFont)
+        ..addFont(_reportsCaptureFont('IBMPlexSansThai-Regular.ttf'))
+        ..addFont(_reportsCaptureFont('IBMPlexSansThai-SemiBold.ttf'))
+        ..addFont(_reportsCaptureFont('IBMPlexSansThai-Bold.ttf')))
+      .load();
+}
 
 ReportsEmbedData _chartData({int visits = 20, bool complete = true}) {
   const descriptor = DatasetDescriptor(
@@ -206,8 +225,8 @@ void main() {
   late Directory root;
   late SqliteNoteStore store;
 
-  setUpAll(() {
-    loadAppFonts();
+  setUpAll(() async {
+    await _loadReportsCaptureFonts();
     cache = usePdfiumInTests();
   });
   tearDownAll(() => cache.deleteSync(recursive: true));
@@ -244,6 +263,7 @@ void main() {
         const hostKey = Key('reports-capture-host');
         await tester.pumpWidget(
           MaterialApp(
+            theme: appTheme(Brightness.dark),
             home: Scaffold(
               body: Builder(
                 key: hostKey,
@@ -284,6 +304,23 @@ void main() {
           return (dimensions, rgba!.buffer.asUint8List());
         });
         expect(decoded!.$1, (900, 650));
+        var darkPartialCaptionPixels = 0;
+        for (var y = 0; y < 40; y++) {
+          for (var x = 0; x < 900; x++) {
+            final offset = (y * 900 + x) * 4;
+            if (decoded.$2[offset + 3] > 0 &&
+                decoded.$2[offset] < 128 &&
+                decoded.$2[offset + 1] < 128 &&
+                decoded.$2[offset + 2] < 128) {
+              darkPartialCaptionPixels++;
+            }
+          }
+        }
+        expect(
+          darkPartialCaptionPixels,
+          greaterThan(20),
+          reason: 'partial warning stays legible against the print palette',
+        );
         var orangeChartPixels = 0;
         for (var i = 0; i < decoded.$2.length; i += 4) {
           final r = decoded.$2[i], g = decoded.$2[i + 1];
@@ -439,12 +476,17 @@ void main() {
           );
         }
         expect(await tester.runAsync(handler.save), isTrue);
-        expect(File(savePath).readAsBytesSync(), orderedEquals(zipBytes));
+        final savedZipBytes = File(savePath).readAsBytesSync();
         var archive = ZipDecoder().decodeBytes(zipBytes);
+        var savedArchive = ZipDecoder().decodeBytes(savedZipBytes);
         for (final pdf in handler.output!.pdfs) {
-          final savedPdf = archive.files.singleWhere(
+          final generatedPdf = archive.files.singleWhere(
             (file) => file.name == pdf.filename,
           );
+          final savedPdf = savedArchive.files.singleWhere(
+            (file) => file.name == pdf.filename,
+          );
+          expect(generatedPdf.content as List<int>, orderedEquals(pdf.bytes));
           expect(savedPdf.content as List<int>, orderedEquals(pdf.bytes));
         }
 
@@ -466,12 +508,17 @@ void main() {
         }
         final updatedZip = handler.bytes();
         expect(await tester.runAsync(handler.save), isTrue);
-        expect(File(savePath).readAsBytesSync(), orderedEquals(updatedZip));
+        final savedUpdatedZipBytes = File(savePath).readAsBytesSync();
         archive = ZipDecoder().decodeBytes(updatedZip);
+        savedArchive = ZipDecoder().decodeBytes(savedUpdatedZipBytes);
         for (final pdf in handler.output!.pdfs) {
-          final savedPdf = archive.files.singleWhere(
+          final generatedPdf = archive.files.singleWhere(
             (file) => file.name == pdf.filename,
           );
+          final savedPdf = savedArchive.files.singleWhere(
+            (file) => file.name == pdf.filename,
+          );
+          expect(generatedPdf.content as List<int>, orderedEquals(pdf.bytes));
           expect(savedPdf.content as List<int>, orderedEquals(pdf.bytes));
         }
         final evidencePath =
@@ -494,7 +541,7 @@ void main() {
           await writeArtifact('reports-preview-original.pdf', previewInputs[2]);
           await writeArtifact('reports-typed.pdf', typedPdf);
           await writeArtifact('reports-preview-typed.pdf', previewInputs[3]);
-          await writeArtifact('reports-chart.zip', updatedZip);
+          await writeArtifact('reports-chart.zip', savedUpdatedZipBytes);
           final rasterized = await tester.runAsync(
             () => Process.run('pdftoppm', [
               '-png',

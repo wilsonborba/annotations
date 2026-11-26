@@ -50,6 +50,7 @@ Future<Uint8List> captureReportsPdfChart(
   final overlay = Overlay.of(context, rootOverlay: true);
   final key = GlobalKey();
   final partial = !data.complete;
+  final printTheme = _printPalette.toTheme(Brightness.light);
   final entry = OverlayEntry(
     builder: (context) => Positioned(
       left: -10000,
@@ -67,7 +68,7 @@ Future<Uint8List> captureReportsPdfChart(
               textScaler: TextScaler.noScaling,
             ),
             child: Theme(
-              data: _printPalette.toTheme(Brightness.light),
+              data: printTheme,
               child: Material(
                 color: _printPalette.canvas,
                 child: RepaintBoundary(
@@ -89,7 +90,7 @@ Future<Uint8List> captureReportsPdfChart(
                                   page.totalRows,
                                   language,
                                 ),
-                                style: Theme.of(context).textTheme.bodySmall,
+                                style: printTheme.textTheme.bodySmall,
                               ),
                             ),
                           Expanded(
