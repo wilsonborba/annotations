@@ -4,15 +4,19 @@ import UIKit
 
 private final class PendingExport {
   let requestID: String
-  let temporaryURL: URL
+  let stagingDirectory: URL
   let result: FlutterResult
   weak var picker: UIDocumentPickerViewController?
   var cancelled = false
   var completed = false
 
-  init(requestID: String, temporaryURL: URL, result: @escaping FlutterResult) {
+  init(
+    requestID: String,
+    stagingDirectory: URL,
+    result: @escaping FlutterResult
+  ) {
     self.requestID = requestID
-    self.temporaryURL = temporaryURL
+    self.stagingDirectory = stagingDirectory
     self.result = result
   }
 }
@@ -173,16 +177,30 @@ private final class PendingExport {
     let safeName = safeExportName(requestedName, extensionName: extensionName)
     let cache = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
       .appendingPathComponent("annotations-export", isDirectory: true)
-    let temporaryURL = cache.appendingPathComponent(UUID().uuidString + "-" + safeName)
+    let stagingDirectory = cache.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    let temporaryURL = stagingDirectory.appendingPathComponent(safeName)
+    var createdStagingDirectory = false
     do {
       try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
+      try FileManager.default.createDirectory(
+        at: stagingDirectory,
+        withIntermediateDirectories: false
+      )
+      createdStagingDirectory = true
       try typedBytes.data.write(to: temporaryURL, options: .atomic)
     } catch {
+      if createdStagingDirectory {
+        try? FileManager.default.removeItem(at: stagingDirectory)
+      }
       result(FlutterError(code: "SAVE_STAGE_FAILED", message: error.localizedDescription, details: nil))
       return
     }
 
-    let pending = PendingExport(requestID: requestID, temporaryURL: temporaryURL, result: result)
+    let pending = PendingExport(
+      requestID: requestID,
+      stagingDirectory: stagingDirectory,
+      result: result
+    )
     let picker: UIDocumentPickerViewController
     if #available(iOS 14.0, *) {
       picker = UIDocumentPickerViewController(forExporting: [temporaryURL], asCopy: true)
@@ -241,7 +259,7 @@ private final class PendingExport {
     guard !pending.completed else { return }
     pending.completed = true
     if pendingExport === pending { pendingExport = nil }
-    try? FileManager.default.removeItem(at: pending.temporaryURL)
+    try? FileManager.default.removeItem(at: pending.stagingDirectory)
     pending.result(value)
   }
 
