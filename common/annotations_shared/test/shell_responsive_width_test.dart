@@ -12,11 +12,13 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'design_goldens_test.dart' show loadAppFonts;
 import 'fixtures.dart';
 
 enum _AccountState { checking, signedOut, signedIn }
 
 void main() {
+  setUpAll(loadAppFonts);
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
   final matrix = <(double, _AccountState, Brightness, double)>[
@@ -61,11 +63,25 @@ void main() {
       800.0,
       801.0,
       999.0,
-      1000.0,
     ])
       for (final state in _AccountState.values)
         for (final brightness in Brightness.values)
           (width, state, brightness, 1.3),
+    for (final width in [
+      1199.0,
+      1200.0,
+      1201.0,
+      1179.0,
+      1180.0,
+      1280.0,
+      1559.0,
+      1560.0,
+      1561.0,
+      1440.0,
+    ])
+      for (final state in _AccountState.values)
+        for (final brightness in Brightness.values)
+          for (final scale in [1.0, 1.3]) (width, state, brightness, scale),
   ];
 
   for (final (width, accountState, brightness, scale) in matrix) {
@@ -132,18 +148,21 @@ void main() {
         final preferences = Preferences();
         addTearDown(preferences.dispose);
         await tester.pumpWidget(
-          AppScope(
-            preferences: preferences,
-            service: fixtureService(),
-            account: account,
-            child: MaterialApp.router(
-              theme: appTheme(brightness),
-              routerConfig: router,
-              builder: (context, child) => MediaQuery(
-                data: MediaQuery.of(
-                  context,
-                ).copyWith(textScaler: TextScaler.linear(scale)),
-                child: child!,
+          AnimatedBuilder(
+            animation: preferences,
+            builder: (context, _) => AppScope(
+              preferences: preferences,
+              service: fixtureService(),
+              account: account,
+              child: MaterialApp.router(
+                theme: appTheme(brightness),
+                routerConfig: router,
+                builder: (context, child) => MediaQuery(
+                  data: MediaQuery.of(
+                    context,
+                  ).copyWith(textScaler: TextScaler.linear(scale)),
+                  child: child!,
+                ),
               ),
             ),
           ),
@@ -153,9 +172,14 @@ void main() {
         expect(layoutError, isNull, reason: '$width px at ${scale}x');
         expect(find.byKey(const Key('language-switch')), findsOneWidget);
         expect(find.byKey(const Key('theme-toggle')), findsOneWidget);
-        expect(find.byKey(const Key('tabs-menu')), findsOneWidget);
+        final inlineNavigation = width >= tabsMenuWidth * scale;
+        expect(
+          find.byKey(const Key('tabs-menu')),
+          inlineNavigation ? findsNothing : findsOneWidget,
+          reason: '$width px at ${scale}x',
+        );
 
-        if (accountState == _AccountState.signedOut && width <= 1000) {
+        if (accountState == _AccountState.signedOut && !inlineNavigation) {
           await tester.tap(find.byKey(const Key('tabs-menu')));
           await tester.pumpAndSettle();
           expect(find.byKey(const Key('menu-sign-in')), findsOneWidget);
@@ -174,6 +198,22 @@ void main() {
           }
           await tester.pumpAndSettle();
           expect(preferences.locale, code);
+
+          final overview = switch (code) {
+            'pt-BR' => 'Visão geral',
+            'th' => 'ภาพรวม',
+            _ => 'Overview',
+          };
+          if (inlineNavigation) {
+            expect(find.text(overview), findsOneWidget);
+          } else {
+            await tester.tap(find.byKey(const Key('tabs-menu')));
+            await tester.pumpAndSettle();
+            expect(find.byKey(const Key('menu-tabOverview')), findsOneWidget);
+            expect(find.text(overview), findsOneWidget);
+            await tester.tapAt(Offset(10, tester.view.physicalSize.height / 2));
+            await tester.pumpAndSettle();
+          }
           expect(tester.takeException(), isNull);
         }
       },

@@ -21,8 +21,8 @@ const landingTabs = <(String, String, String)>[
   ('/v1/home/download', 'tabDownload', 'shell.navigation.download'),
 ];
 
-/// At this width and below the tabs go into one menu (Cortex pattern).
-const tabsMenuWidth = 1000.0;
+/// Minimum width for the complete inline toolbar at the default text size.
+const tabsMenuWidth = 1200.0;
 
 /// Keep the full three-language control only when the AppBar has room for it
 /// beside the brand and account, theme and navigation actions.
@@ -38,7 +38,8 @@ class PageShell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final width = MediaQuery.sizeOf(context).width;
-    final wide = width > tabsMenuWidth;
+    final textScale = MediaQuery.textScalerOf(context).scale(14) / 14;
+    final wide = width >= tabsMenuWidth * textScale;
     final prefs = AppScope.of(context).preferences;
     final dark = Theme.of(context).brightness == Brightness.dark;
     return Scaffold(
