@@ -32,7 +32,6 @@ import '../../handlers/paper_handler.dart';
 import '../../handlers/typed_note_handler.dart';
 import '../paper/paper_canvas.dart';
 import '../paper/note_embedded_cards_layer.dart';
-import '../paper/paper_layers.dart' show PaperView;
 import '../paper/paper_screen.dart';
 
 class NoteScreen extends StatelessWidget {

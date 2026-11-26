@@ -924,8 +924,9 @@ class _NoteEditorPageState extends State<NoteEditorPage>
                             loadQuizSummary: quizCards == null
                                 ? null
                                 : (quizId) async {
-                                    if (!exportQuizScopeIsCurrent())
+                                    if (!exportQuizScopeIsCurrent()) {
                                       return null;
+                                    }
                                     final summary = await quizCards
                                         .readOwnerSummary(quizId);
                                     return exportQuizScopeIsCurrent()
