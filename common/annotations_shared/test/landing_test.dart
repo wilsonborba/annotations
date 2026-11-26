@@ -136,14 +136,16 @@ void main() {
     expect(find.byKey(const Key('hero-headline')), findsOneWidget);
   });
 
-  testWidgets('the tabs go into one menu at 1000 px and below', (tester) async {
-    await open(tester, '/v1/home/features', width: 1001);
+  testWidgets('the tabs go into one menu below 1200 px', (tester) async {
+    await open(tester, '/v1/home/features', width: 1200);
+    expect(tester.takeException(), isNull);
     expect(find.byType(ShellTab), findsNWidgets(5));
     expect(find.byKey(const Key('tabs-menu')), findsNothing);
     expect(find.byKey(const Key('bar-notes')), findsOneWidget);
     expect(find.byKey(const Key('bar-instant')), findsOneWidget);
 
-    await open(tester, '/v1/home/features', width: 1000);
+    await open(tester, '/v1/home/features', width: 1199);
+    expect(tester.takeException(), isNull);
     expect(find.byType(ShellTab), findsNothing);
     expect(find.byKey(const Key('bar-notes')), findsNothing);
     await tester.tap(find.byKey(const Key('tabs-menu')));
@@ -158,6 +160,7 @@ void main() {
     await tester.tap(find.byKey(const Key('menu-tabDownload')));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('install-iphone')), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('the window never overflows at 390, 768, 1001 and 1300 px', (
