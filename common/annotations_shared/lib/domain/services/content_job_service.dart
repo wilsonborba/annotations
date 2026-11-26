@@ -396,7 +396,15 @@ class ContentJobService {
     }
     session.requireCurrent();
     final response = await api.client.send(req);
-    session.requireCurrent();
+    try {
+      session.requireCurrent();
+    } on TranscriptionSessionChangedException {
+      // The headers arrived after this account snapshot expired. This stream
+      // belongs to this request, so cancel only its body subscription; the
+      // shared ApiAdapter client remains available to other requests.
+      await response.stream.listen((_) {}, onError: (Object _) {}).cancel();
+      rethrow;
+    }
     if (response.statusCode >= 400) {
       await response.stream.drain<void>();
       session.requireCurrent();

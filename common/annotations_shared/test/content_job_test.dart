@@ -197,6 +197,56 @@ void main() {
   );
 
   test(
+    'cancels an SSE body when response headers arrive after account change',
+    () async {
+      final persistence = InMemoryContentJobPersistence();
+      await persistence.saveRef(
+        'owner-a',
+        const ContentJobRef(
+          noteId: 'same-note',
+          clientJobId: 'client-a',
+          jobId: 'job-a',
+          lastEventSeq: 1,
+          status: 'running',
+          uploadedFileIds: [],
+        ),
+      );
+      final client = _HeaderGateClient();
+      var current = true;
+      final service = ContentJobService(
+        api: ApiAdapter(client: client, base: 'https://api.test'),
+        persistence: persistence,
+        enabled: true,
+        sessionProvider: _provider(() => current),
+      );
+      final progress = <(int, String)>[];
+      final pending = service.resumeJob(
+        'same-note',
+        onProgress: (sequence, status) => progress.add((sequence, status)),
+      );
+      await client.requestStarted.future;
+      current = false;
+      client.response.complete(
+        http.StreamedResponse(
+          client.body.stream,
+          200,
+          headers: {'content-type': 'text/event-stream'},
+        ),
+      );
+      await expectLater(
+        pending,
+        throwsA(isA<TranscriptionSessionChangedException>()),
+      );
+      expect(client.cancelCount, 1);
+      expect(progress, isEmpty);
+      expect(client.draftReads, 0);
+      expect(client.closeCount, 0);
+      expect(await persistence.loadDraft('owner-a', 'same-note'), isNull);
+      await client.body.close();
+    },
+  );
+
+  test(
     'disabled by default; reserves + uploads via /me/files, sends client_job_id & kind, persists on disk, and resumes SSE with ?after= & Last-Event-ID without re-upload',
     () async {
       final tempDir = await Directory.systemTemp.createTemp(
@@ -543,6 +593,32 @@ final class _OwnerSwitchClient extends http.BaseClient {
   void close() {
     if (!events.isClosed) events.close();
   }
+}
+
+final class _HeaderGateClient extends http.BaseClient {
+  final requestStarted = Completer<void>();
+  final response = Completer<http.StreamedResponse>();
+  var cancelCount = 0;
+  var closeCount = 0;
+  var draftReads = 0;
+  late final StreamController<List<int>> body = StreamController<List<int>>(
+    onCancel: () => cancelCount++,
+  );
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) {
+    if (request.url.path.endsWith('/events')) {
+      requestStarted.complete();
+      return response.future;
+    }
+    if (request.url.path.endsWith('/job-a')) draftReads++;
+    return Future.value(
+      http.StreamedResponse(Stream<List<int>>.value(utf8.encode('{}')), 200),
+    );
+  }
+
+  @override
+  void close() => closeCount++;
 }
 
 final class _GatedContentJobClient extends http.BaseClient {
