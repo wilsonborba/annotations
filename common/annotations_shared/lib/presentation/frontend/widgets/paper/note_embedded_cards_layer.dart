@@ -89,6 +89,11 @@ class _NoteEmbeddedCardsLayerState extends State<NoteEmbeddedCardsLayer> {
             .whereType<Map>()
             .map((item) => Map<String, dynamic>.from(item))
             .where((item) => !widget.quizOnly || item['kind'] == 'quiz_card')
+            // Public projections already draw a lock for these placeholders
+            // in the paper layer. Do not cover it with a second card surface.
+            .where(
+              (item) => !widget.publicProjection || item['restricted'] != true,
+            )
             .toList(growable: false)
       : const [];
 

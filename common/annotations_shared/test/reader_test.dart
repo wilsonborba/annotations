@@ -14,6 +14,7 @@ import 'package:annotations_shared/presentation/frontend/components/theme.dart';
 import 'package:annotations_shared/presentation/frontend/handlers/attachment_handler.dart';
 import 'package:annotations_shared/presentation/frontend/handlers/paper_handler.dart';
 import 'package:annotations_shared/presentation/frontend/components/qr_share.dart';
+import 'package:annotations_shared/presentation/frontend/components/reports_embed_card.dart';
 import 'package:annotations_shared/presentation/frontend/widgets/typed/note_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -407,6 +408,7 @@ void main() {
       final api = FakeApi()..views = ['original'];
       await open(tester, api, '/v1/notes/n1');
       expect(find.byKey(const Key('reader-original')), findsOneWidget);
+      expect(find.byType(ReportsEmbedCard), findsNothing);
       expect(tester.takeException(), isNull);
       // One view only: no switch.
       expect(find.byKey(const Key('reader-switch')), findsNothing);
@@ -582,7 +584,7 @@ void main() {
       tester,
     ) async {
       tester.view.devicePixelRatio = 1;
-      tester.view.physicalSize = const Size(320, 844);
+      tester.view.physicalSize = const Size(320, 420);
       tester.platformDispatcher.textScaleFactorTestValue = 1.3;
       addTearDown(tester.view.reset);
       addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
@@ -609,7 +611,15 @@ void main() {
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
       expect(find.text('Note QR code'), findsNWidgets(2));
-      expect(tester.getSize(find.byType(QrCodeView)).width, lessThan(220));
+      final qrSize = tester.getSize(
+        find.descendant(
+          of: find.byType(QrCodeView),
+          matching: find.byType(CustomPaint),
+        ),
+      );
+      expect(qrSize.width, qrSize.height);
+      expect(qrSize.width, greaterThanOrEqualTo(160));
+      expect(qrSize.width, lessThan(220));
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
