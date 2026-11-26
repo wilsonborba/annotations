@@ -1924,6 +1924,19 @@ class PdfExportMapper {
             : math.max(bottom, y + itemHeight).toDouble();
       }
     }
+    var inkPad = 0.0;
+    for (final item in items) {
+      final lineWidth = switch (item['kind']) {
+        'stroke' => (item['width'] as num?)?.toDouble() ?? 0,
+        'shape' => (item['line_width'] as num?)?.toDouble() ?? 0,
+        _ => 0.0,
+      };
+      inkPad = math.max(inkPad, lineWidth / 2).toDouble();
+    }
+    left = left! - inkPad;
+    top = top! - inkPad;
+    right = right! + inkPad;
+    bottom = bottom! + inkPad;
     final sourceWidth = math.max(1.0, right! - left!);
     final sourceHeight = math.max(1.0, bottom! - top!);
     final scale = math

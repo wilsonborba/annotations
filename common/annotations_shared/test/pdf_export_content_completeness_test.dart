@@ -21,6 +21,25 @@ import 'package:pdf/widgets.dart' as pw;
 import 'note_capacity_test.dart' show handwriting;
 import 'pdf_raster.dart';
 
+Future<void> _writePdfEvidence(String name, Uint8List bytes) async {
+  final outputPath = Platform.environment['ANNOTATIONS_41_PDF_EVIDENCE_DIR'];
+  if (outputPath == null || outputPath.isEmpty) return;
+  final directory = Directory(outputPath);
+  await directory.create(recursive: true);
+  final pdf = File('${directory.path}/$name.pdf');
+  await pdf.writeAsBytes(bytes, flush: true);
+  final result = await Process.run('pdftoppm', [
+    '-png',
+    '-r',
+    '96',
+    pdf.path,
+    '${directory.path}/$name',
+  ]);
+  if (result.exitCode != 0) {
+    throw StateError('pdftoppm failed for $name: ${result.stderr}');
+  }
+}
+
 void main() {
   final paperSchema = DocumentSchema(DocumentFamily.original.schemaName, 1);
   final typedSchema = DocumentSchema(DocumentFamily.typed.schemaName, 1);
@@ -214,6 +233,10 @@ void main() {
 
       expect(output.preflight.ok, isTrue);
       expect(output.engine, 'pdf');
+      await _writePdfEvidence(
+        'oversized-original-image',
+        output.pdfs.single.bytes,
+      );
       final raster = await PdfRaster.page(output.pdfs.single.bytes, page: 2);
       expect(
         raster.count((r, g, b) => g > 180 && r < 150 && b < 100),
@@ -425,6 +448,10 @@ void main() {
 
       expect(output.preflight.ok, isTrue);
       expect(output.companions, hasLength(2));
+      await _writePdfEvidence(
+        'oversized-original-group-ink-image',
+        output.pdfs.single.bytes,
+      );
       final metadataFile = output.companions.singleWhere(
         (file) => file.filename.endsWith('.json'),
       );
