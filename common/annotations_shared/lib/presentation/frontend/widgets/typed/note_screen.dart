@@ -41,6 +41,7 @@ import '../paper/paper_screen.dart';
 class NoteScreen extends StatelessWidget {
   final PaperHandler handler;
   final PlatformProfile profile;
+  final bool publicProjection;
   final Future<QuizSummary?> Function(String quizId)? loadQuizCard;
   final Future<TaskSummary?> Function(String taskId)? loadTaskCard;
   final ReportsEmbedSource? reportsSource;
@@ -68,6 +69,7 @@ class NoteScreen extends StatelessWidget {
     super.key,
     required this.handler,
     required this.profile,
+    this.publicProjection = false,
     this.loadQuizCard,
     this.loadTaskCard,
     this.reportsSource,
@@ -83,6 +85,7 @@ class NoteScreen extends StatelessWidget {
       switch (noteViewFor(profile, handler.document)) {
         NoteView.paper => PaperScreen(
           handler: handler,
+          publicProjection: publicProjection,
           reportsSource: reportsSource,
           trustedReportsAccountId: trustedReportsAccountId,
           reportsLanguage: reportsLanguage,
@@ -95,6 +98,7 @@ class NoteScreen extends StatelessWidget {
         NoteView.typed => TypedNoteEditor(paper: handler),
         NoteView.readOnly => NoteReader(
           handler: handler,
+          publicProjection: publicProjection,
           reportsSource: reportsSource,
           trustedReportsAccountId: trustedReportsAccountId,
           reportsLanguage: reportsLanguage,
@@ -109,6 +113,7 @@ class NoteScreen extends StatelessWidget {
 /// edited or saved.
 class NoteReader extends StatefulWidget {
   final PaperHandler handler;
+  final bool publicProjection;
   final ReportsEmbedSource? reportsSource;
   final String? trustedReportsAccountId;
   final String reportsLanguage;
@@ -117,6 +122,7 @@ class NoteReader extends StatefulWidget {
   const NoteReader({
     super.key,
     required this.handler,
+    this.publicProjection = false,
     this.reportsSource,
     this.trustedReportsAccountId,
     this.reportsLanguage = 'en',
@@ -145,6 +151,14 @@ class _NoteReaderState extends State<NoteReader> {
     final p = view.toPage(local);
     for (final it in d.itemsJson.reversed) {
       if (!isCardKind(it['kind']) || it['kind'] == 'image') continue;
+      if (widget.publicProjection &&
+          const {
+            'reports_embed',
+            'task_card',
+            'quiz_card',
+          }.contains(it['kind'])) {
+        return;
+      }
       final r = Rect.fromLTWH(
         (it['x'] as num).toDouble(),
         (it['y'] as num).toDouble(),
@@ -168,6 +182,7 @@ class _NoteReaderState extends State<NoteReader> {
         files: widget.handler.files,
         title: widget.handler.title,
         onOpen: (url) => cards.launchLink(url),
+        publicProjection: widget.publicProjection,
         reportsSource: widget.reportsSource,
         trustedReportsAccountId: widget.trustedReportsAccountId,
         reportsLanguage: widget.reportsLanguage,
@@ -186,7 +201,11 @@ class _NoteReaderState extends State<NoteReader> {
           onTap: _tap,
           onWheel: cards.wheel,
         ),
-        if (document is PaperDocument && widget.loadQuizCard != null)
+        if (document is PaperDocument &&
+            (widget.publicProjection ||
+                widget.reportsSource != null ||
+                widget.loadTaskCard != null ||
+                widget.loadQuizCard != null))
           ValueListenableBuilder<PaperView?>(
             valueListenable: widget.handler.view,
             builder: (context, view, _) => view == null
@@ -195,6 +214,7 @@ class _NoteReaderState extends State<NoteReader> {
                     key: const Key('reader-embedded-cards'),
                     document: document,
                     view: view,
+                    publicProjection: widget.publicProjection,
                     reportsSource: widget.reportsSource,
                     trustedAccountId: widget.trustedReportsAccountId,
                     language: widget.reportsLanguage,
@@ -434,6 +454,7 @@ class TypedNoteReader extends StatelessWidget {
   /// The author line under the title on the formal page (annotations#40).
   final String? byline;
   final ValueChanged<String>? onOpen;
+  final bool publicProjection;
   final ReportsEmbedSource? reportsSource;
   final String? trustedReportsAccountId;
   final String reportsLanguage;
@@ -447,6 +468,7 @@ class TypedNoteReader extends StatelessWidget {
     this.title,
     this.byline,
     this.onOpen,
+    this.publicProjection = false,
     this.reportsSource,
     this.trustedReportsAccountId,
     this.reportsLanguage = 'en',
@@ -573,7 +595,14 @@ class TypedNoteReader extends StatelessWidget {
             ),
           );
         default:
-          if (j['restricted'] == true) {
+          final kind = j['kind'];
+          if (j['restricted'] == true ||
+              (publicProjection &&
+                  const {
+                    'reports_embed',
+                    'task_card',
+                    'quiz_card',
+                  }.contains(kind))) {
             // Keeps the block's place with a lock (annotations#40).
             children.add(
               Container(
@@ -819,13 +848,31 @@ class _TypedReportsCardState extends State<_TypedReportsCard> {
   void didUpdateWidget(_TypedReportsCard oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.item['id'] != widget.item['id'] ||
+        !_sameReportsReference(oldWidget.item, widget.item) ||
         oldWidget.source != widget.source ||
         oldWidget.trustedAccountId != widget.trustedAccountId ||
         oldWidget.language != widget.language) {
+      _generation++;
       _data = null;
+      _loading = false;
       _load();
     }
   }
+
+  bool _sameReportsReference(
+    Map<String, Object?> oldItem,
+    Map<String, Object?> newItem,
+  ) => const [
+    'project_slug',
+    'report_slug',
+    'dataset_id',
+    'report_id',
+    'mode',
+    'snapshot_id',
+    'captured_at',
+    'source',
+    'restricted',
+  ].every((field) => oldItem[field] == newItem[field]);
 
   Future<void> _load() async {
     final generation = ++_generation;

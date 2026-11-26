@@ -753,12 +753,14 @@ class _ReaderPageState extends State<ReaderPage> {
                         child: NoteReader(
                           key: const Key('reader-typed'),
                           handler: paper,
+                          publicProjection: true,
                         ),
                       ),
                     )
                   : NoteReader(
                       key: const Key('reader-original'),
                       handler: paper,
+                      publicProjection: true,
                     ),
             ),
           ],

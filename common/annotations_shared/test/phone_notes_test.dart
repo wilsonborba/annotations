@@ -1,5 +1,6 @@
 // annotations#35: phones write simple typed notes and read everything else
 // without changing it.
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -375,6 +376,182 @@ void main() {
     expect(find.byKey(const Key('reports-retry')), findsOneWidget);
     expect(find.text('Owner task title'), findsOneWidget);
     expect(find.text('Open'), findsOneWidget);
+  });
+
+  testWidgets('public typed reader never requests private card summaries', (
+    tester,
+  ) async {
+    await setWindow(tester, phone);
+    var apiRequests = 0;
+    var taskReads = 0;
+    var quizReads = 0;
+    final source = ReportsEmbedSource(
+      api: ReportsApiAdapter(
+        client: MockClient((_) async {
+          apiRequests++;
+          return http.Response('{}', 500);
+        }),
+        headersProvider: ({required mutation}) async => const {
+          'cookie': 'session=fixture',
+        },
+      ),
+    );
+    final document = NoteDocument.fromJson({
+      'blocks': [
+        {
+          'id': 'public-report',
+          'kind': 'reports_embed',
+          'report_id': 'monthly',
+          'project_slug': 'private-project',
+          'report_slug': 'monthly',
+          'dataset_id': 'monthly',
+          'mode': 'live',
+          'source': 'link',
+        },
+        {'id': 'public-task', 'kind': 'task_card', 'task_id': 'task-1'},
+        {
+          'id': 'public-quiz',
+          'kind': 'quiz_card',
+          'quiz_id': 'quiz-1',
+          'study_id': 'study-1',
+        },
+      ],
+    }, schema: typed);
+    final handler = handlerFor(document, title: 'Public note');
+    addTearDown(handler.dispose);
+    await tester.pumpWidget(
+      host(
+        NoteReader(
+          handler: handler,
+          publicProjection: true,
+          reportsSource: source,
+          trustedReportsAccountId: 'owner-1',
+          loadTaskCard: (_) async {
+            taskReads++;
+            return const TaskSummary(
+              taskId: 'task-1',
+              title: 'PRIVATE TASK TITLE',
+              completed: false,
+            );
+          },
+          loadQuizCard: (_) async {
+            quizReads++;
+            return const QuizSummary(
+              quizId: 'quiz-1',
+              title: 'PRIVATE QUIZ TITLE',
+            );
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(apiRequests, 0);
+    expect(taskReads, 0);
+    expect(quizReads, 0);
+    expect(find.byKey(const Key('locked-public-report')), findsOneWidget);
+    expect(find.byKey(const Key('locked-public-task')), findsOneWidget);
+    expect(find.byKey(const Key('locked-public-quiz')), findsOneWidget);
+    expect(find.text('PRIVATE TASK TITLE'), findsNothing);
+    expect(find.text('PRIVATE QUIZ TITLE'), findsNothing);
+  });
+
+  testWidgets('typed Reports card reloads when its reference changes', (
+    tester,
+  ) async {
+    await setWindow(tester, phone);
+    final oldResponse = Completer<http.Response>();
+    final oldRequestStarted = Completer<void>();
+    final paths = <String>[];
+    final source = ReportsEmbedSource(
+      api: ReportsApiAdapter(
+        client: MockClient((request) async {
+          paths.add(request.url.path);
+          if (request.url.path.endsWith('/me')) {
+            return http.Response(jsonEncode({'user_id': 'owner-1'}), 200);
+          }
+          if (request.url.path.endsWith('/reports/old-report')) {
+            if (!oldRequestStarted.isCompleted) oldRequestStarted.complete();
+            return oldResponse.future;
+          }
+          if (request.url.path.endsWith('/reports/new-report')) {
+            return http.Response('', 403);
+          }
+          fail('Unexpected Reports request: ${request.url.path}');
+        }),
+        headersProvider: ({required mutation}) async => const {
+          'cookie': 'session=fixture',
+        },
+      ),
+    );
+    NoteDocument reportDocument(String report) => NoteDocument.fromJson({
+      'blocks': [
+        {
+          'id': 'same-card-id',
+          'kind': 'reports_embed',
+          'report_id': report,
+          'project_slug': 'public',
+          'report_slug': report,
+          'dataset_id': 'monthly',
+          'mode': 'live',
+          'source': 'link',
+        },
+      ],
+    }, schema: typed);
+    final firstHandler = handlerFor(
+      reportDocument('old-report'),
+      title: 'Report reference update',
+    );
+    final secondHandler = handlerFor(
+      reportDocument('new-report'),
+      title: 'Report reference update',
+    );
+    addTearDown(firstHandler.dispose);
+    addTearDown(secondHandler.dispose);
+
+    Widget reader(PaperHandler handler) => host(
+      NoteReader(
+        key: const Key('stable-reader'),
+        handler: handler,
+        reportsSource: source,
+        trustedReportsAccountId: 'owner-1',
+      ),
+    );
+
+    await tester.pumpWidget(reader(firstHandler));
+    await oldRequestStarted.future;
+    await tester.pumpWidget(reader(secondHandler));
+    await tester.pumpAndSettle();
+    expect(
+      paths,
+      contains('/apps/reports/v1/projects/public/reports/new-report'),
+    );
+    expect(find.text('This report is restricted.'), findsOneWidget);
+
+    oldResponse.complete(
+      http.Response(
+        jsonEncode({
+          'project': 'public',
+          'report': 'old-report',
+          'title': 'Stale old report',
+          'updated_at': '2026-11-24T00:00:00Z',
+          'datasets': [
+            {
+              'dataset_id': 'monthly',
+              'title': 'Monthly',
+              'can_view': true,
+              'fields': [
+                {'name': 'month', 'type': 'string', 'role': 'dimension'},
+                {'name': 'sales', 'type': 'integer', 'role': 'measure'},
+              ],
+            },
+          ],
+        }),
+        200,
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('This report is restricted.'), findsOneWidget);
+    expect(find.text('Stale old report'), findsNothing);
   });
 
   testWidgets('the typed editor: text, styles, Undo, the title; opening '
