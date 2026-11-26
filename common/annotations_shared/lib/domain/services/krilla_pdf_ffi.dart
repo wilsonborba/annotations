@@ -11,26 +11,28 @@ typedef _FreeDart = void Function(Pointer<Uint8> ptr, int len);
 typedef _PingNative = Int32 Function();
 typedef _PingDart = int Function();
 
-typedef _RenderNative = Int32 Function(
-  Pointer<Uint8> modelJsonPtr,
-  IntPtr modelJsonLen,
-  Pointer<Uint8> regularFontPtr,
-  IntPtr regularFontLen,
-  Pointer<Uint8> boldFontPtr,
-  IntPtr boldFontLen,
-  Pointer<Pointer<Uint8>> outPtr,
-  Pointer<IntPtr> outLen,
-);
-typedef _RenderDart = int Function(
-  Pointer<Uint8> modelJsonPtr,
-  int modelJsonLen,
-  Pointer<Uint8> regularFontPtr,
-  int regularFontLen,
-  Pointer<Uint8> boldFontPtr,
-  int boldFontLen,
-  Pointer<Pointer<Uint8>> outPtr,
-  Pointer<IntPtr> outLen,
-);
+typedef _RenderNative =
+    Int32 Function(
+      Pointer<Uint8> modelJsonPtr,
+      IntPtr modelJsonLen,
+      Pointer<Uint8> regularFontPtr,
+      IntPtr regularFontLen,
+      Pointer<Uint8> boldFontPtr,
+      IntPtr boldFontLen,
+      Pointer<Pointer<Uint8>> outPtr,
+      Pointer<IntPtr> outLen,
+    );
+typedef _RenderDart =
+    int Function(
+      Pointer<Uint8> modelJsonPtr,
+      int modelJsonLen,
+      Pointer<Uint8> regularFontPtr,
+      int regularFontLen,
+      Pointer<Uint8> boldFontPtr,
+      int boldFontLen,
+      Pointer<Pointer<Uint8>> outPtr,
+      Pointer<IntPtr> outLen,
+    );
 
 DynamicLibrary? _cachedLib;
 bool _searchedLib = false;

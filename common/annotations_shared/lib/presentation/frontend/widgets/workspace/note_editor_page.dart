@@ -5,17 +5,23 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../../core/features.dart';
 import '../../../../core/tracking_manifest.dart';
 import '../../../../dal/remote/api_adapter.dart';
+import '../../../../dal/remote/reports_api_adapter.dart';
 import '../../../../domain/models/local_note.dart';
+import '../../../../domain/models/reports_embed_data.dart';
 import '../../../../domain/services/certifications_browser_handoff.dart';
 import '../../../../domain/services/installed_account.dart';
 import '../../../../domain/services/local_note_store.dart';
 import '../../../../domain/services/note_autosave.dart';
 import '../../../../domain/services/native_auth_service.dart';
 import '../../../../domain/services/prepared_certification_service.dart';
+import '../../../../domain/services/reports_embed_source.dart';
 import '../../components/controls.dart';
 import '../../components/icons.dart';
 import '../../components/scope.dart';
 import '../../handlers/paper_handler.dart';
+import '../../handlers/export_handler.dart';
+import '../../handlers/reports_pdf_capture.dart';
+import '../export/export_dialog.dart';
 import '../typed/note_screen.dart';
 
 /// `/v1/write/<id>`: one local note in the editor of this platform.
@@ -557,6 +563,76 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
                             ? context.tr('prepareQuiz')
                             : context.tr('continueQuiz'),
                         onPressed: _preparingQuiz ? null : _prepareQuiz,
+                      ),
+                    ),
+                  if (handler != null && workspace != null)
+                    track(
+                      'workspace.note.export',
+                      AppButton(
+                        key: const Key('editor-export'),
+                        label: context.tr('exportPdf'),
+                        icon: AppIcons.download,
+                        onPressed: () async {
+                          await handler.autosave.flush();
+                          final note = await workspace.store.load(
+                            widget.noteId,
+                          );
+                          if (note == null || !context.mounted) return;
+                          final scope = AppScope.of(context);
+                          final installed = scope.installed;
+                          final reportsSource = installed == null
+                              ? null
+                              : ReportsEmbedSource(
+                                  api: ReportsApiAdapter(
+                                    headersProvider:
+                                        ReportsApiAdapter.nativeSessionHeaders(
+                                          installed.auth,
+                                        ),
+                                    client: installed.client,
+                                  ),
+                                  hasStoredViewerSession: () async =>
+                                      await installed.auth.storage.readSession() !=
+                                      null,
+                                );
+                          final language = scope.preferences.locale;
+                          final export = ExportHandler(
+                            note: note,
+                            store: workspace.store,
+                            untitledTitle: context.tr('untitledNote'),
+                            loadReportsEmbed: reportsSource == null
+                                ? null
+                                : (item) async {
+                                    if (installed == null ||
+                                        !installed.signedIn) {
+                                      return const ReportsEmbedData(
+                                        state:
+                                            ReportsEmbedState.signInRequired,
+                                        reference: null,
+                                      );
+                                    }
+                                    if (note.accountId != null &&
+                                        note.accountId != installed.userId) {
+                                      return const ReportsEmbedData(
+                                        state: ReportsEmbedState.restricted,
+                                        reference: null,
+                                      );
+                                    }
+                                    return reportsSource.loadDocument(
+                                      item,
+                                      trustedAccountId: installed.userId,
+                                      language: language,
+                                    );
+                                  },
+                            renderReportsChart: (data, {required partial}) =>
+                                captureReportsPdfChart(
+                                  context,
+                                  data,
+                                  language: language,
+                                ),
+                          );
+                          await showExportDialog(context, export);
+                          export.dispose();
+                        },
                       ),
                     ),
                 ],
