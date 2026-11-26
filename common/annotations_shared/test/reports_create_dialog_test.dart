@@ -109,18 +109,22 @@ void main() {
 
       await tester.tap(
         find.byKey(
-          const Key('reports-create-slot-published-bar-csv-1-category'),
+          Key('reports-create-slot-${template.selectionId}-csv-1-category'),
         ),
       );
       await tester.pumpAndSettle();
       await tester.tap(find.text('month').last);
       await tester.pumpAndSettle();
       await tester.ensureVisible(
-        find.byKey(const Key('reports-create-slot-published-bar-csv-1-value')),
+        find.byKey(
+          Key('reports-create-slot-${template.selectionId}-csv-1-value'),
+        ),
       );
       await tester.pumpAndSettle();
       await tester.tap(
-        find.byKey(const Key('reports-create-slot-published-bar-csv-1-value')),
+        find.byKey(
+          Key('reports-create-slot-${template.selectionId}-csv-1-value'),
+        ),
       );
       await tester.pumpAndSettle();
       await tester.tap(find.text('sales').last);
@@ -293,8 +297,8 @@ void main() {
 
     await tester.tap(
       find.byKey(
-        const Key(
-          'reports-create-slot-published-bar-workbook-1::Details-category',
+        Key(
+          'reports-create-slot-${template.selectionId}-workbook-1::Details-category',
         ),
       ),
     );
@@ -302,7 +306,9 @@ void main() {
     await tester.tap(find.text('Month').last);
     await tester.pumpAndSettle();
     final valueField = find.byKey(
-      const Key('reports-create-slot-published-bar-workbook-1::Details-value'),
+      Key(
+        'reports-create-slot-${template.selectionId}-workbook-1::Details-value',
+      ),
     );
     await tester.ensureVisible(valueField);
     await tester.pumpAndSettle();
@@ -317,6 +323,174 @@ void main() {
     expect(submitted?['rows'], [
       {'Month': 'Jan', 'Sales': 15},
     ]);
+    expect(requestCount, 1);
+  });
+
+  testWidgets('selects and creates with the chosen published template version', (
+    tester,
+  ) async {
+    ReportsTemplateChoice choice(
+      int version,
+      String title,
+      String orientation,
+    ) => ReportsTemplateChoice.fromJson({
+      'template_id': 'shared-template',
+      'version': version,
+      'kind': 'chart',
+      'visual': 'bar',
+      'title': title,
+      'slots': [
+        {
+          'slot_name': 'category',
+          'role': 'dimension',
+          'is_required': true,
+          'min_count': 1,
+          'max_count': 1,
+          'accepted_types': ['string'],
+        },
+        {
+          'slot_name': 'value',
+          'role': 'measure',
+          'is_required': true,
+          'min_count': 1,
+          'max_count': 1,
+          'accepted_types': ['integer', 'float'],
+        },
+      ],
+      'options': [
+        {
+          'option_name': 'orientation',
+          'value_type': 'enum',
+          'default_value': orientation,
+          'allowed_values': ['vertical', 'horizontal'],
+        },
+      ],
+    });
+
+    final first = choice(1, 'Published version one', 'vertical');
+    final second = choice(2, 'Published version two', 'horizontal');
+    expect(first.templateId, second.templateId);
+    expect(first.selectionId, isNot(second.selectionId));
+    final table = ReportsChartSourceTable.parse(
+      fileId: 'csv-version',
+      name: 'monthly.csv',
+      bytes: Uint8List.fromList(utf8.encode('month,sales\nJan,12\n')),
+    );
+    Map<String, Object?>? postedItem;
+    var requestCount = 0;
+    final service = NoteReportsService(
+      api: ApiAdapter(
+        base: 'https://api.asodya.com/apps/annotations/v1',
+        client: MockClient((request) async {
+          requestCount++;
+          expect(request.method, 'POST');
+          expect(
+            request.url.path,
+            '/apps/annotations/v1/me/notes/server-note-1/reports',
+          );
+          final body = jsonDecode(request.body) as Map<String, dynamic>;
+          postedItem = Map<String, Object?>.from(body['item'] as Map);
+          expect(body['mode'], 'create');
+          expect(body['project'], 'approved-project');
+          final item = body['item'] as Map<String, dynamic>;
+          expect(item['template_id'], 'shared-template');
+          expect(item['template_version'], 2);
+          expect(item['title'], 'Published version two');
+          expect(item['config'], {'orientation': 'horizontal'});
+          return http.Response(
+            jsonEncode({
+              'note_id': 'server-note-1',
+              'report_item_id': '123e4567-e89b-42d3-a456-426614174000',
+              'relation_kind': 'created_for_note',
+              'operation_key': body['operation_key'],
+              'item': {
+                'id': '123e4567-e89b-42d3-a456-426614174000',
+                'project': 'approved-project',
+                'report_slug': 'versioned-report',
+                'dataset_id': 'primary',
+                'source_app': 'annotations',
+                'template_id': item['template_id'],
+                'template_version': item['template_version'],
+                'audience': 'personal',
+                'control_authority': 'user_owned',
+                'etag': '"receipt"',
+                'embed_url':
+                    'https://reports.asodya.com/v1/menu/approved-project/versioned-report/primary',
+              },
+            }),
+            201,
+          );
+        }),
+      ),
+      session: const NativeSession(
+        sessionId: 'session',
+        csrfToken: 'csrf',
+        verifiedUserId: 'owner-1',
+      ),
+    );
+    final preferences = Preferences()..locale = 'en';
+    Future<ReportsEmbedReference?>? result;
+    await tester.pumpWidget(
+      AppScope(
+        preferences: preferences,
+        service: fixtureService(),
+        child: MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => ElevatedButton(
+                onPressed: () {
+                  result = showReportsCreateDialog(
+                    context,
+                    projectName: 'Approved project',
+                    templates: [first, second],
+                    tables: [table],
+                    create: ({required item, required operationKey}) =>
+                        service.createChart(
+                          serverNoteId: 'server-note-1',
+                          project: 'approved-project',
+                          operationKey: operationKey,
+                          item: item,
+                        ),
+                  );
+                },
+                child: const Text('Open create dialog'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Open create dialog'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('reports-create-template')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Published version two').last);
+    await tester.pumpAndSettle();
+
+    final categoryField = find.byKey(
+      Key('reports-create-slot-${second.selectionId}-csv-version-category'),
+    );
+    await tester.tap(categoryField);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('month').last);
+    await tester.pumpAndSettle();
+    final valueField = find.byKey(
+      Key('reports-create-slot-${second.selectionId}-csv-version-value'),
+    );
+    await tester.ensureVisible(valueField);
+    await tester.pumpAndSettle();
+    await tester.tap(valueField);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('sales').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('reports-create-submit')));
+    await tester.pumpAndSettle();
+
+    expect((await result)?.reportSlug, 'versioned-report');
+    expect(postedItem?['template_id'], 'shared-template');
+    expect(postedItem?['template_version'], 2);
+    expect(postedItem?['title'], 'Published version two');
+    expect(postedItem?['config'], {'orientation': 'horizontal'});
     expect(requestCount, 1);
   });
 }

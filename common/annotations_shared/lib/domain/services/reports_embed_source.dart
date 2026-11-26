@@ -168,6 +168,10 @@ final class ReportsTemplateChoice {
   final List<Map<String, dynamic>> slots;
   final List<Map<String, dynamic>> options;
 
+  /// Published IDs can have multiple active historical versions in the
+  /// catalog response. The UI identity must retain the selected version.
+  String get selectionId => jsonEncode([templateId, version]);
+
   factory ReportsTemplateChoice.fromJson(Map<String, dynamic> json) {
     final id = json['template_id'];
     final version = json['version'];

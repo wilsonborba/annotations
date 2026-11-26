@@ -79,7 +79,7 @@ class _ReportsCreateDialogState extends State<_ReportsCreateDialog> {
   final _optionValues = <String, TextEditingController>{};
   final _mapping = <String, String>{};
   late final String _operationKey = _newOperationKey();
-  String? _templateId;
+  String? _templateSelectionId;
   String? _tableId;
   String? _error;
   bool _saving = false;
@@ -94,7 +94,7 @@ class _ReportsCreateDialogState extends State<_ReportsCreateDialog> {
 
   ReportsTemplateChoice? get _template {
     for (final candidate in widget.templates) {
-      if (candidate.templateId == _templateId) return candidate;
+      if (candidate.selectionId == _templateSelectionId) return candidate;
     }
     return widget.templates.firstOrNull;
   }
@@ -111,7 +111,7 @@ class _ReportsCreateDialogState extends State<_ReportsCreateDialog> {
   @override
   void initState() {
     super.initState();
-    _templateId = widget.templates.firstOrNull?.templateId;
+    _templateSelectionId = widget.templates.firstOrNull?.selectionId;
     _tableId = widget.tables.firstOrNull?.selectionId;
     widget.ownerScopeRevision?.addListener(_scopeChanged);
     _syncTemplateDefaults();
@@ -324,14 +324,14 @@ class _ReportsCreateDialogState extends State<_ReportsCreateDialog> {
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
                 key: const Key('reports-create-template'),
-                initialValue: template?.templateId,
+                initialValue: template?.selectionId,
                 decoration: InputDecoration(
                   labelText: context.tr('reportsCreateTemplate'),
                 ),
                 items: [
                   for (final candidate in widget.templates)
                     DropdownMenuItem(
-                      value: candidate.templateId,
+                      value: candidate.selectionId,
                       child: Text(
                         candidate.title,
                         maxLines: 1,
@@ -346,7 +346,7 @@ class _ReportsCreateDialogState extends State<_ReportsCreateDialog> {
                         final wasTemplateDefault =
                             _title.text.trim().isEmpty ||
                             _title.text.trim() == oldTemplate?.title.trim();
-                        _templateId = value;
+                        _templateSelectionId = value;
                         _mapping.clear();
                         final newTemplate = _template;
                         if (wasTemplateDefault && newTemplate != null) {
@@ -417,7 +417,9 @@ class _ReportsCreateDialogState extends State<_ReportsCreateDialog> {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: DropdownButtonFormField<String>(
-        key: Key('reports-create-slot-$_templateId-${table.selectionId}-$name'),
+        key: Key(
+          'reports-create-slot-$_templateSelectionId-${table.selectionId}-$name',
+        ),
         initialValue: _mapping[name] ?? (required ? null : ''),
         decoration: InputDecoration(
           labelText: '${_humanize(role)}${required ? ' *' : ''}',
@@ -463,7 +465,7 @@ class _ReportsCreateDialogState extends State<_ReportsCreateDialog> {
       padding: const EdgeInsets.only(bottom: 8),
       child: values.isNotEmpty
           ? DropdownButtonFormField<String>(
-              key: Key('reports-create-option-$_templateId-$name'),
+              key: Key('reports-create-option-$_templateSelectionId-$name'),
               initialValue: values.contains(controller.text)
                   ? controller.text
                   : values.first,
