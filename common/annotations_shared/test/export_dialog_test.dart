@@ -260,6 +260,8 @@ void main() {
     testWidgets(
       'actual Reports VisualChooser capture paints above an opaque dialog',
       (tester) async {
+        const thaiCopy =
+            'ภาษาไทย: กิ่งไม้ดูแลต้นไม้ อยู่ใกล้ผู้อื่นและอ่านข้อมูลทุกบรรทัดอย่างละเอียด เพื่อให้แน่ใจว่าเครื่องหมายสระและวรรณยุกต์ยังชัดเจนเมื่อพิมพ์รายงาน';
         const hostKey = Key('reports-capture-host');
         await tester.pumpWidget(
           MaterialApp(
@@ -354,10 +356,21 @@ void main() {
           document: _originalDoc(
             items: [
               {
+                'id': 'thai-copy',
+                'kind': 'text',
+                'x': 20,
+                'y': 68,
+                'width': 720,
+                'height': 120,
+                'spans': [
+                  {'text': thaiCopy},
+                ],
+              },
+              {
                 'id': 'report-card',
                 'kind': 'reports_embed',
                 'x': 20,
-                'y': 80,
+                'y': 220,
                 'width': 500,
                 'height': 300,
                 'report_id': 'report',
@@ -383,6 +396,13 @@ void main() {
           schema: _typedSchema,
           document: _typedDoc(
             blocks: [
+              {
+                'id': 'thai-copy',
+                'kind': 'paragraph',
+                'spans': [
+                  {'text': thaiCopy},
+                ],
+              },
               {
                 'id': 'report-card',
                 'kind': 'reports_embed',
@@ -434,6 +454,7 @@ void main() {
         await tester.runAsync(() => handler.build(placeholders: true));
         expect(handler.stage, ExportStage.ready);
         expect(handler.output!.pdfs, hasLength(2));
+        expect(handler.output!.engine, 'pdf');
         expect(handler.needsZip, isTrue);
         expect(previewInputs, hasLength(2));
         for (var index = 0; index < handler.output!.pdfs.length; index++) {
@@ -475,10 +496,37 @@ void main() {
             reason: '${pdf.filename} must contain the Reports chart image',
           );
         }
+        for (var index = 0; index < handler.output!.pdfs.length; index++) {
+          final pdf = handler.output!.pdfs[index];
+          final textPath = '${root.path}/thai-chart-$index.pdf';
+          await tester.runAsync(
+            () => File(textPath).writeAsBytes(pdf.bytes, flush: true),
+          );
+          final extracted = await tester.runAsync(() async {
+            final result = await Process.run('pdftotext', [textPath, '-']);
+            if (result.exitCode != 0) {
+              throw StateError('pdftotext failed: ${result.stderr}');
+            }
+            return result.stdout as String;
+          });
+          final normalizedText = extracted!.replaceAll(RegExp(r'\s+'), '');
+          expect(normalizedText, contains('กิ่งไม้'));
+          expect(normalizedText, contains('วรรณยุกต์'));
+        }
         expect(await tester.runAsync(handler.save), isTrue);
         final savedZipBytes = File(savePath).readAsBytesSync();
         var archive = ZipDecoder().decodeBytes(zipBytes);
         var savedArchive = ZipDecoder().decodeBytes(savedZipBytes);
+        final expectedEntries =
+            handler.output!.pdfs.map((pdf) => pdf.filename).toList()..sort();
+        expect(
+          archive.files.map((entry) => entry.name).toList()..sort(),
+          expectedEntries,
+        );
+        expect(
+          savedArchive.files.map((entry) => entry.name).toList()..sort(),
+          expectedEntries,
+        );
         for (final pdf in handler.output!.pdfs) {
           final generatedPdf = archive.files.singleWhere(
             (file) => file.name == pdf.filename,
