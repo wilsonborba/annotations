@@ -555,7 +555,13 @@ void main() {
           tester.getSize(find.byType(QrCodeView).at(0)).width,
           lessThan(qrLimit),
         );
-        expect(find.text('Note QR code'), findsOneWidget);
+        expect(
+          find.descendant(
+            of: find.byType(AlertDialog),
+            matching: find.text('Note QR code'),
+          ),
+          findsOneWidget,
+        );
         await tester.sendKeyEvent(LogicalKeyboardKey.escape);
         await tester.pumpAndSettle();
       }
