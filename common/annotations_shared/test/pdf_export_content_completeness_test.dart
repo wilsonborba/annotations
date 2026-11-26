@@ -1,15 +1,19 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:annotations_shared/domain/models/local_note.dart';
+import 'package:annotations_shared/domain/models/ink.dart';
 import 'package:annotations_shared/domain/models/note_document.dart';
 import 'package:annotations_shared/domain/services/local_note_store.dart';
 import 'package:annotations_shared/domain/services/krilla_pdf_backend.dart';
+import 'package:annotations_shared/domain/services/editor_rules.dart';
 import 'package:annotations_shared/domain/services/pdf_export_mapper.dart';
 import 'package:annotations_shared/domain/services/task_card_service.dart';
 import 'package:annotations_shared/presentation/frontend/handlers/export_handler.dart';
+import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf/widgets.dart' as pw;
 
@@ -44,6 +48,311 @@ void main() {
         mode: PdfExportMode.both,
         continueWithPlaceholders: continueWithPlaceholders,
       );
+
+  test(
+    'Original and Typed file cards print CSV rows and a PDF page image; export ZIP retains source files',
+    () async {
+      final sourceCsv = Uint8List.fromList(
+        utf8.encode(
+          'Name,Value\nCSV_CONTENT_SENTINEL,42\nRow2,20\nRow3,13\nRow4,8\nRow5,5\n',
+        ),
+      );
+      final sourcePdfDocument = pw.Document()
+        ..addPage(
+          pw.Page(
+            build: (_) => pw.Column(
+              children: [
+                pw.Text('PDF_SOURCE_SENTINEL — original portrait page'),
+                pw.Image(pw.MemoryImage(logo), width: 180),
+              ],
+            ),
+          ),
+        );
+      final sourcePdf = await sourcePdfDocument.save();
+      final sourceDir = await Directory.systemTemp.createTemp(
+        'pdf_card_source_',
+      );
+      addTearDown(() => sourceDir.delete(recursive: true));
+      File('${sourceDir.path}/source.pdf').writeAsBytesSync(sourcePdf);
+      final previewProcess = await Process.run('pdftoppm', [
+        '-png',
+        '-r',
+        '96',
+        '-f',
+        '1',
+        '-l',
+        '1',
+        '-singlefile',
+        '${sourceDir.path}/source.pdf',
+        '${sourceDir.path}/preview',
+      ]);
+      expect(previewProcess.exitCode, 0, reason: '${previewProcess.stderr}');
+      final firstPagePreview = File(
+        '${sourceDir.path}/preview.png',
+      ).readAsBytesSync();
+      final original = NoteDocument.fromJson({
+        'page': {
+          'width': 1000,
+          'background': {'kind': 'blank'},
+        },
+        'items': [
+          {
+            'id': 'csv-original',
+            'kind': 'csv_table',
+            'file_id': 'csv-source',
+            'x': 20,
+            'y': 20,
+            'width': 420,
+            'height': 180,
+          },
+          {
+            'id': 'pdf-original',
+            'kind': 'pdf_preview',
+            'file_id': 'pdf-source',
+            'x': 20,
+            'y': 230,
+            'width': 320,
+            'height': 360,
+          },
+        ],
+      }, schema: paperSchema);
+      final typed = NoteDocument.fromJson({
+        'blocks': [
+          {'id': 'csv-typed', 'kind': 'csv_table', 'file_id': 'csv-source'},
+          {'id': 'pdf-typed', 'kind': 'pdf_preview', 'file_id': 'pdf-source'},
+        ],
+      }, schema: typedSchema);
+
+      final output = await PdfExportMapper().export(
+        title: 'File references',
+        slug: 'file-references',
+        original: original,
+        typed: typed,
+        options: const PdfExportOptions(
+          mode: PdfExportMode.both,
+          continueWithPlaceholders: true,
+        ),
+        availableFileIds: const {'csv-source', 'pdf-source'},
+        attachments: {'csv-source': sourceCsv, 'pdf-source': sourcePdf},
+        csvTables: const {
+          'csv-source': [
+            ['Name', 'Value'],
+            ['CSV_CONTENT_SENTINEL', '42'],
+            ['Row2', '20'],
+            ['Row3', '13'],
+            ['Row4', '8'],
+            ['Row5', '5'],
+          ],
+        },
+        pdfPreviews: {'pdf-source': firstPagePreview},
+        baseFont: baseFont,
+        boldFont: boldFont,
+        thaiFont: thaiFont,
+      );
+
+      expect(output.preflight.ok, isTrue);
+      expect(output.engine, 'pdf');
+      expect(output.pdfs, hasLength(2));
+      expect(output.companions, hasLength(2));
+      final companionBytes = {
+        for (final companion in output.companions)
+          companion.filename: companion.bytes,
+      };
+      expect(companionBytes['source-csv-source.csv'], sourceCsv);
+      expect(companionBytes['source-pdf-source.pdf'], sourcePdf);
+      for (final file in output.pdfs) {
+        final text = await _extractPdfText(file.bytes);
+        expect(text, contains('CSV_CONTENT_SENTINEL'));
+        expect(text, isNot(contains('CSV file: csv-source')));
+        if (file.filename.contains('original')) {
+          expect(text, contains('CSV preview is partial (shows 4 of 6 rows)'));
+        }
+        expect(
+          latin1.decode(file.bytes, allowInvalid: true),
+          contains('/Subtype/Image'),
+        );
+        final raster = await PdfRaster.page(file.bytes);
+        expect(
+          raster.count((r, g, b) => r < 245 || g < 245 || b < 245),
+          greaterThan(500),
+        );
+      }
+    },
+  );
+
+  testWidgets('ExportHandler loads CSV rows and renders attached PDF pages', (
+    tester,
+  ) async {
+    final csvBytes = Uint8List.fromList(
+      utf8.encode('Name,Value\nHANDLER_CSV_SENTINEL,42\n'),
+    );
+    final sourcePdf = await tester.runAsync(() async {
+      final document = pw.Document()
+        ..addPage(pw.Page(build: (_) => pw.Text('Attached source page')));
+      return document.save();
+    });
+    expect(sourcePdf, isNotNull);
+    final renderedSources = <Uint8List>[];
+    final noteDocument = NoteDocument.fromJson({
+      'page': {
+        'width': 1000,
+        'background': {'kind': 'blank'},
+      },
+      'items': [
+        {
+          'id': 'csv-card',
+          'kind': 'csv_table',
+          'file_id': 'csv-file',
+          'x': 16,
+          'y': 16,
+          'width': 480,
+          'height': 180,
+        },
+        {
+          'id': 'pdf-card',
+          'kind': 'pdf_preview',
+          'file_id': 'pdf-file',
+          'x': 16,
+          'y': 220,
+          'width': 360,
+          'height': 420,
+        },
+      ],
+    }, schema: paperSchema);
+    final now = DateTime.utc(2026, 1, 1);
+    final note = LocalNote(
+      id: 'note-with-references',
+      schema: paperSchema,
+      document: noteDocument,
+      title: 'References',
+      revision: 1,
+      createdAt: now,
+      updatedAt: now,
+      syncState: LocalSyncState.local,
+      accountId: null,
+    );
+    final store = _ReferenceNoteStore({
+      'csv-file': _StoredBytes('table.csv', 'text/csv', csvBytes),
+      'pdf-file': _StoredBytes(
+        'source.pdf',
+        'application/pdf',
+        Uint8List.fromList(sourcePdf!),
+      ),
+    });
+    final handler = ExportHandler(
+      note: note,
+      store: store,
+      renderPdfPage: (bytes, _) async {
+        renderedSources.add(Uint8List.fromList(bytes));
+        return _onePixelImage();
+      },
+      renderPages: (_, _) async => [await _onePixelImage()],
+    );
+    addTearDown(handler.dispose);
+
+    await tester.runAsync(() => handler.build());
+
+    expect(
+      handler.stage,
+      ExportStage.ready,
+      reason:
+          'preflight=${handler.preflight?.issues.map((issue) => '${issue.kind}/${issue.refId}: ${issue.message}').join('; ')}',
+    );
+    expect(handler.output?.preflight.ok, isTrue);
+    expect(handler.output?.pdfs, hasLength(1));
+    expect(handler.output?.companions, hasLength(2));
+    expect(renderedSources, [Uint8List.fromList(sourcePdf)]);
+    final pdf = handler.output!.pdfs.single.bytes;
+    final pdfText = await tester.runAsync(() => _extractPdfText(pdf));
+    expect(pdfText, contains('HANDLER_CSV_SENTINEL'));
+    expect(latin1.decode(pdf, allowInvalid: true), contains('/Subtype/Image'));
+    final zip = ZipDecoder().decodeBytes(handler.bytes());
+    final entries = {
+      for (final entry in zip.files)
+        if (entry.isFile)
+          entry.name: Uint8List.fromList(entry.content as List<int>),
+    };
+    expect(
+      entries.keys,
+      containsAll([
+        'references-original.pdf',
+        'source-csv-file.csv',
+        'source-pdf-file.pdf',
+      ]),
+    );
+    expect(entries['source-csv-file.csv'], csvBytes);
+    expect(entries['source-pdf-file.pdf'], sourcePdf);
+  });
+
+  test(
+    'missing or corrupt CSV/PDF references need explicit continuation',
+    () async {
+      final original = NoteDocument.fromJson({
+        'page': {
+          'width': 1000,
+          'background': {'kind': 'blank'},
+        },
+        'items': [
+          {
+            'id': 'missing-csv-card',
+            'kind': 'csv_table',
+            'file_id': 'missing-csv',
+            'x': 20,
+            'y': 20,
+            'width': 420,
+            'height': 140,
+          },
+          {
+            'id': 'corrupt-pdf-card',
+            'kind': 'pdf_preview',
+            'file_id': 'corrupt-pdf',
+            'x': 20,
+            'y': 190,
+            'width': 320,
+            'height': 300,
+          },
+        ],
+      }, schema: paperSchema);
+      final corruptPdf = Uint8List.fromList(utf8.encode('not a PDF'));
+
+      final stopped = await PdfExportMapper().export(
+        title: 'Unavailable references',
+        slug: 'unavailable-references',
+        original: original,
+        options: const PdfExportOptions(mode: PdfExportMode.original),
+        availableFileIds: const {'corrupt-pdf'},
+        attachments: {'corrupt-pdf': corruptPdf},
+        baseFont: baseFont,
+        thaiFont: thaiFont,
+      );
+      expect(stopped.preflight.ok, isFalse);
+      expect(stopped.pdfs, isEmpty);
+      expect(
+        stopped.preflight.issues.map((issue) => issue.kind),
+        containsAll(['missing_file', 'unsupported_content']),
+      );
+
+      final continued = await PdfExportMapper().export(
+        title: 'Unavailable references',
+        slug: 'unavailable-references',
+        original: original,
+        options: const PdfExportOptions(
+          mode: PdfExportMode.original,
+          continueWithPlaceholders: true,
+        ),
+        availableFileIds: const {'corrupt-pdf'},
+        attachments: {'corrupt-pdf': corruptPdf},
+        baseFont: baseFont,
+        thaiFont: thaiFont,
+      );
+      expect(continued.pdfs, hasLength(1));
+      expect(continued.companions, isEmpty);
+      final text = await _extractPdfText(continued.pdfs.single.bytes);
+      expect(text, contains('CSV content unavailable'));
+      expect(text, contains('PDF page preview unavailable'));
+      expect(text, isNot(contains('CSV file: missing-csv')));
+    },
+  );
 
   test(
     'Paper images and Typed figures print the referenced image pixels',
@@ -266,6 +575,94 @@ void main() {
         await _extractPdfText(marked.pdfs.single.bytes),
         contains('Some handwriting is unavailable'),
       );
+    },
+  );
+
+  test(
+    'legal tall Typed handwriting uses a visible preview page and exact companion',
+    () async {
+      Map<String, Object?> strokeFor(double height) {
+        final capture = StrokeCapture(
+          const BrushSettings(
+            tool: InkTool.round,
+            width: 3,
+            color: '#DC2626FF',
+          ),
+          pageWidth: 180,
+        );
+        for (var i = 0; i < 60; i++) {
+          final t = i / 59;
+          final yEnd = math.min(height - 20, 900.0);
+          capture.add(
+            90 + 42 * math.sin(t * math.pi * 10),
+            10 + yEnd * t,
+            i * 8,
+            pressure: 0.65,
+            tilt: 0.4,
+          );
+        }
+        return capture.toItem('tall-ink')!;
+      }
+
+      late Map<String, Object?> tallStroke;
+      Future<PdfExportOutput> exportHeight(double height) {
+        final stroke = strokeFor(height);
+        if (height == 1000) tallStroke = stroke;
+        final typed = NoteDocument.fromJson({
+          'blocks': [
+            {
+              'id': 'tall-ink',
+              'kind': 'handwriting',
+              'width': 180,
+              'height': height,
+              'ink': [stroke],
+            },
+          ],
+        }, schema: typedSchema);
+        return PdfExportMapper().export(
+          title: 'Tall handwriting',
+          slug: 'tall-handwriting',
+          typed: typed,
+          options: const PdfExportOptions(mode: PdfExportMode.typed),
+          baseFont: baseFont,
+          boldFont: boldFont,
+          thaiFont: thaiFont,
+        );
+      }
+
+      final normal = await exportHeight(100);
+      expect(normal.preflight.ok, isTrue);
+      expect(normal.pdfs, hasLength(1));
+      expect(normal.companions, isEmpty);
+      expect(
+        latin1.decode(normal.pdfs.single.bytes, allowInvalid: true),
+        isNot(contains('/Subtype/Image')),
+      );
+      final normalRaster = await PdfRaster.page(normal.pdfs.single.bytes);
+      expect(
+        normalRaster.count((r, g, b) => r < 100 && g < 100 && b < 100),
+        greaterThan(15),
+      );
+
+      final tall = await exportHeight(1000);
+      expect(tall.preflight.ok, isTrue);
+      expect(tall.pdfs, hasLength(1));
+      expect(tall.companions, hasLength(1));
+      expect(tall.companions.single.filename, 'companion-typed-tall-ink.json');
+      final savedBlock =
+          jsonDecode(utf8.decode(tall.companions.single.bytes))
+              as Map<String, dynamic>;
+      expect(savedBlock['height'], 1000);
+      expect(savedBlock['ink'], [tallStroke]);
+      final previewText = await _extractPdfText(tall.pdfs.single.bytes);
+      expect(previewText, contains('Preview, see full content'));
+      expect(previewText, contains('companion-typed-tall-ink.json'));
+      final previewRaster = await PdfRaster.page(tall.pdfs.single.bytes);
+      expect(
+        previewRaster.count((r, g, b) => r < 230 && g < 230 && b < 230),
+        greaterThan(100),
+      );
+      expect(previewRaster.count(isRed), greaterThan(100));
     },
   );
 
@@ -567,4 +964,40 @@ final class _EmptyNoteStore implements LocalNoteStore {
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+final class _ReferenceNoteStore implements LocalNoteStore {
+  _ReferenceNoteStore(this.files);
+
+  final Map<String, _StoredBytes> files;
+
+  @override
+  Future<LocalNote?> load(String id) async => null;
+
+  @override
+  Future<LocalAttachment?> attachment(String id) async {
+    final file = files[id];
+    if (file == null) return null;
+    return LocalAttachment(
+      id: id,
+      name: file.name,
+      type: file.type,
+      size: file.bytes.length,
+      path: '/private-test-cache/$id',
+    );
+  }
+
+  @override
+  Future<Uint8List?> readAttachment(String id) async => files[id]?.bytes;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+final class _StoredBytes {
+  const _StoredBytes(this.name, this.type, this.bytes);
+
+  final String name;
+  final String type;
+  final Uint8List bytes;
 }

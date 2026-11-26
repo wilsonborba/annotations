@@ -182,6 +182,8 @@ class PdfExportMapper {
     Set<String> partialChartIds = const {},
     Map<String, TaskSummary> taskSummaries = const {},
     Map<String, QuizSummary> quizSummaries = const {},
+    Map<String, List<List<String>>> csvTables = const {},
+    Map<String, Uint8List> pdfPreviews = const {},
     Set<String> invalidImageFileIds = const {},
     bool fontsAvailable = true,
   }) {
@@ -254,6 +256,22 @@ class PdfExportMapper {
             kind == 'shape' &&
             !_knownShapes.contains('${node['shape'] ?? ''}')) {
           unavailable('${node['id'] ?? 'shape'}', 'Unsupported shape.');
+        }
+        if (kind == 'csv_table' || kind == 'pdf_preview') {
+          final fileId = node['file_id'];
+          if (fileId is! String || fileId.isEmpty) {
+            unavailable('${node['id'] ?? kind}', 'File reference is invalid.');
+          } else if (availableFileIds.contains(fileId) &&
+              (kind == 'csv_table'
+                  ? !csvTables.containsKey(fileId)
+                  : !pdfPreviews.containsKey(fileId))) {
+            unavailable(
+              fileId,
+              kind == 'csv_table'
+                  ? 'CSV content is unavailable.'
+                  : 'PDF page preview is unavailable.',
+            );
+          }
         }
         if (kind == 'task_card' && options.audience == PdfAudience.personal) {
           final taskId = '${node['task_id'] ?? ''}';
@@ -625,6 +643,63 @@ class PdfExportMapper {
     return ids;
   }
 
+  static bool _hasReferenceKind(
+    Iterable<NoteDocument?> documents,
+    Set<String> kinds,
+  ) {
+    var found = false;
+    void scan(Object? value) {
+      if (found) return;
+      if (value is Map) {
+        if (kinds.contains('${value['kind'] ?? value['type'] ?? ''}')) {
+          found = true;
+          return;
+        }
+        for (final child in value.values) {
+          scan(child);
+        }
+      } else if (value is List) {
+        for (final child in value) {
+          scan(child);
+        }
+      }
+    }
+
+    for (final document in documents) {
+      if (document != null) scan(document.toJson());
+    }
+    return found;
+  }
+
+  static Map<String, String> _fileReferenceKinds(
+    Iterable<NoteDocument?> documents,
+  ) {
+    final references = <String, String>{};
+    void scan(Object? value) {
+      if (value is Map) {
+        final kind = '${value['kind'] ?? value['type'] ?? ''}';
+        final fileId = value['file_id'];
+        if ((kind == 'csv_table' || kind == 'pdf_preview') &&
+            fileId is String &&
+            fileId.isNotEmpty) {
+          references.putIfAbsent(fileId, () => kind);
+        }
+        for (final child in value.values) {
+          scan(child);
+        }
+      } else if (value is List) {
+        for (final child in value) {
+          scan(child);
+        }
+      }
+    }
+
+    for (final document in documents) {
+      if (document != null) scan(document.toJson());
+    }
+    return references;
+  }
+
   /// Computes page break Y positions for a long Original canvas at clear spaces
   /// so no item (drawing, card, group, text box) is cut mid-object.
   static List<double> computeOriginalPageBreaks({
@@ -705,6 +780,8 @@ class PdfExportMapper {
     Map<String, Uint8List> attachments = const {},
     Map<String, TaskSummary> taskSummaries = const {},
     Map<String, QuizSummary> quizSummaries = const {},
+    Map<String, List<List<String>>> csvTables = const {},
+    Map<String, Uint8List> pdfPreviews = const {},
     pw.Font? baseFont,
     pw.Font? boldFont,
     pw.Font? thaiFont,
@@ -747,6 +824,10 @@ class PdfExportMapper {
     final hasTypedHandwriting =
         selectedTyped is TypedDocument &&
         selectedTyped.blocks.any((block) => block is HandwritingBlock);
+    final hasCsvOrPdfReferences = _hasReferenceKind(
+      [selectedOriginal, selectedTyped],
+      const {'csv_table', 'pdf_preview'},
+    );
     final renderableAttachments = Map<String, Uint8List>.from(attachments)
       ..removeWhere((id, _) => invalidImageFileIds.contains(id));
     // Krilla's flow blocks have no raster-image or handwriting payload. Use
@@ -756,6 +837,7 @@ class PdfExportMapper {
         resolvedRegular != null &&
         exportReportImages.isEmpty &&
         !hasAvailableInlineImages &&
+        !hasCsvOrPdfReferences &&
         !hasTypedHandwriting;
     final pre = preflight(
       original: original,
@@ -766,6 +848,8 @@ class PdfExportMapper {
       partialChartIds: partialChartIds,
       taskSummaries: taskSummaries,
       quizSummaries: exportQuizSummaries,
+      csvTables: csvTables,
+      pdfPreviews: pdfPreviews,
       invalidImageFileIds: invalidImageFileIds,
       fontsAvailable: useKrilla || (baseFont != null && thaiFont != null),
     );
@@ -776,6 +860,26 @@ class PdfExportMapper {
 
     final pdfs = <PdfNamedFile>[];
     final companions = <PdfCompanionFile>[];
+    for (final entry in _fileReferenceKinds([
+      selectedOriginal,
+      selectedTyped,
+    ]).entries) {
+      final bytes = attachments[entry.key];
+      final renderable = entry.value == 'csv_table'
+          ? csvTables.containsKey(entry.key)
+          : pdfPreviews.containsKey(entry.key);
+      if (bytes == null || !renderable) continue;
+      final safeId = entry.key.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
+      final extension = entry.value == 'csv_table' ? 'csv' : 'pdf';
+      final stem = 'source-$safeId';
+      var filename = '$stem.$extension';
+      var suffix = 2;
+      while (companions.any((companion) => companion.filename == filename)) {
+        filename = '$stem-$suffix.$extension';
+        suffix++;
+      }
+      companions.add(PdfCompanionFile(filename: filename, bytes: bytes));
+    }
 
     if ((options.mode == PdfExportMode.original ||
             options.mode == PdfExportMode.both) &&
@@ -801,6 +905,8 @@ class PdfExportMapper {
               reportImages: exportReportImages,
               taskSummaries: taskSummaries,
               quizSummaries: exportQuizSummaries,
+              csvTables: csvTables,
+              pdfPreviews: pdfPreviews,
               companions: companions,
               baseFont: baseFont,
               boldFont: boldFont,
@@ -830,6 +936,9 @@ class PdfExportMapper {
               attachments: renderableAttachments,
               taskSummaries: taskSummaries,
               quizSummaries: exportQuizSummaries,
+              companions: companions,
+              csvTables: csvTables,
+              pdfPreviews: pdfPreviews,
               baseFont: baseFont,
               boldFont: boldFont,
               thaiFont: thaiFont,
@@ -1449,6 +1558,8 @@ class PdfExportMapper {
     required List<PdfCompanionFile> companions,
     required Map<String, TaskSummary> taskSummaries,
     Map<String, QuizSummary> quizSummaries = const {},
+    Map<String, List<List<String>>> csvTables = const {},
+    Map<String, Uint8List> pdfPreviews = const {},
     pw.Font? baseFont,
     pw.Font? boldFont,
     pw.Font? thaiFont,
@@ -1531,6 +1642,8 @@ class PdfExportMapper {
                             attachments: renderableAttachments,
                             taskSummaries: taskSummaries,
                             quizSummaries: quizSummaries,
+                            csvTables: csvTables,
+                            pdfPreviews: pdfPreviews,
                           ),
                     ],
                   ),
@@ -1551,10 +1664,12 @@ class PdfExportMapper {
     required List<PdfCompanionFile> companions,
     required double printableW,
     required double printableH,
+    String? companionName,
+    pw.Widget? contentPreview,
   }) {
     final id = '${item['id'] ?? 'item'}';
     final fileId = item['file_id'] as String?;
-    final companionName = 'companion-$id.json';
+    companionName ??= 'companion-$id.json';
     final payloadBytes = fileId != null && attachments.containsKey(fileId)
         ? attachments[fileId]!
         : Uint8List.fromList(utf8.encode(jsonEncode(item)));
@@ -1576,12 +1691,17 @@ class PdfExportMapper {
       ),
       child: pw.Column(
         crossAxisAlignment: pw.CrossAxisAlignment.start,
-        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+        mainAxisAlignment: pw.MainAxisAlignment.start,
         children: [
           pw.Text(
             'Preview, see full content',
             style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold),
           ),
+          if (contentPreview != null) ...[
+            pw.SizedBox(height: 8),
+            pw.Expanded(child: contentPreview),
+            pw.SizedBox(height: 8),
+          ],
           pw.Text('Item: $id (${item['kind'] ?? 'object'})'),
           pw.Text(
             publicLink != null
@@ -1684,6 +1804,8 @@ class PdfExportMapper {
     required Map<String, Uint8List> attachments,
     required Map<String, TaskSummary> taskSummaries,
     Map<String, QuizSummary> quizSummaries = const {},
+    Map<String, List<List<String>>> csvTables = const {},
+    Map<String, Uint8List> pdfPreviews = const {},
   }) {
     final x = ((item['x'] as num?)?.toDouble() ?? 0.0) * scale;
     final y = (((item['y'] as num?)?.toDouble() ?? 0.0) - yOrigin) * scale;
@@ -1725,6 +1847,8 @@ class PdfExportMapper {
           attachments: attachments,
           taskSummaries: taskSummaries,
           quizSummaries: quizSummaries,
+          csvTables: csvTables,
+          pdfPreviews: pdfPreviews,
         ),
       ),
     );
@@ -1774,7 +1898,125 @@ class PdfExportMapper {
     Map<String, Uint8List> attachments = const {},
     Map<String, TaskSummary> taskSummaries = const {},
     Map<String, QuizSummary> quizSummaries = const {},
+    Map<String, List<List<String>>> csvTables = const {},
+    Map<String, Uint8List> pdfPreviews = const {},
   }) {
+    if (kind == 'csv_table') {
+      final rows = csvTables['${item['file_id'] ?? ''}'];
+      if (rows == null) {
+        return pw.Text(
+          'CSV content unavailable (marked placeholder)',
+          style: const pw.TextStyle(fontSize: 8),
+        );
+      }
+      if (rows.isEmpty) {
+        return pw.Container(
+          width: width,
+          height: height,
+          alignment: pw.Alignment.centerLeft,
+          padding: const pw.EdgeInsets.all(4),
+          decoration: pw.BoxDecoration(
+            border: pw.Border.all(color: PdfColors.grey400, width: 0.5),
+          ),
+          child: pw.Text(
+            'CSV contains no rows',
+            style: pw.TextStyle(fontSize: 8),
+          ),
+        );
+      }
+      final maxColumns = rows.fold<int>(
+        0,
+        (count, row) => math.max(count, row.length),
+      );
+      final columnCount = math.min(maxColumns, 5);
+      final rowCapacity = ((height - 28) / 14).floor().clamp(0, 8).toInt();
+      final visibleRows = rows.take(rowCapacity).toList(growable: false);
+      final omitted =
+          rows.length > visibleRows.length || maxColumns > columnCount;
+      return pw.Container(
+        width: width,
+        height: height,
+        padding: const pw.EdgeInsets.all(4),
+        decoration: pw.BoxDecoration(
+          border: pw.Border.all(color: PdfColors.grey400, width: 0.5),
+        ),
+        child: pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+          children: [
+            if (visibleRows.isNotEmpty)
+              pw.Table(
+                border: pw.TableBorder.all(
+                  color: PdfColors.grey300,
+                  width: 0.35,
+                ),
+                columnWidths: {
+                  for (var column = 0; column < columnCount; column++)
+                    column: const pw.FlexColumnWidth(),
+                },
+                children: [
+                  for (
+                    var rowIndex = 0;
+                    rowIndex < visibleRows.length;
+                    rowIndex++
+                  )
+                    pw.TableRow(
+                      decoration: rowIndex == 0
+                          ? const pw.BoxDecoration(color: PdfColors.grey200)
+                          : null,
+                      children: [
+                        for (var column = 0; column < columnCount; column++)
+                          pw.Padding(
+                            padding: const pw.EdgeInsets.all(2),
+                            child: pw.Text(
+                              column < visibleRows[rowIndex].length
+                                  ? _pdfCellPreview(
+                                      visibleRows[rowIndex][column],
+                                    )
+                                  : '',
+                              maxLines: 1,
+                              style: pw.TextStyle(
+                                fontSize: 6.5,
+                                fontWeight: rowIndex == 0
+                                    ? pw.FontWeight.bold
+                                    : pw.FontWeight.normal,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                ],
+              ),
+            if (omitted)
+              pw.Padding(
+                padding: const pw.EdgeInsets.only(top: 2),
+                child: pw.Text(
+                  'CSV preview is partial (shows ${visibleRows.length} of ${rows.length} rows); ZIP includes the original file.',
+                  style: pw.TextStyle(fontSize: 6.5),
+                ),
+              ),
+          ],
+        ),
+      );
+    }
+
+    if (kind == 'pdf_preview') {
+      final preview = pdfPreviews['${item['file_id'] ?? ''}'];
+      if (preview == null) {
+        return pw.Text(
+          'PDF page preview unavailable (marked placeholder)',
+          style: const pw.TextStyle(fontSize: 8),
+        );
+      }
+      return pw.Container(
+        width: width,
+        height: height,
+        decoration: pw.BoxDecoration(
+          border: pw.Border.all(color: PdfColors.grey500, width: 0.5),
+        ),
+        child: pw.Image(pw.MemoryImage(preview), fit: pw.BoxFit.contain),
+      );
+    }
+
     if (kind == 'reports_embed') {
       if (options.audience == PdfAudience.public) {
         return pw.Text(
@@ -1879,6 +2121,9 @@ class PdfExportMapper {
     );
   }
 
+  static String _pdfCellPreview(String value) =>
+      value.length <= 32 ? value : '${value.substring(0, 31)}…';
+
   Future<Uint8List> _buildTypedPdf({
     required String title,
     required NoteDocument document,
@@ -1887,6 +2132,9 @@ class PdfExportMapper {
     required Map<String, Uint8List> attachments,
     required Map<String, TaskSummary> taskSummaries,
     Map<String, QuizSummary> quizSummaries = const {},
+    required List<PdfCompanionFile> companions,
+    Map<String, List<List<String>>> csvTables = const {},
+    Map<String, Uint8List> pdfPreviews = const {},
     pw.Font? baseFont,
     pw.Font? boldFont,
     pw.Font? thaiFont,
@@ -1895,38 +2143,145 @@ class PdfExportMapper {
       title: title,
       theme: _theme(baseFont, boldFont, thaiFont),
     );
+    final format = options.pageFormat;
+    final printableW = format.width - marginPt * 2;
+    final printableH = format.height - marginPt * 2;
     final blocks = ((document.toJson()['blocks'] as List?) ?? const [])
         .map((e) => Map<String, dynamic>.from(e as Map))
         .toList();
     final typedItems = _typedItems(document);
+    var segmentStart = 0;
+    var firstOutput = true;
 
-    doc.addPage(
-      pw.MultiPage(
-        pageFormat: options.pageFormat,
-        margin: const pw.EdgeInsets.all(marginPt),
-        build: (_) => [
-          pw.Header(
+    void addFlowSegment(int end) {
+      if (end <= segmentStart) return;
+      final from = segmentStart;
+      doc.addPage(
+        pw.MultiPage(
+          pageFormat: format,
+          margin: const pw.EdgeInsets.all(marginPt),
+          build: (_) => [
+            if (firstOutput)
+              pw.Header(
+                level: 0,
+                child: pw.Text(
+                  title,
+                  style: pw.TextStyle(
+                    fontSize: 18,
+                    fontWeight: pw.FontWeight.bold,
+                  ),
+                ),
+              ),
+            for (var i = from; i < end; i++)
+              ..._buildTypedBlock(
+                blocks,
+                i,
+                options: options,
+                reportImages: reportImages,
+                attachments: attachments,
+                taskSummaries: taskSummaries,
+                quizSummaries: quizSummaries,
+                csvTables: csvTables,
+                pdfPreviews: pdfPreviews,
+                typedItems: typedItems,
+              ),
+          ],
+        ),
+      );
+      firstOutput = false;
+      segmentStart = end;
+    }
+
+    for (var index = 0; index < blocks.length; index++) {
+      final block = blocks[index];
+      if (!_typedHandwritingNeedsCompanion(block, printableH)) continue;
+      addFlowSegment(index);
+      final id = '${block['id'] ?? 'typed-handwriting-$index'}';
+      final titleHeight = firstOutput && title.isNotEmpty
+          ? _titleReservePt(title).clamp(28.0, printableH / 2).toDouble()
+          : 0.0;
+      final previewHeight = math.max(1.0, printableH - titleHeight);
+      final preview = _buildOversizedPage(
+        block,
+        options: options,
+        attachments: attachments,
+        companions: companions,
+        printableW: printableW,
+        printableH: previewHeight,
+        companionName: 'companion-typed-$id.json',
+        contentPreview: _typedHandwritingWidget(
+          block,
+          typedItems,
+          maxWidth: printableW - 48,
+          maxHeight: previewHeight - 92,
+        ),
+      );
+      doc.addPage(
+        pw.Page(
+          pageFormat: format,
+          margin: const pw.EdgeInsets.all(marginPt),
+          build: (_) => pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+            children: [
+              if (titleHeight > 0)
+                pw.SizedBox(
+                  height: titleHeight,
+                  child: pw.Header(
+                    level: 0,
+                    child: pw.Text(
+                      title,
+                      style: pw.TextStyle(
+                        fontSize: 18,
+                        fontWeight: pw.FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+              pw.SizedBox(height: previewHeight, child: preview),
+            ],
+          ),
+        ),
+      );
+      firstOutput = false;
+      segmentStart = index + 1;
+    }
+    addFlowSegment(blocks.length);
+    if (firstOutput && title.isNotEmpty) {
+      doc.addPage(
+        pw.Page(
+          pageFormat: format,
+          margin: const pw.EdgeInsets.all(marginPt),
+          build: (_) => pw.Header(
             level: 0,
             child: pw.Text(
               title,
               style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold),
             ),
           ),
-          for (var i = 0; i < blocks.length; i++)
-            ..._buildTypedBlock(
-              blocks,
-              i,
-              options: options,
-              reportImages: reportImages,
-              attachments: attachments,
-              taskSummaries: taskSummaries,
-              quizSummaries: quizSummaries,
-              typedItems: typedItems,
-            ),
-        ],
-      ),
-    );
+        ),
+      );
+    }
     return doc.save();
+  }
+
+  static bool _typedHandwritingNeedsCompanion(
+    Map<String, dynamic> block,
+    double printableHeight,
+  ) {
+    if ('${block['kind'] ?? block['type'] ?? ''}' != 'handwriting') {
+      return false;
+    }
+    final sourceWidth = (block['width'] as num?)?.toDouble() ?? 0;
+    final sourceHeight = (block['height'] as num?)?.toDouble() ?? 0;
+    if (!sourceWidth.isFinite ||
+        !sourceHeight.isFinite ||
+        sourceWidth <= 0 ||
+        sourceHeight <= 0) {
+      return false;
+    }
+    const renderWidth = 400.0;
+    final renderedHeight = sourceHeight * renderWidth / sourceWidth;
+    return renderedHeight > printableHeight - 48.0;
   }
 
   List<pw.Widget> _buildTypedBlock(
@@ -1937,6 +2292,8 @@ class PdfExportMapper {
     required Map<String, Uint8List> attachments,
     required Map<String, TaskSummary> taskSummaries,
     Map<String, QuizSummary> quizSummaries = const {},
+    Map<String, List<List<String>>> csvTables = const {},
+    Map<String, Uint8List> pdfPreviews = const {},
     required Map<String, DocumentItem> typedItems,
   }) {
     final b = blocks[index];
@@ -1958,7 +2315,9 @@ class PdfExportMapper {
     }
     if (kind == 'reports_embed' ||
         kind == 'website_card' ||
-        kind == 'youtube_card') {
+        kind == 'youtube_card' ||
+        kind == 'csv_table' ||
+        kind == 'pdf_preview') {
       return [
         pw.Padding(
           padding: const pw.EdgeInsets.symmetric(vertical: 4),
@@ -1975,6 +2334,8 @@ class PdfExportMapper {
               attachments: attachments,
               taskSummaries: taskSummaries,
               quizSummaries: quizSummaries,
+              csvTables: csvTables,
+              pdfPreviews: pdfPreviews,
             ),
           ),
         ),
@@ -1994,6 +2355,8 @@ class PdfExportMapper {
             attachments: attachments,
             taskSummaries: taskSummaries,
             quizSummaries: quizSummaries,
+            csvTables: csvTables,
+            pdfPreviews: pdfPreviews,
           ),
         ),
       ];
@@ -2159,8 +2522,10 @@ class PdfExportMapper {
 
   pw.Widget _typedHandwritingWidget(
     Map<String, dynamic> json,
-    Map<String, DocumentItem> typedItems,
-  ) {
+    Map<String, DocumentItem> typedItems, {
+    double maxWidth = 400,
+    double maxHeight = double.infinity,
+  }) {
     final item = typedItems['${json['id'] ?? ''}'];
     if (item is! HandwritingBlock) {
       return pw.Text(
@@ -2168,9 +2533,11 @@ class PdfExportMapper {
         style: pw.TextStyle(fontSize: 9),
       );
     }
-    const width = 400.0;
+    final width = math.min(400.0, maxWidth);
     final scale = width / math.max(1.0, item.width.toDouble());
-    final height = math.max(1.0, item.height.toDouble() * scale);
+    final sourceHeight = math.max(1.0, item.height.toDouble());
+    final height = math.max(1.0, math.min(sourceHeight * scale, maxHeight));
+    final previewScale = math.min(scale, height / sourceHeight);
     final fills = <({List<List<InkVec>> pieces, int argb})>[
       for (final ink in item.ink) ...inkFills(ink),
     ];
@@ -2197,11 +2564,14 @@ class PdfExportMapper {
                   for (final piece in fill.pieces) {
                     if (piece.length < 3) continue;
                     canvas.moveTo(
-                      piece.first.x * scale,
-                      size.y - piece.first.y * scale,
+                      piece.first.x * previewScale,
+                      size.y - piece.first.y * previewScale,
                     );
                     for (final point in piece.skip(1)) {
-                      canvas.lineTo(point.x * scale, size.y - point.y * scale);
+                      canvas.lineTo(
+                        point.x * previewScale,
+                        size.y - point.y * previewScale,
+                      );
                     }
                     canvas.closePath();
                   }
