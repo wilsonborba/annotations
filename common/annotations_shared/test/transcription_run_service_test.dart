@@ -219,6 +219,58 @@ void main() {
   });
 
   test(
+    'accepts producer-valid empty suggestion and correction feedback',
+    () async {
+      final store = MemoryPendingTranscriptionFeedbackStore();
+      final emptyCorrection = <String, Object?>{
+        ..._event(),
+        'event_id': 'event-empty-correction',
+        'correction': '',
+      };
+      final emptySuggestion = <String, Object?>{
+        ..._event(),
+        'event_id': 'event-empty-suggestion',
+        'suggestion': '',
+      };
+      final requests = <Map<String, dynamic>>[];
+      final client = MockClient((request) async {
+        final body = _requestBody(request);
+        expect(request.url.path, '/me/transcriptions/run-1/feedback');
+        expect(body['schema_version'], 1);
+        final event = (body['events'] as List).single as Map<String, dynamic>;
+        requests.add(event);
+        return http.Response(
+          jsonEncode({
+            'run_id': 'run-1',
+            'events': [
+              {
+                'event_id': event['event_id'],
+                'stage': 'accepted',
+                'created_at': 1,
+              },
+            ],
+          }),
+          200,
+        );
+      });
+      final service = _service(
+        client: client,
+        store: store,
+        session: _session('owner-a'),
+      );
+
+      await service.submitFeedback(
+        runId: 'run-1',
+        events: [emptyCorrection, emptySuggestion],
+      );
+
+      expect(requests, [emptyCorrection, emptySuggestion]);
+      expect(store.values, isEmpty);
+      client.close();
+    },
+  );
+
+  test(
     'rejects a request above the server byte limit before queueing',
     () async {
       final store = MemoryPendingTranscriptionFeedbackStore();
@@ -344,6 +396,80 @@ void main() {
   });
 
   test(
+    'registration account switch never rebinds local recognition to new owner',
+    () async {
+      var currentAccount = 'owner-a';
+      TranscriptionSession sessionFor(String accountId) => TranscriptionSession(
+        accountId: accountId,
+        readHeaders: {'authorization': 'Bearer $accountId'},
+        mutationHeaders: {
+          'authorization': 'Bearer $accountId',
+          'x-csrf-token': 'csrf-$accountId',
+        },
+        isCurrent: () => currentAccount == accountId,
+      );
+      final pending = MemoryPendingTranscriptionResults();
+      var runtimeCalls = 0;
+      var resultPuts = 0;
+      final client = MockClient((request) async {
+        if (request.url.path == '/me/transcriptions') {
+          expect(request.method, 'POST');
+          expect(request.headers['authorization'], 'Bearer owner-a');
+          currentAccount = 'owner-b';
+          return http.Response(jsonEncode(_run('registered')), 201);
+        }
+        if (request.url.path == '/me/transcriptions/run-1/result') {
+          resultPuts++;
+          expect(request.method, 'PUT');
+          expect(request.headers['authorization'], 'Bearer owner-b');
+          return http.Response(jsonEncode(_run('registered')), 200);
+        }
+        return http.Response('{"error":"unexpected route"}', 404);
+      });
+      final service = TranscriptionRunService(
+        api: TranscriptionApiAdapter(
+          ApiAdapter(client: client, base: 'https://api.test'),
+        ),
+        sessionProvider: () async => sessionFor(currentAccount),
+        pendingResults: pending,
+        pendingFeedback: MemoryPendingTranscriptionFeedbackStore(),
+        enabled: true,
+        newEventId: () => 'result-event-1',
+      );
+      final document = <String, Object?>{
+        'page': {
+          'width': 1000,
+          'background': {'kind': 'blank'},
+        },
+        'items': <Object?>[],
+      };
+
+      Object? failure;
+      try {
+        await service.runLocal(
+          downloadId: 'download-1',
+          modelVersion: 'v1',
+          language: 'en',
+          sourceRevisionId: 'revision-1',
+          selectedInkDocument: document,
+          schemaVersion: 1,
+          modelFile: File('fixture-model'),
+          runtime: _CountingRuntime(document, () => runtimeCalls++),
+          onStage: (_) {},
+        );
+      } on Object catch (error) {
+        failure = error;
+      }
+
+      expect(failure, isA<TranscriptionSessionChangedException>());
+      expect(runtimeCalls, 0);
+      expect(resultPuts, 0);
+      expect(pending.values, isEmpty);
+      client.close();
+    },
+  );
+
+  test(
     'a result is not cleared until the server marks the run completed',
     () async {
       final store = MemoryPendingTranscriptionResults();
@@ -429,6 +555,29 @@ final class _FixtureRuntime implements TranscriptionRuntime {
       runtimeName: 'fixture',
       runtimeVersion: '1',
       elapsedMilliseconds: 5,
+    );
+  }
+}
+
+final class _CountingRuntime implements TranscriptionRuntime {
+  const _CountingRuntime(this.document, this.onRecognize);
+
+  final Map<String, Object?> document;
+  final void Function() onRecognize;
+
+  @override
+  Future<LocalRecognitionResult> recognize({
+    required File modelFile,
+    required Map<String, Object?> selectedInkDocument,
+    required String language,
+    required void Function(String stage) onStage,
+  }) async {
+    onRecognize();
+    return LocalRecognitionResult(
+      document: document,
+      runtimeName: 'fixture',
+      runtimeVersion: '1',
+      elapsedMilliseconds: 1,
     );
   }
 }

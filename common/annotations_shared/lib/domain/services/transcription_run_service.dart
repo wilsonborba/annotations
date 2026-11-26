@@ -353,21 +353,40 @@ final class TranscriptionRunService {
     int? schemaVersion,
     List<String> fileRefs = const [],
   }) async {
-    _requireEnabled();
-    if ((sourceRevisionId == null) == (sourceHash == null)) {
-      throw ArgumentError(
-        'Provide exactly one source revision id or source hash.',
-      );
-    }
-    if (selectedInkDocument == null && fileRefs.isEmpty) {
-      throw ArgumentError(
-        'Provide selected ink or authorized file references.',
-      );
-    }
-    if (mode != 'local' && mode != 'cloud') {
-      throw ArgumentError.value(mode, 'mode');
-    }
+    _validateRegistration(
+      mode: mode,
+      sourceRevisionId: sourceRevisionId,
+      sourceHash: sourceHash,
+      selectedInkDocument: selectedInkDocument,
+      fileRefs: fileRefs,
+    );
     final session = await _requireSession();
+    return _registerWithSession(
+      session,
+      downloadId: downloadId,
+      modelVersion: modelVersion,
+      language: language,
+      mode: mode,
+      sourceRevisionId: sourceRevisionId,
+      sourceHash: sourceHash,
+      selectedInkDocument: selectedInkDocument,
+      schemaVersion: schemaVersion,
+      fileRefs: fileRefs,
+    );
+  }
+
+  Future<TranscriptionRun> _registerWithSession(
+    TranscriptionSession session, {
+    required String downloadId,
+    required String modelVersion,
+    required String language,
+    required String mode,
+    String? sourceRevisionId,
+    String? sourceHash,
+    Map<String, Object?>? selectedInkDocument,
+    int? schemaVersion,
+    List<String> fileRefs = const [],
+  }) async {
     final body = <String, Object?>{
       'download_id': downloadId,
       'model_version': modelVersion,
@@ -382,7 +401,33 @@ final class TranscriptionRunService {
         },
       if (fileRefs.isNotEmpty) 'file_refs': fileRefs,
     };
-    return api.createRun(session, body);
+    session.requireCurrent();
+    final run = await api.createRun(session, body);
+    session.requireCurrent();
+    return run;
+  }
+
+  void _validateRegistration({
+    required String mode,
+    String? sourceRevisionId,
+    String? sourceHash,
+    Map<String, Object?>? selectedInkDocument,
+    List<String> fileRefs = const [],
+  }) {
+    _requireEnabled();
+    if ((sourceRevisionId == null) == (sourceHash == null)) {
+      throw ArgumentError(
+        'Provide exactly one source revision id or source hash.',
+      );
+    }
+    if (selectedInkDocument == null && fileRefs.isEmpty) {
+      throw ArgumentError(
+        'Provide selected ink or authorized file references.',
+      );
+    }
+    if (mode != 'local' && mode != 'cloud') {
+      throw ArgumentError.value(mode, 'mode');
+    }
   }
 
   /// Registers before local recognition, then persists the result before sending
@@ -398,7 +443,14 @@ final class TranscriptionRunService {
     required TranscriptionRuntime runtime,
     required void Function(String stage) onStage,
   }) async {
-    final run = await register(
+    _validateRegistration(
+      mode: 'local',
+      sourceRevisionId: sourceRevisionId,
+      selectedInkDocument: selectedInkDocument,
+    );
+    final session = await _requireSession();
+    final run = await _registerWithSession(
+      session,
       downloadId: downloadId,
       modelVersion: modelVersion,
       language: language,
@@ -407,10 +459,10 @@ final class TranscriptionRunService {
       selectedInkDocument: selectedInkDocument,
       schemaVersion: schemaVersion,
     );
+    session.requireCurrent();
     if (run.mode != 'local' || run.status != 'registered') {
       throw const TranscriptionRunStateException();
     }
-    final session = await _requireSession();
     if (run.downloadId != downloadId || run.modelVersion != modelVersion) {
       throw const TranscriptionRunStateException();
     }
@@ -642,16 +694,13 @@ String _validateFeedbackEvent(Map<String, Object?> event) {
   if (eventId is! String || !_feedbackId.hasMatch(eventId)) {
     throw ArgumentError.value(eventId, 'event_id');
   }
-  for (final key in const [
-    'segment_id',
-    'suggestion',
-    'correction',
-    'language',
-    'model_version',
-  ]) {
+  for (final key in const ['segment_id', 'language', 'model_version']) {
     if (event[key] is! String || (event[key] as String).isEmpty) {
       throw ArgumentError.value(event[key], key);
     }
+  }
+  for (final key in const ['suggestion', 'correction']) {
+    if (event[key] is! String) throw ArgumentError.value(event[key], key);
   }
   if (event['stage'] != 'intermediate' && event['stage'] != 'accepted') {
     throw ArgumentError.value(event['stage'], 'stage');
