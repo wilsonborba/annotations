@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:annotations_shared/core/platform_profile.dart';
 import 'package:annotations_shared/dal/local/sqlite_note_store.dart';
@@ -175,11 +176,11 @@ class _StubHttpHeaders implements HttpHeaders {
 
 class _StubHttpResponse extends Stream<List<int>>
     implements HttpClientResponse {
-  _StubHttpResponse(this.body, {this.statusCode = 200});
+  _StubHttpResponse(this.body);
 
   final List<int> body;
   @override
-  final int statusCode;
+  int get statusCode => 200;
   @override
   int get contentLength => body.length;
   @override
