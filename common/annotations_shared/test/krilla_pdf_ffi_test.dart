@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -5,6 +6,7 @@ import 'package:annotations_shared/domain/models/note_document.dart';
 import 'package:annotations_shared/domain/services/krilla_pdf_backend.dart';
 import 'package:annotations_shared/domain/services/pdf_export_mapper.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pdf/widgets.dart' as pw;
 
 import 'note_capacity_test.dart' show handwriting;
 import 'pdf_export_mapper_test.dart' show redLine;
@@ -212,12 +214,12 @@ void main() {
         },
         'items': [
           {
-            'id': 'big_table_1',
+            'id': 'huge_diagram',
             'kind': 'file',
-            'x': 20,
-            'y': 20,
+            'x': 10,
+            'y': 10,
             'width': 900,
-            'height': 2400,
+            'height': 2500,
             'name': 'huge.svg',
             'file_id': 'f_huge',
             'type': 'image/svg+xml',
@@ -235,17 +237,34 @@ void main() {
         attachments: {
           'f_huge': Uint8List.fromList([1, 2, 3]),
         },
-        regularFontBytes: regularFont,
-        boldFontBytes: boldFont,
+        baseFont: pw.Font.ttf(
+          loadFontBytes(
+            'lib/presentation/frontend/assets/fonts/UbuntuSans-Variable.ttf',
+          ).buffer.asByteData(),
+        ),
+        thaiFont: pw.Font.ttf(regularFont.buffer.asByteData()),
       );
-      expect(overOut.engine, 'krilla');
-      expect(overOut.companions, hasLength(1));
+      // Oversized Original units use the image-capable PDF engine. The native
+      // Krilla path remains covered above for ordinary Original exports.
+      expect(overOut.engine, 'pdf');
+      expect(overOut.companions.map((file) => file.filename).toSet(), {
+        'companion-huge_diagram.json',
+        'source-f_huge.bin',
+      });
+      final metadata = overOut.companions.singleWhere(
+        (file) => file.filename == 'companion-huge_diagram.json',
+      );
+      expect(utf8.decode(metadata.bytes), contains('huge_diagram'));
+      final source = overOut.companions.singleWhere(
+        (file) => file.filename == 'source-f_huge.bin',
+      );
+      expect(source.bytes, orderedEquals([1, 2, 3]));
       final overText = extractAndMaybeDump(
         overOut.pdfs.first.bytes,
         'oversized',
       );
       expect(overText, contains('Preview, see full content'));
-      expect(overText, contains('companion-big_table_1.json'));
+      expect(overText, contains('companion-huge_diagram.json'));
 
       // 4. Handwriting-only note
       final inkDoc = NoteDocument.fromJson({

@@ -402,8 +402,22 @@ void main() {
         thaiFont: thaiFont,
       );
       expect(oversizedRes.pdfs.first.bytes.length, greaterThan(500));
-      expect(oversizedRes.companions.length, 1);
-      expect(oversizedRes.companions.first.filename.startsWith('/'), isFalse);
+      expect(oversizedRes.companions.map((file) => file.filename).toSet(), {
+        'companion-huge_diagram.json',
+        'source-f_huge.bin',
+      });
+      final metadata = oversizedRes.companions.singleWhere(
+        (file) => file.filename == 'companion-huge_diagram.json',
+      );
+      expect(utf8.decode(metadata.bytes), contains('huge_diagram'));
+      final source = oversizedRes.companions.singleWhere(
+        (file) => file.filename == 'source-f_huge.bin',
+      );
+      expect(source.bytes, orderedEquals([1, 2, 3]));
+      expect(
+        oversizedRes.companions.every((file) => !file.filename.startsWith('/')),
+        isTrue,
+      );
       final text = await extractPdfText(
         oversizedRes.pdfs.first.bytes,
         'oversized',
