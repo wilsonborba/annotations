@@ -715,6 +715,33 @@ const strings = <String, List<String>>{
     'Não mostrar esta mensagem novamente',
     'ไม่ต้องแสดงข้อความนี้อีก',
   ],
+  'loadMore': ['Show more', 'Mostrar mais', 'แสดงเพิ่ม'],
+  'viewOriginal': ['Original', 'Original', 'ต้นฉบับ'],
+  'viewTyped': ['Typed', 'Digitado', 'แบบพิมพ์'],
+  'typedStale': [
+    'Typed version uses an earlier revision.',
+    'A versão digitada usa uma revisão anterior.',
+    'ฉบับพิมพ์ใช้การแก้ไขก่อนหน้า',
+  ],
+  'noteBy': ['by', 'por', 'โดย'],
+  'unknownAuthor': ['Author', 'Autor', 'ผู้เขียน'],
+  'projectsOf': ['Projects', 'Projetos', 'โปรเจกต์'],
+  'notesOf': ['Notes', 'Anotações', 'บันทึก'],
+  'noteCount': ['notes', 'anotações', 'บันทึก'],
+  'filterLanguage': ['Language', 'Idioma', 'ภาษา'],
+  'allLanguages': ['All languages', 'Todos os idiomas', 'ทุกภาษา'],
+  'clearFilter': ['Clear filter', 'Limpar filtro', 'ล้างตัวกรอง'],
+  'filterTag': ['Tag', 'Tag', 'แท็ก'],
+  'filterAuthor': ['Author', 'Autor', 'ผู้เขียน'],
+  'filterProject': ['Project', 'Projeto', 'โปรเจกต์'],
+  'qrNote': ['Note QR code', 'Código QR da anotação', 'คิวอาร์โค้ดบันทึก'],
+  'qrRoom': ['Room QR code', 'Código QR da sala', 'คิวอาร์โค้ดห้อง'],
+  'qrInstantCaption': [
+    'Scan to open this Instant room',
+    'Escaneie para abrir esta sala Instant',
+    'สแกนเพื่อเปิดห้อง Instant นี้',
+  ],
+  'openNote': ['Open note', 'Abrir anotação', 'เปิดบันทึก'],
 };
 String translate(String key, String locale) {
   final index = locale == 'pt-BR'

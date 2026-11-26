@@ -470,6 +470,26 @@ const annotationElements = <String, TrailElement>{
     label: 'Instant surface',
     path: 'instant > surface',
   ),
+  'reader.link.copy': TrailElement(
+    id: 'reader.link.copy',
+    label: 'Reader link copy',
+    path: 'reader > link > copy',
+  ),
+  'reader.link.open': TrailElement(
+    id: 'reader.link.open',
+    label: 'Reader link open',
+    path: 'reader > link > open',
+  ),
+  'discovery.more': TrailElement(
+    id: 'discovery.more',
+    label: 'Discovery more',
+    path: 'discovery > more',
+  ),
+  'reader.view.switch': TrailElement(
+    id: 'reader.view.switch',
+    label: 'Reader view switch',
+    path: 'reader > view > switch',
+  ),
 };
 
 /// Fields whose typed value never leaves the device. Add every field that
