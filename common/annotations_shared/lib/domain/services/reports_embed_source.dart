@@ -177,9 +177,14 @@ final class ReportsTemplateChoice {
     if (id is! String ||
         id.trim().isEmpty ||
         version is! num ||
+        version < 1 ||
+        version % 1 != 0 ||
         kind is! String ||
+        kind.trim().isEmpty ||
         visual is! String ||
-        title is! String) {
+        visual.trim().isEmpty ||
+        title is! String ||
+        title.trim().isEmpty) {
       throw const FormatException('Invalid Reports template metadata.');
     }
     List<Map<String, dynamic>> objects(String key) {
@@ -192,14 +197,78 @@ final class ReportsTemplateChoice {
           .toList(growable: false);
     }
 
+    final slots = objects('slots');
+    final options = objects('options');
+    final slotNames = <String>{};
+    for (final slot in slots) {
+      final name = slot['slot_name'];
+      final role = slot['role'];
+      final required = slot['is_required'];
+      final min = slot['min_count'];
+      final max = slot['max_count'];
+      final accepted = slot['accepted_types'];
+      if (name is! String ||
+          name.trim().isEmpty ||
+          !slotNames.add(name) ||
+          role is! String ||
+          role.trim().isEmpty ||
+          required is! bool ||
+          min is! num ||
+          max is! num ||
+          min < 0 ||
+          max < min ||
+          min % 1 != 0 ||
+          max % 1 != 0 ||
+          (accepted != null &&
+              (accepted is! List || accepted.any((type) => type is! String)))) {
+        throw const FormatException('Invalid Reports template slot.');
+      }
+    }
+    final optionNames = <String>{};
+    for (final option in options) {
+      final name = option['option_name'];
+      final type = option['value_type'];
+      final defaultValue = option['default_value'];
+      final allowed = option['allowed_values'];
+      if (name is! String ||
+          name.trim().isEmpty ||
+          !optionNames.add(name) ||
+          type is! String ||
+          !const {
+            'bool',
+            'int',
+            'float',
+            'string',
+            'text',
+            'enum',
+          }.contains(type) ||
+          defaultValue is! String ||
+          (allowed != null &&
+              (allowed is! List ||
+                  allowed.any((value) => value is! String) ||
+                  allowed.toSet().length != allowed.length)) ||
+          (type == 'enum' &&
+              (allowed is! List ||
+                  allowed.isEmpty ||
+                  !allowed.contains(defaultValue))) ||
+          (type == 'bool' &&
+              defaultValue != 'true' &&
+              defaultValue != 'false') ||
+          (type == 'int' && int.tryParse(defaultValue) == null) ||
+          (type == 'float' &&
+              (double.tryParse(defaultValue) == null ||
+                  !double.parse(defaultValue).isFinite))) {
+        throw const FormatException('Invalid Reports template option.');
+      }
+    }
     return ReportsTemplateChoice(
       templateId: id,
       version: version.toInt(),
       kind: kind,
       visual: visual,
       title: title,
-      slots: objects('slots'),
-      options: objects('options'),
+      slots: slots,
+      options: options,
     );
   }
 }

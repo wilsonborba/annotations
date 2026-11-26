@@ -43,8 +43,18 @@ class NoteScreen extends StatelessWidget {
   final ReportsEmbedSource? reportsSource;
   final String? trustedReportsAccountId;
   final String reportsLanguage;
-  final Future<void> Function(BuildContext context, PaperHandler handler)?
+  final Future<void> Function(
+    BuildContext context,
+    PaperHandler handler,
+    AttachmentHandler attachments,
+  )?
   onAddReport;
+  final Future<void> Function(
+    BuildContext context,
+    PaperHandler handler,
+    AttachmentHandler attachments,
+  )?
+  onCreateReport;
   const NoteScreen({
     super.key,
     required this.handler,
@@ -55,6 +65,7 @@ class NoteScreen extends StatelessWidget {
     this.trustedReportsAccountId,
     this.reportsLanguage = 'en',
     this.onAddReport,
+    this.onCreateReport,
   });
 
   @override
@@ -66,6 +77,7 @@ class NoteScreen extends StatelessWidget {
           trustedReportsAccountId: trustedReportsAccountId,
           reportsLanguage: reportsLanguage,
           onAddReport: onAddReport,
+          onCreateReport: onCreateReport,
           loadQuizCard: loadQuizCard,
           loadTaskCard: loadTaskCard,
         ),

@@ -492,6 +492,44 @@ const strings = <String, List<String>>{
     'กลับไปที่ผลลัพธ์',
   ],
   'reportsAdd': ['Add chart', 'Adicionar gráfico', 'เพิ่มแผนภูมิ'],
+  'reportsCreateFromTable': [
+    'Create chart from table',
+    'Criar gráfico da tabela',
+    'สร้างแผนภูมิจากตาราง',
+  ],
+  'reportsCreateTitle': [
+    'Create a Reports chart',
+    'Criar um gráfico no Reports',
+    'สร้างแผนภูมิใน Reports',
+  ],
+  'reportsCreatePersonalNotice': [
+    'The selected table will be sent to your personal Reports space. The note stays unchanged.',
+    'A tabela selecionada será enviada ao seu espaço pessoal do Reports. A anotação não será alterada.',
+    'ตารางที่เลือกจะถูกส่งไปยังพื้นที่ Reports ส่วนตัวของคุณ โดยบันทึกจะไม่เปลี่ยนแปลง',
+  ],
+  'reportsCreateSourceTable': [
+    'Table in this note',
+    'Tabela nesta anotação',
+    'ตารางในบันทึกนี้',
+  ],
+  'reportsCreateTemplate': ['Chart type', 'Tipo de gráfico', 'ชนิดแผนภูมิ'],
+  'reportsCreateOptional': ['Not used', 'Não usar', 'ไม่ใช้'],
+  'reportsCreateUnavailable': [
+    'Add a CSV table and choose an available chart template to continue.',
+    'Adicione uma tabela CSV e escolha um modelo de gráfico disponível para continuar.',
+    'เพิ่มตาราง CSV และเลือกแม่แบบแผนภูมิที่ใช้ได้เพื่อดำเนินการต่อ',
+  ],
+  'reportsCreateAction': ['Create chart', 'Criar gráfico', 'สร้างแผนภูมิ'],
+  'reportsCreateFailed': [
+    'The chart could not be created. You can retry safely.',
+    'Não foi possível criar o gráfico. Você pode tentar novamente com segurança.',
+    'สร้างแผนภูมิไม่ได้ คุณสามารถลองอีกครั้งได้อย่างปลอดภัย',
+  ],
+  'reportsCreateRequiresSavedNote': [
+    'Sync this note and sign in before creating a Reports chart.',
+    'Sincronize esta anotação e entre antes de criar um gráfico no Reports.',
+    'ซิงก์บันทึกนี้และเข้าสู่ระบบก่อนสร้างแผนภูมิใน Reports',
+  ],
   'reportsProjectsTitle': [
     'Choose a Reports project',
     'Escolha um projeto do Reports',

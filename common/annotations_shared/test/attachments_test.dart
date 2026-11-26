@@ -123,13 +123,14 @@ void main() {
 
     Future<void> open(
       WidgetTester tester, {
+      NoteDocument? document,
       LinkPreviewSource? preview,
       Brightness brightness = Brightness.light,
     }) async {
       await setWindow(tester, desktop);
       paper = PaperHandler(
         noteId: 'n1',
-        document: studyNote(),
+        document: document ?? studyNote(),
         autosave: NoteAutosave(
           store,
           settings: const LocalStoreSettings(
@@ -179,6 +180,49 @@ void main() {
       );
       await tester.pump(const Duration(milliseconds: 20));
     }
+
+    testWidgets('structured report cards use snapped free-space placement', (
+      tester,
+    ) async {
+      final baseDocument = studyNote();
+      final documentJson = baseDocument.toJson();
+      final items = documentJson['items'] as List;
+      final measuredText = Map<String, Object?>.from(items.first as Map)
+        ..['x'] = 24
+        ..['y'] = 24
+        ..['width'] = 360
+        ..['height'] = 65;
+      items[0] = measuredText;
+      await open(
+        tester,
+        document: NoteDocument.fromJson(
+          documentJson,
+          schema: baseDocument.schema,
+        ),
+      );
+
+      expect(
+        files.addStructuredCard({
+          'id': 'reports-card',
+          'kind': 'reports_embed',
+          'width': 360,
+          'height': 224,
+          'report_id': 'sales',
+          'project_slug': 'public',
+          'report_slug': 'sales',
+          'dataset_id': 'monthly',
+          'mode': 'live',
+          'source': 'link',
+        }),
+        isTrue,
+      );
+      await paper.autosave.flush();
+      final card = cards(paper, 'reports_embed').single;
+      expect((card['x'] as num) % 8, 0);
+      expect((card['y'] as num) % 8, 0);
+      expect(card['y'], greaterThan(24));
+      expect(cards(paper, 'text').first['height'], 65);
+    });
 
     testWidgets('a picked file shows its copy job, then its card in free '
         'space; pictures keep their shape', (tester) async {

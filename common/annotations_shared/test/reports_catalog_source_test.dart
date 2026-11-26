@@ -109,4 +109,50 @@ void main() {
       hasLength(1),
     );
   });
+
+  test('rejects malformed published slot and option metadata', () {
+    final valid = <String, dynamic>{
+      'template_id': 'published-bar',
+      'version': 4,
+      'kind': 'chart',
+      'visual': 'bar',
+      'title': 'Published bar',
+      'slots': [
+        {
+          'slot_name': 'value',
+          'role': 'measure',
+          'is_required': true,
+          'min_count': 1,
+          'max_count': 1,
+          'accepted_types': ['integer'],
+        },
+      ],
+      'options': [
+        {
+          'option_name': 'orientation',
+          'value_type': 'enum',
+          'default_value': 'vertical',
+          'allowed_values': ['vertical', 'horizontal'],
+        },
+      ],
+    };
+
+    final malformedSlot = Map<String, dynamic>.from(valid)
+      ..['slots'] = [
+        {...(valid['slots'] as List).single as Map, 'max_count': 0},
+      ];
+    final malformedOption = Map<String, dynamic>.from(valid)
+      ..['options'] = [
+        {...(valid['options'] as List).single as Map, 'value_type': 'object'},
+      ];
+    expect(
+      () => ReportsTemplateChoice.fromJson(malformedSlot),
+      throwsFormatException,
+    );
+    expect(
+      () => ReportsTemplateChoice.fromJson(malformedOption),
+      throwsFormatException,
+    );
+    expect(ReportsTemplateChoice.fromJson(valid).templateId, 'published-bar');
+  });
 }

@@ -17,7 +17,13 @@ import '../../handlers/paper_handler.dart';
 class AddMenu extends StatelessWidget {
   final AttachmentHandler attachments;
   final VoidCallback? onAddReport;
-  const AddMenu({super.key, required this.attachments, this.onAddReport});
+  final VoidCallback? onCreateReport;
+  const AddMenu({
+    super.key,
+    required this.attachments,
+    this.onAddReport,
+    this.onCreateReport,
+  });
 
   @override
   Widget build(BuildContext context) => AppMenuButton(
@@ -42,10 +48,17 @@ class AddMenu extends StatelessWidget {
       ),
       if (onAddReport != null)
         AppMenuEntry(
-          key: const Key('add-reports-chart'),
+          key: const Key('add-reports-embed'),
           label: context.tr('reportsAdd'),
           icon: AppIcons.fileText,
           onSelected: onAddReport!,
+        ),
+      if (onCreateReport != null)
+        AppMenuEntry(
+          key: const Key('create-reports-chart'),
+          label: context.tr('reportsCreateFromTable'),
+          icon: AppIcons.fileText,
+          onSelected: onCreateReport!,
         ),
     ],
   );

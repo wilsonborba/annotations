@@ -19,19 +19,23 @@ import '../../../../domain/services/local_note_store.dart';
 import '../../../../domain/services/note_autosave.dart';
 import '../../../../domain/services/note_history.dart'
     show CommandKind, HistoryCommand;
+import '../../../../domain/services/note_reports_service.dart';
 import '../../../../domain/services/native_auth_service.dart';
 import '../../../../domain/services/prepared_certification_service.dart';
 import '../../../../domain/services/quiz_card_service.dart';
 import '../../../../domain/services/reports_embed_source.dart';
+import '../../../../domain/services/reports_chart_data.dart';
 import '../../../../domain/services/task_card_service.dart';
 import '../../components/controls.dart';
 import '../../components/icons.dart';
 import '../../components/scope.dart';
+import '../../handlers/attachment_handler.dart';
 import '../../handlers/paper_handler.dart';
 import '../../handlers/export_handler.dart';
 import '../../handlers/reports_pdf_capture.dart';
 import '../export/export_dialog.dart';
 import '../../components/reports_search_dialog.dart';
+import '../../components/reports_create_dialog.dart';
 import '../typed/note_screen.dart';
 
 /// `/v1/write/<id>`: one local note in the editor of this platform.
@@ -91,6 +95,7 @@ class _NoteEditorPageState extends State<NoteEditorPage>
   Future<void> _addReportsCard(
     BuildContext dialogContext,
     PaperHandler handler,
+    AttachmentHandler attachments,
   ) async {
     final note = _note;
     final installed = _installed;
@@ -133,34 +138,15 @@ class _NoteEditorPageState extends State<NoteEditorPage>
       );
       if (!current() || reference == null) return;
 
-      final document = handler.document;
-      final items = document is PaperDocument
-          ? (document.toJson()['items'] as List? ?? const [])
-          : const [];
-      var y = 24.0;
-      for (final raw in items.whereType<Map>()) {
-        final top = raw['y'];
-        final height = raw['height'];
-        if (top is num && height is num) {
-          y = math.max(y, top.toDouble() + height.toDouble() + 16);
-        }
-      }
       final width = math.min(360.0, math.max(1.0, handler.pageWidth - 48));
       final item = <String, Object?>{
         'id': _newCardId(),
         'kind': 'reports_embed',
-        'x': 24,
-        'y': y,
         'width': width,
         'height': 224,
         ...reference.toDocumentFields(),
       };
-      final decision = handler.apply(
-        HistoryCommand(CommandKind.card),
-        (rules, currentDocument) =>
-            rules.check(currentDocument, {'op': 'add', 'item': item}),
-      );
-      if (!decision.accepted) {
+      if (!attachments.addStructuredCard(item)) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text(context.tr('reportsSearchError'))),
@@ -176,6 +162,136 @@ class _NoteEditorPageState extends State<NoteEditorPage>
         );
       }
     }
+  }
+
+  Future<void> _createReportsChart(
+    BuildContext dialogContext,
+    PaperHandler handler,
+    AttachmentHandler attachments,
+  ) async {
+    final note = _note;
+    final installed = _installed;
+    final source = _reportsSource;
+    final session = installed?.activeSession;
+    final serverNoteId = note?.serverNoteId;
+    if (note == null ||
+        installed == null ||
+        source == null ||
+        session == null ||
+        serverNoteId == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(context.tr('reportsCreateRequiresSavedNote'))),
+        );
+      }
+      return;
+    }
+    final generation = _openGeneration;
+    bool current() => _reportsOwnerIsCurrent(
+      generation: generation,
+      handler: handler,
+      note: note,
+      installed: installed,
+      session: session,
+    );
+    if (!current()) return;
+    try {
+      final language = AppScope.of(dialogContext).preferences.locale;
+      final project = await showReportsProjectPicker(
+        dialogContext,
+        source: source,
+        language: language,
+        isOwnerScopeCurrent: current,
+        ownerScopeRevision: _reportsOwnerScopeRevision,
+        expectedOwnerScopeRevision: generation,
+      );
+      if (!current() || project == null || !dialogContext.mounted) return;
+      final templates = await source.templatesForProject(
+        project.slug,
+        language: language,
+      );
+      if (!current()) return;
+      final tables = await _reportsChartTables(handler);
+      if (!current() || !dialogContext.mounted) return;
+
+      Future<ReportsEmbedReference> create({
+        required Map<String, Object?> item,
+        required String operationKey,
+      }) async {
+        if (!current()) throw StateError('The active note changed.');
+        final service = NoteReportsService(
+          api: ApiAdapter(client: SessionClient(installed, installed.client)),
+          session: session,
+        );
+        return service.createChart(
+          serverNoteId: serverNoteId,
+          project: project.slug,
+          operationKey: operationKey,
+          item: item,
+        );
+      }
+
+      final reference = await showReportsCreateDialog(
+        dialogContext,
+        projectName: project.name,
+        templates: templates,
+        tables: tables,
+        create: create,
+        isOwnerScopeCurrent: current,
+        ownerScopeRevision: _reportsOwnerScopeRevision,
+        expectedOwnerScopeRevision: generation,
+      );
+      if (!current() || reference == null) return;
+      final item = <String, Object?>{
+        'id': _newCardId(),
+        'kind': 'reports_embed',
+        'width': math.min(360.0, math.max(1.0, handler.pageWidth - 48)),
+        'height': 224,
+        ...reference.toDocumentFields(),
+      };
+      if (!attachments.addStructuredCard(item)) {
+        throw StateError(
+          'The report was created but the note card could not be placed.',
+        );
+      }
+      await handler.autosave.flush();
+    } on Object {
+      if (mounted && current()) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(context.tr('reportsCreateFailed'))),
+        );
+      }
+    }
+  }
+
+  Future<List<ReportsChartSourceTable>> _reportsChartTables(
+    PaperHandler handler,
+  ) async {
+    final document = handler.document;
+    if (document is! PaperDocument) return const [];
+    final tables = <ReportsChartSourceTable>[];
+    final seen = <String>{};
+    for (final item in document.itemsJson) {
+      if (item['kind'] != 'csv_table') continue;
+      final fileId = item['file_id'];
+      if (fileId is! String || !seen.add(fileId)) continue;
+      final file = await handler.autosave.files.attachment(fileId);
+      if (file == null) {
+        throw const FormatException('The selected table file is missing.');
+      }
+      final bytes = await handler.autosave.files.readAttachment(fileId);
+      if (bytes == null) {
+        throw const FormatException('The selected table file cannot be read.');
+      }
+      tables.add(
+        ReportsChartSourceTable.parse(
+          fileId: fileId,
+          name: file.name,
+          bytes: bytes,
+        ),
+      );
+    }
+    return List.unmodifiable(tables);
   }
 
   @override
@@ -1196,6 +1312,10 @@ class _NoteEditorPageState extends State<NoteEditorPage>
                               _installed?.signedIn == true &&
                               note.accountId == _installed?.userId
                           ? _addReportsCard
+                          : null,
+                      onCreateReport:
+                          reportsSource != null && _hasTrustedOwnerSession()
+                          ? _createReportsChart
                           : null,
                       loadQuizCard: _hasTrustedOwnerSession()
                           ? _loadQuizCard
