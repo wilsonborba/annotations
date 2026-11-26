@@ -465,7 +465,7 @@ class AttachmentHandler extends ChangeNotifier {
   /// Opens the link, or the stored copy of the file with the system.
   Future<bool> open(String id) async {
     final it = _json(id);
-    if (it == null) return false;
+    if (it == null || it['restricted'] == true) return false;
     if (it['url'] case final String url) return _launch(Uri.parse(url));
     final fileId = it['file_id'] as String?;
     final file = fileId == null

@@ -4,8 +4,14 @@ import 'package:qr/qr.dart';
 import '../../../core/landing_settings.dart';
 import '../../../core/settings.dart';
 import 'controls.dart';
+import 'icons.dart';
 import 'scope.dart';
+import 'theme.dart';
 import 'tokens.dart';
+
+const _qrIcon = AppIconData('QRCode', [
+  'M1 1h6v1H2v4h-1z M3 3h2v2H3z M13 1h6v6h-1V2h-5z M15 3h2v2h-2z M1 13h6v6H1v-1h5v-4H2v4H1z M3 15h2v2H3z M9 1h2v2H9z M9 5h2v2H9z M9 9h2v2H9z M13 9h2v2h-2z M17 9h2v2h-2z M13 13h2v2h-2z M17 13h2v2h-2z M9 13h2v2H9z M11 17h2v2h-2z M15 17h2v2h-2z M19 17h1v2h-1z',
+]);
 
 /// Builds a routable public app URL. Development keeps the current browser
 /// origin; production uses the configured public site address.
@@ -13,8 +19,13 @@ Uri publicAppUri({
   required List<String> pathSegments,
   Map<String, String>? queryParameters,
 }) {
-  final base = Settings.current.development
-      ? Uri.base
+  final currentOrigin = Uri.base;
+  final useBrowserOrigin =
+      Settings.current.development &&
+      (currentOrigin.scheme == 'http' || currentOrigin.scheme == 'https') &&
+      currentOrigin.host.isNotEmpty;
+  final base = useBrowserOrigin
+      ? currentOrigin
       : Uri.parse(LandingSettings.siteAddress);
   return Uri(
     scheme: base.scheme,
@@ -30,10 +41,18 @@ Uri publicAppUri({
 /// The URI is only encoded into pixels in this process. This widget makes no
 /// network requests and does not report the URI to application telemetry.
 class QrShareControl extends StatefulWidget {
-  const QrShareControl({super.key, required this.url, required this.caption});
+  const QrShareControl({
+    super.key,
+    required this.url,
+    required this.caption,
+    this.semanticHint,
+    required this.labelKey,
+  });
 
   final Uri url;
   final String caption;
+  final String? semanticHint;
+  final String labelKey;
 
   @override
   State<QrShareControl> createState() => _QrShareControlState();
@@ -41,6 +60,7 @@ class QrShareControl extends StatefulWidget {
 
 class _QrShareControlState extends State<QrShareControl> {
   final FocusNode _triggerFocus = FocusNode();
+  bool _triggerFocused = false;
 
   @override
   void dispose() {
@@ -52,19 +72,29 @@ class _QrShareControlState extends State<QrShareControl> {
     await showAppDialog<void>(
       context,
       (dialogContext) => AppDialog(
-        title: dialogContext.tr('shareQr'),
+        title: dialogContext.tr(widget.labelKey),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             QrCodeView(
               data: widget.url.toString(),
-              size: MediaQuery.sizeOf(dialogContext).width < 600 ? 240 : 300,
+              size: (MediaQuery.sizeOf(dialogContext).width - 104)
+                  .clamp(1.0, 320.0)
+                  .toDouble(),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
             SelectableText(
               widget.caption,
               textAlign: TextAlign.center,
               style: Theme.of(dialogContext).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              widget.url.toString(),
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(dialogContext).textTheme.bodySmall,
             ),
           ],
         ),
@@ -82,26 +112,32 @@ class _QrShareControlState extends State<QrShareControl> {
   @override
   Widget build(BuildContext context) => Semantics(
     button: true,
-    label: context.tr('shareQr'),
-    hint: widget.caption,
-    child: TextButton(
-      focusNode: _triggerFocus,
-      onPressed: _enlarge,
-      style: TextButton.styleFrom(
-        padding: const EdgeInsets.all(8),
-        foregroundColor: context.colors.text,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          QrCodeView(data: widget.url.toString(), size: 96),
-          const SizedBox(height: 4),
-          Text(
-            context.tr('shareQr'),
-            style: Theme.of(context).textTheme.labelMedium,
+    label: context.tr(widget.labelKey),
+    hint: widget.semanticHint ?? widget.caption,
+    child: Focus(
+      onFocusChange: (value) => setState(() => _triggerFocused = value),
+      child: FocusRing(
+        visible:
+            _triggerFocused &&
+            FocusManager.instance.highlightMode ==
+                FocusHighlightMode.traditional,
+        child: TextButton(
+          focusNode: _triggerFocus,
+          style: appButtonStyle(
+            context.colors,
+            Theme.of(context).textTheme,
+            AppButtonKind.secondary,
           ),
-        ],
+          onPressed: _enlarge,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const AppIcon(_qrIcon, size: 18),
+              const SizedBox(width: 8),
+              Flexible(child: Text(context.tr(widget.labelKey))),
+            ],
+          ),
+        ),
       ),
     ),
   );

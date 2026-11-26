@@ -33,8 +33,8 @@ import 'presentation/frontend/widgets/landing/engineering_page.dart';
 import 'presentation/frontend/widgets/landing/features_page.dart';
 import 'presentation/frontend/widgets/landing/how_it_works_page.dart';
 import 'presentation/frontend/widgets/landing/landing_page.dart';
-import 'presentation/frontend/widgets/catalog/catalog_page.dart';
-import 'presentation/frontend/widgets/article/article_page.dart';
+import 'domain/services/discovery_reader_service.dart';
+import 'presentation/frontend/widgets/discovery/discovery_pages.dart';
 import 'presentation/frontend/widgets/instant/instant_page.dart';
 import 'presentation/frontend/widgets/instant/instant_room_page.dart';
 
@@ -199,23 +199,52 @@ class _AnnotationsAppState extends State<AnnotationsApp> {
             ),
             GoRoute(
               path: '/v1/menu',
+              builder: (_, state) {
+                final q = state.uri.queryParameters;
+                return ShellPage(
+                  child: BrowsePage(
+                    query: DiscoveryQuery(
+                      q: q['q'] ?? '',
+                      tag: q['tag'],
+                      authorId: q['author'],
+                      language: q['language'],
+                      projectId: q['project'],
+                    ),
+                  ),
+                );
+              },
+            ),
+            GoRoute(
+              path: '/v1/authors/:id',
               builder: (_, state) => ShellPage(
-                child: CatalogPage(
-                  query: state.uri.queryParameters['q'] ?? '',
-                  topic: state.uri.queryParameters['topic'] ?? '',
-                  channel: state.uri.queryParameters['channel'] ?? '',
+                child: AuthorPage(authorId: state.pathParameters['id']!),
+              ),
+            ),
+            GoRoute(
+              path: '/v1/projects/:id',
+              builder: (_, state) => ShellPage(
+                child: ProjectPage(projectId: state.pathParameters['id']!),
+              ),
+            ),
+            GoRoute(
+              path: '/v1/notes/:id',
+              builder: (_, state) => ShellPage(
+                child: ReaderPage(
+                  key: ValueKey(state.uri.toString()),
+                  noteId: state.pathParameters['id']!,
+                  view: switch (state.uri.queryParameters['view']) {
+                    'typed' => NoteViewMode.typed,
+                    'original' => NoteViewMode.original,
+                    _ => null,
+                  },
                 ),
               ),
             ),
             GoRoute(
               path: '/v1/menu/:channel/:slug',
-              builder: (_, state) => ShellPage(
-                child: ArticlePage(
-                  channel: state.pathParameters['channel']!,
-                  slug: state.pathParameters['slug']!,
-                  language: state.uri.queryParameters['lang'] ?? '',
-                ),
-              ),
+              // Historical post URLs have no authorized mapping to a public
+              // note ID. Keep a local not-found state without fetching /posts.
+              builder: (_, _) => const ShellPage(child: NotFoundState()),
             ),
             GoRoute(
               path: AccountService.myNotesPath,
