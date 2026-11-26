@@ -1,6 +1,7 @@
 // Room sharing over time (annotations#44, C1.1 to C1.7): pause before
 // sharing, no sharing during a gesture, polling with rebase, lost connection
 // and retry, fixed expiry. Two editors share one stateful fake server.
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:annotations_shared/dal/remote/api_adapter.dart';
@@ -11,6 +12,8 @@ import 'package:annotations_shared/domain/services/instant_room_service.dart';
 import 'package:annotations_shared/domain/services/instant_room_share.dart';
 import 'package:annotations_shared/domain/services/note_autosave.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 
 import 'support/fake_room_server.dart';
 
@@ -157,8 +160,8 @@ void main() {
       'shares it', () async {
     final server = FakeRoomServer();
     final (share, a) = await open(server);
-    server.offline = true;
     a.edit(share, [text('t1', 'kept')]);
+    server.offline = true;
     await until(
       () => share.sharing.value == InstantSharingState.connectionLost,
     );
@@ -170,6 +173,96 @@ void main() {
     expect(server.calls[callsBefore], 'GET /instant/ROOM12');
     expect(share.sharing.value, InstantSharingState.shared);
   });
+
+  test('a rejected write is not retried in a tight loop', () async {
+    final server = FakeRoomServer()..rejectItemWrites = true;
+    final blocked = Completer<void>();
+    var attempts = 0;
+    final client = MockClient((request) async {
+      if (request.method == 'POST' && request.url.path.endsWith('/items')) {
+        attempts++;
+        if (attempts == 3) await blocked.future;
+        if (attempts > 3) throw http.ClientException('offline');
+      }
+      return server.handle(request);
+    });
+    final room = InstantRoomService(ApiAdapter(client: client, base: _api));
+    await room.joinRoom(server.code);
+    final share = RoomShare(room, files: _NoFiles(), settings: _fast);
+    final editor = _Editor(RoomShare.documentOf(room.document));
+    share.attach(editor);
+    addTearDown(() {
+      share.dispose();
+      client.close();
+    });
+
+    editor.edit(share, [text('bad', 'rejected')]);
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    final observed = attempts;
+    server.offline = true;
+    if (!blocked.isCompleted) blocked.complete();
+    if (observed >= 3) {
+      await until(
+        () => share.sharing.value == InstantSharingState.connectionLost,
+      );
+    }
+    expect(observed, 1, reason: '422 must stay pending for explicit retry');
+  });
+
+  test(
+    'a write response arriving after expiry cannot restore the document',
+    () async {
+      final server = FakeRoomServer();
+      final response = Completer<void>();
+      server.beforeItemWrite = () => response.future;
+      final room = InstantRoomService(
+        ApiAdapter(client: server.client(), base: _api),
+      );
+      await room.joinRoom(server.code);
+      final share = RoomShare(room, files: _NoFiles(), settings: _fast);
+      final editor = _Editor(RoomShare.documentOf(room.document));
+      share.attach(editor);
+      addTearDown(share.dispose);
+
+      editor.edit(share, [text('late', 'must clear')]);
+      await until(() => server.calls.contains('POST /instant/ROOM12/items'));
+      room.expire();
+      response.complete();
+      await until(() => share.sharing.value == InstantSharingState.expired);
+      expect(editor.texts, isEmpty);
+      expect(room.items, isEmpty);
+    },
+  );
+
+  test(
+    'a write response after share disposal does not update the editor',
+    () async {
+      final server = FakeRoomServer();
+      final response = Completer<void>();
+      server.beforeItemWrite = () => response.future;
+      final room = InstantRoomService(
+        ApiAdapter(client: server.client(), base: _api),
+      );
+      await room.joinRoom(server.code);
+      final share = RoomShare(room, files: _NoFiles(), settings: _fast);
+      final editor = _Editor(RoomShare.documentOf(room.document));
+      share.attach(editor);
+      var disposed = false;
+      addTearDown(() {
+        if (!disposed) share.dispose();
+      });
+
+      editor.edit(share, [text('late', 'closed editor')]);
+      await until(() => server.calls.contains('POST /instant/ROOM12/items'));
+      final shown = editor.shown;
+      share.dispose();
+      disposed = true;
+      response.complete();
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(editor.shown, shown);
+      expect(share.state.value, SaveState.saving);
+    },
+  );
 
   test('the room expires at its fixed time: sharing stops and the content is '
       'cleared, without extension', () async {

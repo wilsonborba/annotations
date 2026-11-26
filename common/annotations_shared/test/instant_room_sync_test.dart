@@ -1,5 +1,7 @@
 // Instant room sharing (annotations#44, C1.3 to C1.6) against a stateful fake
 // that follows annotations_api rooms.rs.
+import 'dart:async';
+
 import 'package:annotations_shared/dal/remote/api_adapter.dart';
 import 'package:annotations_shared/domain/services/instant_room_service.dart';
 import 'package:annotations_shared/domain/services/instant_room_sync.dart';
@@ -257,6 +259,54 @@ void main() {
       expect(ids(local), ['a']);
       expect(await sync.push(local), isTrue);
       expect(server.items.keys, ['a']);
+    },
+  );
+
+  test('a refused page edit is not returned by rebase or replayed', () async {
+    final server = FakeRoomServer();
+    final (_, syncA) = await join(server);
+    final (roomB, syncB) = await join(server);
+    final stale = doc([], background: 'lined');
+    final current = doc([], background: 'ruled');
+    expect(await syncA.push(current), isTrue);
+
+    expect(await syncB.push(stale), isFalse);
+    final rebased = syncB.rebase(stale);
+    expect(rebased['page'], roomB.page);
+    final patches = server.calls
+        .where((c) => c == 'PATCH /instant/ROOM12')
+        .length;
+    expect(await syncB.push(rebased), isTrue);
+    expect(
+      server.calls.where((c) => c == 'PATCH /instant/ROOM12').length,
+      patches,
+    );
+    expect(server.page['background'], {'kind': 'ruled'});
+  });
+
+  test(
+    'an in-flight refresh cannot restore room content after expiry',
+    () async {
+      final server = FakeRoomServer()..items['a'] = text('a', 'secret');
+      server.itemRevisions['a'] = 1;
+      final (room, _) = await join(server);
+      final response = Completer<void>();
+      server.beforeRoomGet = () => response.future;
+      final refresh = room.refresh();
+      for (
+        var i = 0;
+        i < 100 &&
+            server.calls.where((c) => c == 'GET /instant/ROOM12').length < 2;
+        i++
+      ) {
+        await Future<void>.delayed(const Duration(milliseconds: 2));
+      }
+      expect(server.calls.where((c) => c == 'GET /instant/ROOM12').length, 2);
+      room.expire();
+      response.complete();
+      await refresh;
+      expect(room.state, InstantSharingState.expired);
+      expect(room.items, isEmpty);
     },
   );
 

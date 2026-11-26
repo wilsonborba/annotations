@@ -11,6 +11,8 @@ import 'package:annotations_shared/domain/services/instant_room_share.dart';
 import 'package:annotations_shared/presentation/frontend/components/qr_share.dart';
 import 'package:annotations_shared/presentation/frontend/handlers/instant_room_handler.dart';
 import 'package:annotations_shared/presentation/frontend/widgets/instant/instant_room_page.dart';
+import 'package:annotations_shared/presentation/frontend/widgets/paper/paper_canvas.dart';
+import 'package:annotations_shared/presentation/frontend/widgets/paper/paper_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -155,6 +157,33 @@ void main() {
     }
     expect(server.calls.last, 'GET /instant/ROOM12');
     expect(find.byKey(const Key('room-state-shared')), findsOneWidget);
+    await closeRoom(tester);
+  });
+
+  testWidgets('a disconnected room editor does not accept a new paper edit', (
+    tester,
+  ) async {
+    final server = FakeRoomServer();
+    await openRoom(tester, server);
+    server.offline = true;
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pump();
+    expect(find.byKey(const Key('room-state-connectionLost')), findsOneWidget);
+    final screen = tester.widget<PaperScreen>(find.byType(PaperScreen));
+    final paper = screen.handler;
+    expect(screen.readOnly, isTrue);
+    expect((paper.document.toJson()['items'] as List), isEmpty);
+    expect(paper.view.value, isNotNull);
+
+    final canvas = tester.getRect(find.byType(PaperCanvas));
+    await tester.tapAt(canvas.topLeft + const Offset(160, 160));
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(
+      tester.widget<PaperScreen>(find.byType(PaperScreen)).text!.editing,
+      isNull,
+    );
+    expect((paper.document.toJson()['items'] as List), isEmpty);
+    expect(server.calls.where((call) => call.contains('/items')), isEmpty);
     await closeRoom(tester);
   });
 

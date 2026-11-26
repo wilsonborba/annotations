@@ -36,7 +36,12 @@ final class FakeRoomServer {
   final fileMeta = <String, FakeJson>{};
   final fileBytes = <String, List<int>>{};
   bool failUploads = false;
+  bool rejectItemWrites = false;
   bool offline = false;
+  Future<void> Function()? beforeRoomGet;
+  Future<void> Function()? beforeItemWrite;
+  Future<void> Function()? beforeFileReservation;
+  Future<void> Function()? beforeFileContent;
   final calls = <String>[];
 
   static const prefix = '/apps/annotations/v1';
@@ -83,6 +88,7 @@ final class FakeRoomServer {
     if (expired) return _err(410, 'room_expired');
     final rest = path.substring('/instant/$code'.length);
     if (rest == '/files' && req.method == 'POST') {
+      await beforeFileReservation?.call();
       final b = Map<String, Object?>.from(jsonDecode(req.body) as Map);
       if (_unknown(b, {'filename', 'content_type', 'size', 'checksum'})) {
         return _err(422, 'unknown_field');
@@ -98,6 +104,7 @@ final class FakeRoomServer {
     }
     final content = RegExp(r'^/files/([^/]+)/content$').firstMatch(rest);
     if (content != null && req.method == 'PUT') {
+      await beforeFileContent?.call();
       if (failUploads) return _err(500, 'storage_failed');
       fileBytes[content.group(1)!] = req.bodyBytes;
       return http.Response(jsonEncode({'ok': true}), 200);
@@ -112,6 +119,11 @@ final class FakeRoomServer {
         ? const <String, Object?>{}
         : Map<String, Object?>.from(jsonDecode(req.body) as Map);
 
+    if (rest.startsWith('/items') &&
+        const {'POST', 'PUT', 'DELETE'}.contains(req.method)) {
+      await beforeItemWrite?.call();
+    }
+
     if (rest.isEmpty && req.method == 'PUT') {
       if (exists) return _err(409, 'room_exists');
       final b = Map<String, Object?>.from(jsonDecode(req.body) as Map);
@@ -125,7 +137,10 @@ final class FakeRoomServer {
       return _ok();
     }
     if (!exists) return _err(404, 'room_not_found');
-    if (rest.isEmpty && req.method == 'GET') return _ok();
+    if (rest.isEmpty && req.method == 'GET') {
+      await beforeRoomGet?.call();
+      return _ok();
+    }
     if (rest.isEmpty && req.method == 'PATCH') {
       if (_unknown(body, {'expected_revision', 'operation'})) {
         return _err(422, 'unknown_field');
@@ -136,6 +151,7 @@ final class FakeRoomServer {
       return _apply(body['operation'] as Map, null);
     }
     if (rest == '/items' && req.method == 'POST') {
+      if (rejectItemWrites) return _err(422, 'invalid_item');
       if (_unknown(body, {'expected_revision', 'item'})) {
         return _err(422, 'unknown_field');
       }
@@ -149,6 +165,7 @@ final class FakeRoomServer {
     if (m != null) {
       final id = m.group(1)!;
       if (req.method == 'PUT') {
+        if (rejectItemWrites) return _err(422, 'invalid_item');
         if (_unknown(body, {'expected_revision', 'item'})) {
           return _err(422, 'unknown_field');
         }
@@ -158,6 +175,7 @@ final class FakeRoomServer {
         });
       }
       if (req.method == 'DELETE') {
+        if (rejectItemWrites) return _err(422, 'invalid_item');
         final raw = req.headers['if-match'];
         if (raw == null) return _err(428, 'if_match_required');
         final rev = int.tryParse(raw.replaceAll('"', '').trim());

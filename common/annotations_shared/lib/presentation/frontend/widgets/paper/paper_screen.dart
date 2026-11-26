@@ -75,6 +75,9 @@ class PaperScreen extends StatefulWidget {
   /// no drawing, selection, move, resize, point editing, adding of files or
   /// change of the paper background.
   final bool typedOnly;
+
+  /// Disables document editing while an Instant room is disconnected.
+  final bool readOnly;
   const PaperScreen({
     super.key,
     required this.handler,
@@ -88,6 +91,7 @@ class PaperScreen extends StatefulWidget {
     this.linkPreview,
     this.status,
     this.typedOnly = false,
+    this.readOnly = false,
   });
 
   @override
@@ -107,6 +111,15 @@ class _PaperScreenState extends State<PaperScreen> {
   /// the status panel goes. Content, selection, mode, view and history stay,
   /// and Focus does not lock the view. It ends with the editor.
   bool _focus = false;
+
+  @override
+  void didUpdateWidget(PaperScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!oldWidget.readOnly && widget.readOnly) {
+      text.end();
+      text.focus.unfocus();
+    }
+  }
 
   void _setFocus(bool on) {
     if (on == _focus) return;
@@ -228,7 +241,7 @@ class _PaperScreenState extends State<PaperScreen> {
       child: Align(
         key: const Key('toolbar-place'),
         alignment: align,
-        child: bar,
+        child: IgnorePointer(ignoring: widget.readOnly, child: bar),
       ),
     );
   }
@@ -290,7 +303,7 @@ class _PaperScreenState extends State<PaperScreen> {
     fit: StackFit.expand,
     children: [
       _droppable(
-        enabled: !widget.typedOnly,
+        enabled: !widget.typedOnly && !widget.readOnly,
         formats: dropFormats,
         hitTestBehavior: HitTestBehavior.opaque,
         onDropOver: (_) => DropOperation.copy,
@@ -306,26 +319,34 @@ class _PaperScreenState extends State<PaperScreen> {
             view.toPage(event.position.local),
           );
         },
-        child: PaperCanvas(
-          handler: widget.handler,
-          onTap: widget.typedOnly
-              ? (local, global) => text.tapAt(local, global: global)
-              : selection.tap,
-          input: widget.typedOnly ? null : selection,
-          onKey: widget.typedOnly ? null : selection.key,
-          onWheel: attachments.wheel,
-          foreground: (context, view) => Stack(
-            fit: StackFit.expand,
-            children: [
-              TextBlockLayer(text: text, view: view),
-              if (!widget.typedOnly) ...[
-                EraserLayer(draw: draw, view: view),
-                PointEditLayer(points: points, view: view),
-                SelectionLayer(selection: selection, view: view),
-                AttachmentJobsLayer(attachments: attachments, view: view),
+        child: IgnorePointer(
+          ignoring: widget.readOnly,
+          child: PaperCanvas(
+            handler: widget.handler,
+            onTap: widget.typedOnly
+                ? (local, global) => text.tapAt(local, global: global)
+                : selection.tap,
+            input: widget.typedOnly ? null : selection,
+            onKey: widget.readOnly
+                ? (_) => KeyEventResult.handled
+                : widget.typedOnly
+                ? null
+                : selection.key,
+            onWheel: attachments.wheel,
+            foreground: (context, view) => Stack(
+              fit: StackFit.expand,
+              children: [
+                TextBlockLayer(text: text, view: view),
+                if (!widget.typedOnly) ...[
+                  EraserLayer(draw: draw, view: view),
+                  PointEditLayer(points: points, view: view),
+                  SelectionLayer(selection: selection, view: view),
+                  AttachmentJobsLayer(attachments: attachments, view: view),
+                ],
+                if (widget.foreground != null)
+                  widget.foreground!(context, view),
               ],
-              if (widget.foreground != null) widget.foreground!(context, view),
-            ],
+            ),
           ),
         ),
       ),

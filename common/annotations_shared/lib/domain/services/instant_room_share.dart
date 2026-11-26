@@ -12,6 +12,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../../dal/remote/api_adapter.dart';
 import '../models/local_note.dart';
 import '../models/note_document.dart';
 import 'editor_files.dart';
@@ -115,9 +116,7 @@ final class RoomShare implements PaperSaver {
 
   @override
   void edited(LocalNoteDraft note) {
-    if (!room.canEdit && room.state != InstantSharingState.connectionLost) {
-      return;
-    }
+    if (_disposed || !room.canEdit) return;
     _pending = note.document.toJson();
     state.value = SaveState.saving;
     _schedule();
@@ -150,10 +149,16 @@ final class RoomShare implements PaperSaver {
       _set(InstantSharingState.sharing);
       try {
         final clean = await sync.push(local);
+        if (_disposed) return;
+        if (room.state == InstantSharingState.expired) {
+          _expire();
+          return;
+        }
         if (!clean) conflicts.value = List.of(sync.conflicts);
         _show();
         state.value = _pending == null ? SaveState.saved : SaveState.saving;
-      } on Object {
+      } on ApiError catch (err) {
+        if (_disposed) return;
         if (room.state == InstantSharingState.expired) {
           _expire();
           return;
@@ -161,13 +166,25 @@ final class RoomShare implements PaperSaver {
         // Keep the change while the editor stays open (C1.6).
         _pending ??= local;
         state.value = SaveState.failed;
+        _set(room.state);
+        if (err.status == 400 || err.status == 422) return;
+      } on Object {
+        if (_disposed) return;
+        if (room.state == InstantSharingState.expired) {
+          _expire();
+          return;
+        }
+        _pending ??= local;
+        state.value = SaveState.failed;
       }
+      if (_disposed || room.state == InstantSharingState.expired) return;
       _set(room.state);
     }
   }
 
   /// Shows the current room with the unshared local changes on top.
   void _show() {
+    if (_disposed || room.state == InstantSharingState.expired) return;
     final editor = _editor;
     if (editor == null) return;
     final next = sync.rebase(editor.document.toJson());
@@ -187,6 +204,7 @@ final class RoomShare implements PaperSaver {
       if (room.state == InstantSharingState.expired) _expire();
       return;
     }
+    if (_disposed) return;
     if (room.state == InstantSharingState.expired) return _expire();
     if (room.revision != before) _show();
     _set(room.state);
@@ -202,6 +220,7 @@ final class RoomShare implements PaperSaver {
       _set(room.state);
       return;
     }
+    if (_disposed) return;
     if (room.state == InstantSharingState.expired) return _expire();
     _show();
     _set(room.state);

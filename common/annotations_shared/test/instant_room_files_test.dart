@@ -1,6 +1,7 @@
 // Instant room files (annotations#44, C1.7, C1.8): two-step upload, the
 // other person downloads the bytes, a failed upload is never ready, and an
 // expired room downloads nothing.
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:annotations_shared/dal/remote/api_adapter.dart';
@@ -79,4 +80,60 @@ void main() {
     expect(await files.attachment(added.id), isNull);
     expect(server.calls.length, calls);
   });
+
+  test(
+    'a delayed reservation cannot start content upload after expiry',
+    () async {
+      final server = FakeRoomServer();
+      final (room, files) = await join(server);
+      final reservation = Completer<void>();
+      server.beforeFileReservation = () => reservation.future;
+      final upload = files.importBytes(
+        png,
+        name: 'late.png',
+        type: 'image/png',
+      );
+      for (
+        var i = 0;
+        i < 100 && !server.calls.contains('POST /instant/ROOM12/files');
+        i++
+      ) {
+        await Future<void>.delayed(const Duration(milliseconds: 2));
+      }
+      expect(server.calls, contains('POST /instant/ROOM12/files'));
+      room.expire();
+      reservation.complete();
+      await expectLater(upload, throwsA(anything));
+      expect(server.calls.where((c) => c.contains('/content')), isEmpty);
+      expect(room.files, isEmpty);
+    },
+  );
+
+  test(
+    'a delayed content response cannot restore local file state after expiry',
+    () async {
+      final server = FakeRoomServer();
+      final (room, files) = await join(server);
+      final content = Completer<void>();
+      server.beforeFileContent = () => content.future;
+      final upload = files.importBytes(
+        png,
+        name: 'late.png',
+        type: 'image/png',
+      );
+      for (
+        var i = 0;
+        i < 100 && !server.calls.any((c) => c.contains('/content'));
+        i++
+      ) {
+        await Future<void>.delayed(const Duration(milliseconds: 2));
+      }
+      expect(server.calls.any((c) => c.contains('/content')), isTrue);
+      room.expire();
+      content.complete();
+      await expectLater(upload, throwsA(anything));
+      expect(room.files, isEmpty);
+      expect(await files.readAttachment('f1'), isNull);
+    },
+  );
 }

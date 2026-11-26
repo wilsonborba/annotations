@@ -79,6 +79,7 @@ final class InstantRoomSync {
 
   _Base _base;
   final _refused = <String>{};
+  bool _refusedPage = false;
 
   /// The room document the local document is built on.
   Json get base => _base.document;
@@ -168,6 +169,7 @@ final class InstantRoomSync {
     }
     _refuse([...changes.added, ...changes.replaced]);
     _refused.addAll(changes.deleted);
+    _refusedPage = changes.page != null;
     return false;
   }
 
@@ -199,6 +201,7 @@ final class InstantRoomSync {
   Json rebase(Json local) {
     final out = _merge(local, _refused);
     _refused.clear();
+    _refusedPage = false;
     _base = _snapshot(room);
     return out;
   }
@@ -222,7 +225,8 @@ final class InstantRoomSync {
         items.add(it);
       }
     }
-    final pageHere = !same(_base.document['page'], local['page']);
+    final pageHere =
+        !_refusedPage && !same(_base.document['page'], local['page']);
     return {'page': pageHere ? local['page'] : room.page, 'items': items};
   }
 

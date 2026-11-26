@@ -281,6 +281,7 @@ class InstantRoomService {
         method: isNew ? 'POST' : 'PUT',
         body: {'expected_revision': expectedRev, 'item': item},
       );
+      if (state == InstantSharingState.expired) return false;
       if (resp['document'] is Map || resp['item_revisions'] is Map) {
         _applyRoomState(resp);
       } else {
@@ -291,6 +292,7 @@ class InstantRoomService {
       state = InstantSharingState.shared;
       return true;
     } on ApiError catch (err) {
+      if (state == InstantSharingState.expired) return false;
       if (err.status == 410) {
         expire();
         return false;
@@ -340,9 +342,12 @@ class InstantRoomService {
     final code = roomCode;
     if (code == null || state == InstantSharingState.expired) return;
     try {
-      _applyRoomState(await api.request('/instant/$code', method: 'GET'));
+      final response = await api.request('/instant/$code', method: 'GET');
+      if (state == InstantSharingState.expired) return;
+      _applyRoomState(response);
       state = InstantSharingState.shared;
     } on ApiError catch (err) {
+      if (state == InstantSharingState.expired) return;
       if (err.status == 410) {
         expire();
         return;
@@ -406,16 +411,17 @@ class InstantRoomService {
     }
     state = InstantSharingState.sharing;
     try {
-      _applyRoomState(
-        await api.request(
-          '/instant/$code$path',
-          method: method,
-          body: body,
-          headers: headers,
-        ),
+      final response = await api.request(
+        '/instant/$code$path',
+        method: method,
+        body: body,
+        headers: headers,
       );
+      if (state == InstantSharingState.expired) return;
+      _applyRoomState(response);
       state = InstantSharingState.shared;
     } on ApiError catch (err) {
+      if (state == InstantSharingState.expired) return;
       if (err.status == 410) {
         expire();
         rethrow;
@@ -481,9 +487,15 @@ class InstantRoomService {
         'checksum': resolvedChecksum,
       },
     );
+    if (!canEdit) {
+      throw StateError('Cannot upload while room is $state');
+    }
     final fileId = '${staged['id'] ?? staged['file_id']}';
     try {
       await uploadBytes(fileId);
+      if (!canEdit) {
+        throw StateError('Cannot finish upload while room is $state');
+      }
       final uploaded = InstantUploadedFile(
         fileId: fileId,
         name: name,
@@ -499,14 +511,16 @@ class InstantRoomService {
       return uploaded;
     } catch (_) {
       // Never leave a failed upload looking ready.
-      files.add(
-        InstantUploadedFile(
-          fileId: fileId,
-          name: name,
-          sizeBytes: sizeBytes,
-          ready: false,
-        ),
-      );
+      if (state != InstantSharingState.expired) {
+        files.add(
+          InstantUploadedFile(
+            fileId: fileId,
+            name: name,
+            sizeBytes: sizeBytes,
+            ready: false,
+          ),
+        );
+      }
       rethrow;
     }
   }

@@ -110,6 +110,7 @@ class _InstantRoomPageState extends State<InstantRoomPage> {
               preferences: AppScope.of(context).preferences,
             ),
             typedOnly: InstantRoomPage.typedOnly(context),
+            readOnly: h.sharing == InstantSharingState.connectionLost,
             status: RoomStatus(state: h.sharing, onRetry: h.retry),
           ),
         ),
