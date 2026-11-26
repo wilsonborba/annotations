@@ -103,7 +103,7 @@ class SelectionHandler extends ChangeNotifier implements PaperInput {
   ObjectClipboard? _clipboard;
   ObjectClipboard get clipboard => _clipboard ??= ObjectClipboard(
     system: const FlutterSystemClipboard(),
-    files: LocalClipboardFiles(paper.autosave.store),
+    files: LocalClipboardFiles(paper.autosave.files),
     engine: text.engine,
     newId: newId,
   );

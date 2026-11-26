@@ -85,6 +85,9 @@ const _schemaSteps = [
   ''',
   // Conflict copies are owner-bound local documents without a reusable cloud id.
   'ALTER TABLE notes ADD COLUMN is_conflict_copy INTEGER NOT NULL DEFAULT 0;',
+  // NotesUI51: retain only the owner-scoped prepared study id. The setup stays
+  // in Certifications and clears when the trusted note identity/revision changes.
+  'ALTER TABLE notes ADD COLUMN prepared_study_id TEXT;',
 ];
 
 /// A stable 64-bit hash of an item body, to find changed items: FNV-1a and
@@ -231,6 +234,7 @@ final class SqliteNoteStore implements DeletableLocalNoteStore {
       serverRevision: row['server_revision'] as int?,
       serverOriginalRevisionId: row['server_original_revision_id'] as String?,
       serverTypedRevisionId: row['server_typed_revision_id'] as String?,
+      preparedStudyId: row['prepared_study_id'] as String?,
       isConflictCopy: row['is_conflict_copy'] == 1,
     );
   }
@@ -415,6 +419,13 @@ final class SqliteNoteStore implements DeletableLocalNoteStore {
           WHEN account_id IS NOT NULL AND account_id != ? THEN ?
           ELSE COALESCE(?, server_typed_revision_id)
         END,
+        prepared_study_id = CASE
+          WHEN ? IS NULL THEN NULL
+          WHEN account_id IS NOT NULL AND account_id != ? THEN NULL
+          WHEN ? IS NOT NULL AND server_note_id IS NOT ? THEN NULL
+          WHEN ? IS NOT NULL AND server_revision IS NOT ? THEN NULL
+          ELSE prepared_study_id
+        END,
         account_id = ?
       WHERE id = ?
       ''',
@@ -437,10 +448,64 @@ final class SqliteNoteStore implements DeletableLocalNoteStore {
         serverTypedRevisionId,
         serverTypedRevisionId,
         accountId,
+        accountId,
+        serverNoteId,
+        serverNoteId,
+        serverRevision,
+        serverRevision,
+        accountId,
         id,
       ],
     );
     if (_db.updatedRows == 0) throw LocalStoreException('missing_note', id);
+  }
+
+  @override
+  Future<void> savePreparedStudyReference(
+    String id, {
+    required String accountId,
+    required String serverNoteId,
+    required int serverRevision,
+    required String studyId,
+  }) async {
+    if (studyId.trim().isEmpty) {
+      throw ArgumentError.value(studyId, 'studyId');
+    }
+    _db.execute(
+      '''
+      UPDATE notes SET prepared_study_id = ?
+      WHERE id = ? AND account_id = ? AND server_note_id = ?
+        AND server_revision = ? AND sync_state = ? AND is_conflict_copy = 0
+      ''',
+      [
+        studyId,
+        id,
+        accountId,
+        serverNoteId,
+        serverRevision,
+        LocalSyncState.synced.code,
+      ],
+    );
+    if (_db.updatedRows == 0) {
+      throw LocalStoreException('study_reference_conflict', id);
+    }
+  }
+
+  @override
+  Future<void> clearPreparedStudyReference(
+    String id, {
+    required String accountId,
+    required String serverNoteId,
+    required String studyId,
+  }) async {
+    _db.execute(
+      '''
+      UPDATE notes SET prepared_study_id = NULL
+      WHERE id = ? AND account_id = ? AND server_note_id = ?
+        AND prepared_study_id = ?
+      ''',
+      [id, accountId, serverNoteId, studyId],
+    );
   }
 
   /// The final file name: the new id and the extension of the original name,

@@ -15,18 +15,44 @@ import 'package:flutter/foundation.dart';
 
 import '../../core/local_store_settings.dart';
 import '../models/local_note.dart';
+import 'editor_files.dart';
 import 'local_note_store.dart';
 
 enum SaveState { saving, saved, failed }
 
-final class NoteAutosave {
+/// Where an open paper editor keeps its edits (annotations#44): the autosave
+/// of a local note, or the sharing of an Instant room.
+abstract interface class PaperSaver {
+  /// The state for the page indicator.
+  ValueListenable<SaveState> get state;
+
+  /// Records an accepted edit; it is kept after a short pause.
+  void edited(LocalNoteDraft note);
+
+  /// Keeps the pending edit again after a failure.
+  Future<void> retry();
+
+  /// Keeps the pending edit now, for example before the editor closes.
+  Future<void> flush();
+
+  /// The files of the edited document.
+  EditorFiles get files;
+
+  void dispose();
+}
+
+final class NoteAutosave implements PaperSaver {
   NoteAutosave(this.store, {this.settings = const LocalStoreSettings()});
 
   final LocalNoteStore store;
   final LocalStoreSettings settings;
 
   /// The save state for the page indicator (annotations#26).
-  final state = ValueNotifier(SaveState.saved);
+  @override
+  final ValueNotifier<SaveState> state = ValueNotifier(SaveState.saved);
+
+  @override
+  EditorFiles get files => store;
 
   LocalNoteDraft? _pending;
   Timer? _timer;
@@ -41,6 +67,7 @@ final class NoteAutosave {
 
   /// Records an edit. The save starts after [LocalStoreSettings.autosaveDelay]
   /// without a newer edit.
+  @override
   void edited(LocalNoteDraft note) {
     _pending = note;
     state.value = SaveState.saving;
@@ -52,10 +79,12 @@ final class NoteAutosave {
   }
 
   /// Saves the pending note again after a failure.
+  @override
   Future<void> retry() => flush();
 
   /// Saves the pending note now and waits for the commit, for example before
   /// the note closes. A failure shows as [SaveState.failed].
+  @override
   Future<void> flush() async {
     _timer?.cancel();
     _timer = null;
@@ -87,6 +116,7 @@ final class NoteAutosave {
   }
 
   /// Stops the timer. Call [flush] first to keep the pending edit.
+  @override
   void dispose() {
     _timer?.cancel();
     state.dispose();

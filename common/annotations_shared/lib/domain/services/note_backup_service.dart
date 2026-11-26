@@ -13,10 +13,17 @@ class NoteBackupService {
 
   /// Exports [noteId] and every referenced attachment from [store] as a JSON
   /// backup package.
-  Future<String> exportPackage(LocalNoteStore store, String noteId) async {
+  Future<String> exportPackage(
+    LocalNoteStore store,
+    String noteId, {
+    String? accountId,
+  }) async {
     final note = await store.load(noteId);
     if (note == null) {
       throw StateError('Cannot export missing note: $noteId');
+    }
+    if (note.accountId != null && note.accountId != accountId) {
+      throw StateError('Note is not available to this account');
     }
     final fileIds = referencedFiles(note.document);
     final files = <Map<String, Object?>>[];

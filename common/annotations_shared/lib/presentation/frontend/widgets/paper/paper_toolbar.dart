@@ -63,6 +63,9 @@ class PaperToolbar extends StatefulWidget {
   /// The visible exit of Focus (B7); null when Focus is off.
   final VoidCallback? onExitFocus;
 
+  /// Simple typed controls: no Type and Draw switch, only the text tools.
+  final bool typedOnly;
+
   const PaperToolbar({
     super.key,
     required this.paper,
@@ -77,6 +80,7 @@ class PaperToolbar extends StatefulWidget {
     required this.onDrop,
     required this.extent,
     this.onExitFocus,
+    this.typedOnly = false,
   });
 
   @override
@@ -313,12 +317,13 @@ class _PaperToolbarState extends State<PaperToolbar> {
       if (!_isNarrow || _collapsed) _collapse(context),
       _divider(c),
     ];
+    final fixedControls = children.length;
     if (_collapsed) {
       // The active tool stays visible, and the Delete anything warning.
       if (drawMode) {
         children.add(DrawToolButton(draw: draw, tool: draw.tools.active));
         if (draw.dangerous) children.add(_dangerNotice(context));
-      } else {
+      } else if (!widget.typedOnly) {
         children.add(
           ModeSwitch(
             mode: draw.mode,
@@ -329,14 +334,16 @@ class _PaperToolbarState extends State<PaperToolbar> {
         );
       }
     } else {
-      children.add(
-        ModeSwitch(
-          mode: draw.mode,
-          onChanged: draw.setMode,
-          axis: _axis,
-          compact: vertical || _isNarrow,
-        ),
-      );
+      if (!widget.typedOnly) {
+        children.add(
+          ModeSwitch(
+            mode: draw.mode,
+            onChanged: draw.setMode,
+            axis: _axis,
+            compact: vertical || _isNarrow,
+          ),
+        );
+      }
       final history = _history(context);
       if (history.isNotEmpty) children.addAll([_divider(c), ...history]);
       if (widget.attachments case final files?
@@ -404,6 +411,10 @@ class _PaperToolbarState extends State<PaperToolbar> {
           ),
         ]);
       }
+    }
+    // Simple typed controls with no open block: no divider after the handle.
+    if (widget.typedOnly && children.length == fixedControls) {
+      children.removeLast();
     }
     if (widget.onExitFocus case final exit?) {
       children.addAll([

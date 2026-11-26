@@ -39,7 +39,7 @@ import UIKit
         guard let args = call.arguments as? [String: Any],
               let sid = args["session_id"] as? String,
               let csrf = args["csrf_token"] as? String,
-              let data = "\(sid)\n\(csrf)".data(using: .utf8) else {
+              let data = ((args["verified_user_id"] as? String).map { $0.isEmpty ? "\(sid)\n\(csrf)" : "\(sid)\n\(csrf)\n\($0)" } ?? "\(sid)\n\(csrf)").data(using: .utf8) else {
           result(FlutterError(code: "INVALID_ARGS", message: "Missing session_id or csrf_token", details: nil))
           return
         }
@@ -83,9 +83,11 @@ import UIKit
           result(FlutterError(code: "KEYCHAIN_ERROR", message: "SecItemCopyMatching failed: \(status)", details: nil))
           return
         }
-        let parts = text.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false)
-        if parts.count == 2 {
-          result(["session_id": String(parts[0]), "csrf_token": String(parts[1])])
+        let parts = text.split(separator: "\n", maxSplits: 2, omittingEmptySubsequences: false)
+        if parts.count >= 2 {
+          var session: [String: Any] = ["session_id": String(parts[0]), "csrf_token": String(parts[1])]
+          if parts.count == 3 && !parts[2].isEmpty { session["verified_user_id"] = String(parts[2]) }
+          result(session)
         } else {
           result(nil)
         }

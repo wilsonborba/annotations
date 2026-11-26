@@ -1,15 +1,17 @@
 import 'package:annotations_shared/core/tracking_manifest.dart';
 import 'package:annotations_shared/core/tracking.dart';
 import 'package:flutter/material.dart';
+
+import '../../../../domain/services/account_service.dart';
+import '../../components/account_menu.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../../../domain/models/content.dart';
+import '../../../../domain/services/discovery_reader_service.dart';
 import '../../components/controls.dart';
 import '../../components/icons.dart';
 import '../../components/post_card.dart';
 import '../../components/scope.dart';
 import '../../components/shell.dart';
-import '../../handlers/content_handler.dart';
 import '../../../../core/landing_settings.dart';
 import '../../components/interactive_card.dart';
 import '../../components/sketch_art.dart';
@@ -29,12 +31,22 @@ class LandingPage extends StatefulWidget {
 }
 
 class _LandingPageState extends State<LandingPage> {
-  Future<Data>? latest;
+  Future<DiscoveryPage>? latest;
+
+  Future<DiscoveryPage> _recent() => DiscoveryReaderAdapter(
+    AppScope.of(context).service.api,
+  ).listPublicNotes(const DiscoveryQuery(limit: 6));
+
+  void _retryRecent() {
+    setState(() {
+      latest = _recent();
+    });
+  }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    latest ??= ContentHandler(AppScope.of(context).service).articles();
+    latest ??= _recent();
   }
 
   @override
@@ -74,6 +86,32 @@ class _LandingPageState extends State<LandingPage> {
                   onPressed: () => context.go('/v1/home/download'),
                 ),
               ),
+              // Sign in when signed out; My notes when signed in, so a
+              // signed-in user is never asked to sign in (Cortex #75).
+              if (AppScope.of(context).account case final account?)
+                ListenableBuilder(
+                  listenable: account,
+                  builder: (context, _) =>
+                      account.status == AccountStatus.checking
+                      ? const SizedBox.shrink()
+                      : track(
+                          'landing.account.open',
+                          AppButton(
+                            key: Key(
+                              account.signedIn
+                                  ? 'overview-my-notes'
+                                  : 'overview-sign-in',
+                            ),
+                            label: context.tr(
+                              account.signedIn ? 'myNotes' : 'signIn',
+                            ),
+                            onPressed: () => signInOrOpen(
+                              context,
+                              returnTo: AccountService.myNotesPath,
+                            ),
+                          ),
+                        ),
+                ),
               track(
                 'landing.browse.open',
                 AppButton(
@@ -215,17 +253,13 @@ class _LandingPageState extends State<LandingPage> {
               ),
             ],
           ),
-          FutureBuilder<Data>(
+          FutureBuilder<DiscoveryPage>(
             future: latest,
             builder: (context, s) {
               if (s.hasError) {
                 return LoadError(
                   reference: ClientErrors.referenceOf(s.error),
-                  retry: () => setState(
-                    () => latest = ContentHandler(
-                      AppScope.of(context).service,
-                    ).articles(),
-                  ),
+                  retry: _retryRecent,
                 );
               }
               if (!s.hasData) {
@@ -234,13 +268,13 @@ class _LandingPageState extends State<LandingPage> {
                   child: Center(child: CircularProgressIndicator()),
                 );
               }
-              final items = records(s.data!['items']);
+              final items = s.data!.items;
               return items.isEmpty
                   ? Padding(
                       padding: const EdgeInsets.symmetric(vertical: 30),
                       child: Text(context.tr('empty')),
                     )
-                  : PostGrid(items: items.take(6).toList());
+                  : PublicNoteGrid(items: items.take(6).toList());
             },
           ),
         ],

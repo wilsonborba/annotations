@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../core/landing_settings.dart';
 import '../../../core/settings.dart';
+import 'account_menu.dart';
 import 'controls.dart';
 import 'landing_image.dart';
 import 'icons.dart';
@@ -20,8 +21,13 @@ const landingTabs = <(String, String, String)>[
   ('/v1/home/download', 'tabDownload', 'shell.navigation.download'),
 ];
 
-/// At this width and below the tabs go into one menu (Cortex pattern).
-const tabsMenuWidth = 1000.0;
+/// Minimum width for the complete inline toolbar at the default text size.
+const tabsMenuWidth = 1200.0;
+
+/// Keep the full three-language control only when the AppBar has room for it
+/// beside the brand and account, theme and navigation actions.
+const compactLanguageWidth = 800.0;
+const compactWordmarkWidth = 620.0;
 
 class PageShell extends StatelessWidget {
   final Widget child;
@@ -32,7 +38,8 @@ class PageShell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final width = MediaQuery.sizeOf(context).width;
-    final wide = width > tabsMenuWidth;
+    final textScale = MediaQuery.textScalerOf(context).scale(14) / 14;
+    final wide = width >= tabsMenuWidth * textScale;
     final prefs = AppScope.of(context).preferences;
     final dark = Theme.of(context).brightness == Brightness.dark;
     return Scaffold(
@@ -46,7 +53,7 @@ class PageShell extends StatelessWidget {
               AppBrand(
                 homeLabel: context.tr('home'),
                 // Beside the tabs the title needs a wide window.
-                showTitle: wide ? width >= 1180 : width >= 430,
+                showTitle: wide ? width >= 1180 : width >= compactWordmarkWidth,
                 onHome: () => context.go('/v1/home'),
               ),
             ),
@@ -86,8 +93,14 @@ class PageShell extends StatelessWidget {
             ),
             const SizedBox(width: 16),
           ],
-          LanguageSwitch(selected: prefs.locale, onChanged: prefs.language),
-          const SizedBox(width: 6),
+          if (width < compactLanguageWidth)
+            _CompactLanguageSwitch(
+              selected: prefs.locale,
+              onChanged: prefs.language,
+            )
+          else
+            LanguageSwitch(selected: prefs.locale, onChanged: prefs.language),
+          SizedBox(width: width < 430 ? 2 : 6),
           track(
             'shell.theme.toggle',
             AppIconButton.navigation(
@@ -97,33 +110,40 @@ class PageShell extends StatelessWidget {
               onPressed: () => prefs.toggle(dark),
             ),
           ),
+          if (AppScope.of(context).account != null)
+            SizedBox(width: width < 430 ? 2 : 8),
+          AccountControl(location: location, compact: !wide),
           if (!wide)
             track(
               'shell.navigation.menu',
-              AppMenuButton(
-                key: const Key('tabs-menu'),
-                icon: AppIcons.menu,
-                label: context.tr('menu'),
-                round: true,
-                entries: [
-                  for (final (route, key) in [
-                    for (final (route, key, _) in landingTabs) (route, key),
-                    ('/v1/menu', 'barNotes'),
-                    ('/v1/instant', 'barInstant'),
-                  ])
-                    AppMenuEntry(
-                      key: Key('menu-$key'),
-                      label: context.tr(key),
-                      checked: location == route,
-                      onSelected: () {
-                        trackChoice(context, 'shell.navigation.menu', route);
-                        context.go(route);
-                      },
-                    ),
-                ],
+              _BarMenu(
+                location: location,
+                menu: (accountEntries) => AppMenuButton(
+                  key: const Key('tabs-menu'),
+                  icon: AppIcons.menu,
+                  label: context.tr('menu'),
+                  round: true,
+                  entries: [
+                    if (!wide) ...accountEntries,
+                    for (final (route, key) in [
+                      for (final (route, key, _) in landingTabs) (route, key),
+                      ('/v1/menu', 'barNotes'),
+                      ('/v1/instant', 'barInstant'),
+                    ])
+                      AppMenuEntry(
+                        key: Key('menu-$key'),
+                        label: context.tr(key),
+                        checked: location == route,
+                        onSelected: () {
+                          trackChoice(context, 'shell.navigation.menu', route);
+                          context.go(route);
+                        },
+                      ),
+                  ],
+                ),
               ),
             ),
-          const SizedBox(width: 12),
+          SizedBox(width: width < 430 ? 6 : 12),
         ],
       ),
       // The router's navigator fills the body; each page scrolls on its
@@ -277,6 +297,96 @@ class LanguageSwitch extends StatelessWidget {
                 ),
               ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Keeps all three interface languages available when the full segmented
+/// control would leave too little room for the brand and other toolbar
+/// actions. PopupMenuButton retains the standard keyboard and touch behavior.
+class _CompactLanguageSwitch extends StatelessWidget {
+  final String selected;
+  final ValueChanged<String> onChanged;
+
+  const _CompactLanguageSwitch({
+    required this.selected,
+    required this.onChanged,
+  });
+
+  static const _languages = <(String, String, String)>[
+    ('en', 'EN', 'English'),
+    ('pt-BR', 'PT', 'Português'),
+    ('th', 'TH', 'ไทย'),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final current = _languages.firstWhere(
+      (language) => language.$1 == selected,
+      orElse: () => _languages.first,
+    );
+    return PopupMenuButton<String>(
+      key: const Key('language-switch'),
+      tooltip: context.tr('language'),
+      onSelected: (code) {
+        trackChoice(context, 'shell.language.select', code);
+        onChanged(code);
+      },
+      itemBuilder: (context) => [
+        for (final (code, shortName, name) in _languages)
+          PopupMenuItem<String>(
+            key: Key('compact-language-$code'),
+            value: code,
+            child: track(
+              code == 'en'
+                  ? 'shell.language.english'
+                  : code == 'th'
+                  ? 'shell.language.thai'
+                  : 'shell.language.portuguese',
+              Semantics(
+                label: name,
+                selected: code == selected,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox(width: 34, child: Text(shortName)),
+                    Text(name),
+                    if (code == selected) ...[
+                      const SizedBox(width: 12),
+                      const AppIcon(AppIcons.checkmarkCircle, size: 16),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ),
+      ],
+      child: Semantics(
+        button: true,
+        label: '${context.tr('language')}: ${current.$3}',
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 40, minWidth: 52),
+          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 5),
+          decoration: BoxDecoration(
+            color: colors.subtle,
+            borderRadius: BorderRadius.circular(appRadius + 2),
+            border: Border.all(color: colors.border),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(current.$2, style: Theme.of(context).textTheme.labelMedium),
+              const SizedBox(width: 3),
+              AppIcon(
+                AppIcons.chevronDown,
+                size: 14,
+                color: colors.textSecondary,
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -461,4 +571,23 @@ class LoadError extends StatelessWidget {
       ],
     ),
   );
+}
+
+/// Rebuilds the bar menu when the account state changes, so its Sign in row
+/// follows the live session.
+class _BarMenu extends StatelessWidget {
+  const _BarMenu({required this.location, required this.menu});
+
+  final String location;
+  final Widget Function(List<AppMenuEntry> accountEntries) menu;
+
+  @override
+  Widget build(BuildContext context) {
+    final account = AppScope.of(context).account;
+    if (account == null) return menu(const []);
+    return ListenableBuilder(
+      listenable: account,
+      builder: (context, _) => menu(accountMenuEntries(context, location)),
+    );
+  }
 }

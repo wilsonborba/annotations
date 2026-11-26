@@ -4,14 +4,14 @@
 String sanitizeForLog(String raw) {
   var out = raw.replaceAllMapped(
     RegExp(
-      r'(sid|csrf|secret|session_id|csrf_token|handoff_id|x-csrf-token)=([^&\s;]+)',
+      r'(sid|csrf|secret|session_id|csrf_token|verified_user_id|handoff_id|x-csrf-token)=([^&\s;]+)',
       caseSensitive: false,
     ),
     (m) => '${m.group(1)}=[REDACTED]',
   );
   out = out.replaceAllMapped(
     RegExp(
-      r'("(?:session_id|csrf_token|secret|handoff_id)"\s*:\s*)"[^"]*"',
+      r'("(?:session_id|csrf_token|verified_user_id|secret|handoff_id)"\s*:\s*)"[^"]*"',
       caseSensitive: false,
     ),
     (m) => '${m.group(1)}"[REDACTED]"',

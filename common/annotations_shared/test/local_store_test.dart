@@ -402,10 +402,68 @@ void main() {
     expect(local.serverRevision, isNull);
   });
 
+  test(
+    'prepared study reference resumes by owner and clears on revision/account change',
+    () async {
+      await store.save(draft('a'));
+      await store.setSync(
+        'n1',
+        state: LocalSyncState.synced,
+        accountId: 'account-a',
+        serverNoteId: 'server-note-a',
+        serverRevision: 4,
+      );
+      await store.savePreparedStudyReference(
+        'n1',
+        accountId: 'account-a',
+        serverNoteId: 'server-note-a',
+        serverRevision: 4,
+        studyId: 'study-4',
+      );
+      await reopen();
+      expect((await store.load('n1'))!.preparedStudyId, 'study-4');
+      await expectLater(
+        store.savePreparedStudyReference(
+          'n1',
+          accountId: 'account-b',
+          serverNoteId: 'server-note-a',
+          serverRevision: 4,
+          studyId: 'study-stolen',
+        ),
+        storeError('study_reference_conflict'),
+      );
+
+      await store.setSync(
+        'n1',
+        state: LocalSyncState.synced,
+        accountId: 'account-a',
+        serverNoteId: 'server-note-a',
+        serverRevision: 5,
+      );
+      expect((await store.load('n1'))!.preparedStudyId, isNull);
+
+      await store.savePreparedStudyReference(
+        'n1',
+        accountId: 'account-a',
+        serverNoteId: 'server-note-a',
+        serverRevision: 5,
+        studyId: 'study-5',
+      );
+      await store.setSync(
+        'n1',
+        state: LocalSyncState.synced,
+        accountId: 'account-b',
+        serverNoteId: 'server-note-b',
+        serverRevision: 1,
+      );
+      expect((await store.load('n1'))!.preparedStudyId, isNull);
+    },
+  );
+
   test('schema steps run once and a newer store is not opened', () async {
     await store.close();
     final db = sqlite3.open('${root.path}/notes.sqlite3');
-    expect(db.userVersion, 4);
+    expect(db.userVersion, 5);
     expect(db.select('PRAGMA journal_mode').first.values.first, 'wal');
     db.userVersion = 99;
     db.close();
@@ -414,7 +472,7 @@ void main() {
       storeError('newer_store'),
     );
     final again = sqlite3.open('${root.path}/notes.sqlite3')
-      ..userVersion = 4
+      ..userVersion = 5
       ..close();
     expect(again, isNotNull);
     store = await SqliteNoteStore.open(root.path);

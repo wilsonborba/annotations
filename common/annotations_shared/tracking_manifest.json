@@ -506,6 +506,167 @@
       "path": "landing > install > how",
       "description": "Interaction for landing install how in widgets/landing/landing_sections.dart",
       "source": "lib/presentation/frontend/widgets/landing/landing_sections.dart"
+    },
+    {
+      "id": "shell.account.sign_in",
+      "label": "Shell account sign in",
+      "path": "shell > account > sign_in",
+      "description": "Top bar Sign in button (or its row in the phone menu) that opens the central login.",
+      "source": "lib/presentation/frontend/components/account_menu.dart"
+    },
+    {
+      "id": "shell.account.my_notes",
+      "label": "Shell account my notes",
+      "path": "shell > account > my_notes",
+      "description": "Account menu row that opens the signed-in user's notes.",
+      "source": "lib/presentation/frontend/components/account_menu.dart"
+    },
+    {
+      "id": "shell.account.log_out",
+      "label": "Shell account log out",
+      "path": "shell > account > log_out",
+      "description": "Account menu row that ends this browser session.",
+      "source": "lib/presentation/frontend/components/account_menu.dart"
+    },
+    {
+      "id": "landing.account.open",
+      "label": "Landing account open",
+      "path": "landing > account > open",
+      "description": "Overview hero action: Sign in when signed out, My notes when signed in.",
+      "source": "lib/presentation/frontend/widgets/landing/landing_page.dart"
+    },
+    {
+      "id": "account.sync.retry",
+      "label": "Account sync retry",
+      "path": "account > sync > retry",
+      "description": "Retry on the sign-in return page after the token was refused.",
+      "source": "lib/presentation/frontend/widgets/account/sync_page.dart"
+    },
+    {
+      "id": "account.notes.retry",
+      "label": "Account notes retry",
+      "path": "account > notes > retry",
+      "description": "Retry after the My notes list failed to load.",
+      "source": "lib/presentation/frontend/widgets/account/my_notes_page.dart"
+    },
+    {
+      "id": "account.notes.sign_in",
+      "label": "Account notes sign in",
+      "path": "account > notes > sign_in",
+      "description": "Sign in button on My notes when signed out.",
+      "source": "lib/presentation/frontend/widgets/account/my_notes_page.dart"
+    },
+    {
+      "id": "intro.skip",
+      "label": "Intro skip",
+      "path": "intro > skip",
+      "description": "Skip on the installed first-start screens.",
+      "source": "lib/presentation/frontend/widgets/workspace/intro_page.dart"
+    },
+    {
+      "id": "intro.next",
+      "label": "Intro next",
+      "path": "intro > next",
+      "description": "Next or Start writing on the installed first-start screens.",
+      "source": "lib/presentation/frontend/widgets/workspace/intro_page.dart"
+    },
+    {
+      "id": "workspace.note.new",
+      "label": "Workspace note new",
+      "path": "workspace > note > new",
+      "description": "New note in the writer workspace.",
+      "source": "lib/presentation/frontend/widgets/workspace/workspace_page.dart"
+    },
+    {
+      "id": "workspace.backup.restore",
+      "label": "Workspace backup restore",
+      "path": "workspace > backup > restore",
+      "description": "Restore a note backup file in the writer workspace.",
+      "source": "lib/presentation/frontend/widgets/workspace/workspace_page.dart"
+    },
+    {
+      "id": "workspace.note.back",
+      "label": "Workspace note back",
+      "path": "workspace > note > back",
+      "description": "Back from the editor to the writer workspace.",
+      "source": "lib/presentation/frontend/widgets/workspace/note_editor_page.dart"
+    },
+    {
+      "id": "workspace.note.prepare_quiz",
+      "label": "Workspace note prepare quiz",
+      "path": "workspace > note > prepare_quiz",
+      "description": "Prepare a quiz from sources selected in the note.",
+      "source": "lib/presentation/frontend/widgets/workspace/note_editor_page.dart"
+    },
+    {
+      "id": "account.installed.start",
+      "label": "Account installed start",
+      "path": "account > installed > start",
+      "description": "Opens the browser login of the installed app.",
+      "source": "lib/presentation/frontend/widgets/workspace/installed_sign_in_page.dart"
+    },
+    {
+      "id": "account.installed.finish",
+      "label": "Account installed finish",
+      "path": "account > installed > finish",
+      "description": "Finish of the installed login after the browser step.",
+      "source": "lib/presentation/frontend/widgets/workspace/installed_sign_in_page.dart"
+    },
+    {
+      "id": "account.installed.reopen",
+      "label": "Account installed reopen",
+      "path": "account > installed > reopen",
+      "description": "Opens the browser login again while a login waits.",
+      "source": "lib/presentation/frontend/widgets/workspace/installed_sign_in_page.dart"
+    },
+    {
+      "id": "account.installed.cancel",
+      "label": "Account installed cancel",
+      "path": "account > installed > cancel",
+      "description": "Cancels the waiting installed login.",
+      "source": "lib/presentation/frontend/widgets/workspace/installed_sign_in_page.dart"
+    },
+    {
+      "id": "account.installed.back",
+      "label": "Account installed back",
+      "path": "account > installed > back",
+      "description": "Back from the installed sign-in to Notes.",
+      "source": "lib/presentation/frontend/widgets/workspace/installed_sign_in_page.dart"
+    },
+    {
+      "id": "workspace.cloud.retry",
+      "label": "Workspace cloud retry",
+      "path": "workspace > cloud > retry",
+      "description": "Retry of a failed sync, publication or deletion in the writer workspace.",
+      "source": "lib/presentation/frontend/widgets/workspace/workspace_page.dart"
+    },
+    {
+      "id": "discovery.more",
+      "label": "Discovery more",
+      "path": "discovery > more",
+      "description": "Show more results in public browsing.",
+      "source": "lib/presentation/frontend/widgets/discovery/discovery_pages.dart"
+    },
+    {
+      "id": "reader.view.switch",
+      "label": "Reader view switch",
+      "path": "reader > view > switch",
+      "description": "Switch between the Original and Typed views of a public note.",
+      "source": "lib/presentation/frontend/widgets/discovery/discovery_pages.dart"
+    },
+    {
+      "id": "reader.link.copy",
+      "label": "Reader link copy",
+      "path": "reader > link > copy",
+      "description": "Copy the canonical public reader link.",
+      "source": "lib/presentation/frontend/widgets/discovery/discovery_pages.dart"
+    },
+    {
+      "id": "reader.link.open",
+      "label": "Reader link open",
+      "path": "reader > link > open",
+      "description": "Open the canonical public reader link.",
+      "source": "lib/presentation/frontend/widgets/discovery/discovery_pages.dart"
     }
   ]
 }

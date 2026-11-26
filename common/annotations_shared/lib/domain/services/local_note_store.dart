@@ -17,6 +17,7 @@ library;
 import 'dart:typed_data';
 
 import '../models/local_note.dart';
+import 'editor_files.dart';
 import '../models/note_document.dart';
 
 /// Item fields that reference a stored file.
@@ -43,7 +44,7 @@ Set<String> referencedFiles(NoteDocument document) {
   return ids;
 }
 
-abstract interface class LocalNoteStore {
+abstract interface class LocalNoteStore implements EditorFiles {
   /// The last complete saved state of the note [id], or null.
   Future<LocalNote?> load(String id);
 
@@ -70,12 +71,32 @@ abstract interface class LocalNoteStore {
     String? serverTypedRevisionId,
   });
 
+  /// Saves a prepared study reference only while this note still belongs to
+  /// [accountId] and has the expected server note and revision.
+  Future<void> savePreparedStudyReference(
+    String id, {
+    required String accountId,
+    required String serverNoteId,
+    required int serverRevision,
+    required String studyId,
+  });
+
+  /// Clears only the matching prepared study for the same owner and note.
+  Future<void> clearPreparedStudyReference(
+    String id, {
+    required String accountId,
+    required String serverNoteId,
+    required String studyId,
+  });
+
   /// Copies the file at [sourcePath] into the store. The copy is complete and
   /// flushed before it gets its id; later changes to the original file do not
   /// reach it.
+  @override
   Future<LocalAttachment> importFile(String sourcePath, {required String type});
 
   /// Keeps [bytes] as a new managed file, as [importFile] does.
+  @override
   Future<LocalAttachment> importBytes(
     Uint8List bytes, {
     required String name,
@@ -83,13 +104,16 @@ abstract interface class LocalNoteStore {
   });
 
   /// The managed file [id], or null when the store does not hold it.
+  @override
   Future<LocalAttachment?> attachment(String id);
 
   /// The bytes of the managed file [id], or null.
+  @override
   Future<Uint8List?> readAttachment(String id);
 
   /// Removes the managed file [id] when no saved note references it, for an
   /// import whose edit was rejected. A referenced file stays.
+  @override
   Future<void> discardAttachment(String id);
 
   /// Closes the store. Pending saves must finish first.

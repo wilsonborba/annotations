@@ -118,7 +118,9 @@ class AttachmentHandler extends ChangeNotifier {
 
   /// Opens the file picker and adds the chosen files at [at].
   Future<void> pick({Offset? at}) async {
+    if (!paper.editingEnabled) return;
     final files = await (pickFiles ?? fs.openFiles)();
+    if (!paper.editingEnabled) return;
     var place = defaultPlace(at);
     for (final f in files) {
       add(AttachmentSource.path(f.path, name: f.name), place);
@@ -129,25 +131,30 @@ class AttachmentHandler extends ChangeNotifier {
   /// Copies [source] into the store and adds its card at [at]. The job
   /// shows until the card is there or the user cancels.
   void add(AttachmentSource source, Offset at, {String? replacing}) {
+    if (!paper.editingEnabled) return;
     final job = AttachmentJob._(source, at, replacing);
     jobs.value = [...jobs.value, job];
     unawaited(_run(job));
   }
 
   Future<void> _run(AttachmentJob job) async {
-    final store = paper.autosave.store;
+    final store = paper.autosave.files;
     LocalAttachment? stored;
     try {
       final s = job.source;
       stored = s.path != null
           ? await store.importFile(s.path!, type: s.type)
           : await store.importBytes(s.bytes!, name: s.name, type: s.type);
-      if (job.cancelled) {
+      if (job.cancelled || !paper.editingEnabled) {
         await store.discardAttachment(stored.id);
         return;
       }
       paper.files.remember(stored);
       final item = await _itemFor(stored);
+      if (!paper.editingEnabled) {
+        await store.discardAttachment(stored.id);
+        return;
+      }
       final placed = job.replacing == null
           ? _placeNew(item, job.at)
           : _replace(job.replacing!, item);
@@ -179,6 +186,7 @@ class AttachmentHandler extends ChangeNotifier {
 
   /// Copies the file of a failed job again.
   void retry(AttachmentJob job) {
+    if (!paper.editingEnabled) return;
     job.state = AttachmentJobState.copying;
     job.cancelled = false;
     jobs.value = [...jobs.value];
@@ -195,7 +203,7 @@ class AttachmentHandler extends ChangeNotifier {
   Future<Map<String, Object?>> _itemFor(LocalAttachment file) async {
     final kind = cardKindFor(file.type);
     final id = newId();
-    final store = paper.autosave.store;
+    final store = paper.autosave.files;
     switch (kind) {
       case 'image':
         var (w, h) = (320.0, 240.0);
@@ -362,6 +370,7 @@ class AttachmentHandler extends ChangeNotifier {
   /// Adds a link card (a YouTube card for YouTube links) at [at]. False
   /// when [text] is not one web link or no place was found.
   Future<bool> addLink(String text, {Offset? at}) async {
+    if (!paper.editingEnabled) return false;
     final url = webLink(text);
     if (url == null) return false;
     final item = await _linkItem(newId(), url);
@@ -404,6 +413,7 @@ class AttachmentHandler extends ChangeNotifier {
 
   /// Adds dropped (or pasted) files and links at [at] (page units).
   Future<void> drop(List<String> paths, List<String> texts, Offset at) async {
+    if (!paper.editingEnabled) return;
     var place = at;
     for (final path in paths) {
       final name = path.split(RegExp(r'[/\\]')).lastWhere((s) => s.isNotEmpty);
@@ -465,12 +475,12 @@ class AttachmentHandler extends ChangeNotifier {
   /// Opens the link, or the stored copy of the file with the system.
   Future<bool> open(String id) async {
     final it = _json(id);
-    if (it == null) return false;
+    if (it == null || it['restricted'] == true) return false;
     if (it['url'] case final String url) return _launch(Uri.parse(url));
     final fileId = it['file_id'] as String?;
     final file = fileId == null
         ? null
-        : await paper.autosave.store.attachment(fileId);
+        : await paper.autosave.files.attachment(fileId);
     if (file == null) return false;
     return _launch(Uri.file(file.path));
   }
@@ -479,7 +489,7 @@ class AttachmentHandler extends ChangeNotifier {
   Future<bool> saveCopy(String id) async {
     final fileId = _json(id)?['file_id'] as String?;
     if (fileId == null) return false;
-    final store = paper.autosave.store;
+    final store = paper.autosave.files;
     final file = await store.attachment(fileId);
     final bytes = await store.readAttachment(fileId);
     if (file == null || bytes == null) return false;
@@ -494,6 +504,7 @@ class AttachmentHandler extends ChangeNotifier {
 
   /// Picks one file and puts it where [id] is.
   Future<void> replace(String id) async {
+    if (!paper.editingEnabled) return;
     final it = _json(id);
     if (it == null) return;
     final files = await (pickFiles ?? fs.openFiles)();
@@ -508,12 +519,14 @@ class AttachmentHandler extends ChangeNotifier {
 
   /// Removes the card from the note (after the user confirmed). The file
   /// on the computer stays; other notes keep their copies.
-  bool remove(String id) => paper
-      .apply(
-        HistoryCommand(CommandKind.remove),
-        (rules, doc) => rules.remove(doc, [id]),
-      )
-      .accepted;
+  bool remove(String id) =>
+      paper.editingEnabled &&
+      paper
+          .apply(
+            HistoryCommand(CommandKind.remove),
+            (rules, doc) => rules.remove(doc, [id]),
+          )
+          .accepted;
 
   Future<void> copyLink(String id) async {
     if (_json(id)?['url'] case final String url) {
@@ -524,6 +537,7 @@ class AttachmentHandler extends ChangeNotifier {
   /// Gives the link card [id] the link [text]. A taller card that would
   /// overlap a block is rejected (type C). False when nothing changed.
   Future<bool> editLink(String id, String text) async {
+    if (!paper.editingEnabled) return false;
     final old = _json(id);
     final url = webLink(text);
     if (old == null || url == null) return false;

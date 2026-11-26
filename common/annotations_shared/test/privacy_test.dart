@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:convert';
 import 'package:annotations_shared/app.dart';
 import 'package:annotations_shared/core/logs.dart';
@@ -190,7 +189,8 @@ void main() {
     expect(gateway.errors.first['route'], '/v1/instant/:code');
     expect(
       gateway.errors.first['message'],
-      contains('operation=PUT /instant/:code'),
+      // The room page reads the room first (annotations#44).
+      contains('operation=GET /instant/:code'),
     );
     expect(gateway.bodies.join(), isNot(contains(code)));
     await tester.pumpWidget(const SizedBox());
@@ -198,44 +198,53 @@ void main() {
   });
 
   testWidgets(
-    'real Instant composer and editor exclude content and reflected errors',
+    'Instant room content and reflected errors never enter telemetry',
     (tester) async {
       SharedPreferences.setMockInitialValues({});
       const code = 'PRIVATE-ROOM-17';
-      const composed = 'Private composer fragment unique';
-      const preloaded = 'Preloaded private original fragment';
-      const edited = 'Private edited draft fragment';
-      final submitted = <String>[];
-      Completer<http.Response>? pendingResponse;
-      String? reflectedError;
+      const preloaded = 'Preloaded private room fragment';
       final gateway = Gateway();
       final tracker = createTracker(
         transport: gateway.transport,
         autoFlush: false,
       );
+      var fail = false;
       final room = {
         'code': code,
         'revision': 1,
         'expires_at': DateTime.now().millisecondsSinceEpoch ~/ 1000 + 900,
-        'items': [
-          {'id': 'item-1', 'kind': 'text', 'text': preloaded},
-        ],
+        'schema_version': 1,
+        'document': {
+          'page': {
+            'width': 1000,
+            'background': {'kind': 'blank'},
+          },
+          'items': [
+            {
+              'id': 'item-1',
+              'kind': 'text',
+              'x': 96,
+              'y': 32,
+              'width': 320,
+              'height': 32,
+              'spans': [
+                {'text': preloaded},
+              ],
+            },
+          ],
+        },
+        'item_revisions': {'item-1': 1},
+        'files': [],
       };
       final service = fixtureService(
-        handler: (request) async {
-          if (request.method == 'POST') {
-            final text = (jsonDecode(request.body) as Map)['text'] as String;
-            submitted.add(text);
-            // Error bodies can echo only a fragment, or preloaded text that was
-            // never registered by the tracking input listener.
-            reflectedError = jsonEncode({
-              'error': 'Rejected: ${text.split(' ').last} $text',
-            });
-            pendingResponse = Completer<http.Response>();
-            return pendingResponse!.future;
-          }
-          return http.Response(jsonEncode(room), 200);
-        },
+        handler: (request) async => fail
+            // An error body that echoes the room content and the code.
+            ? http.Response(
+                jsonEncode({'error': 'Rejected $preloaded in $code'}),
+                500,
+                headers: {'content-type': 'application/json'},
+              )
+            : http.Response(jsonEncode(room), 200),
       );
       await tester.pumpWidget(
         AnnotationsApp(
@@ -245,61 +254,23 @@ void main() {
           initialLocation: '/v1/instant/$code',
         ),
       );
-      await tester.pumpAndSettle();
-      final composer = find.byKey(const Key('room-text'));
-      await tester.enterText(composer, composed);
+      for (var i = 0; i < 10; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+      fail = true;
+      await tester.pump(const Duration(seconds: 3));
       await tester.pump();
-      await tester.ensureVisible(find.text('Add item'));
-      await tester.tap(find.text('Add item'));
-      await tester.pumpAndSettle();
-      pendingResponse!.complete(http.Response(reflectedError!, 422));
-      await tester.pumpAndSettle();
-      expect(tester.widget<TextField>(composer).controller!.text, composed);
-      for (final replacement in <String?>[null, edited]) {
-        await tester.ensureVisible(find.byTooltip('Edit'));
-        await tester.tap(find.byTooltip('Edit'));
-        await tester.pumpAndSettle();
-        final field = find.descendant(
-          of: find.byType(AlertDialog),
-          matching: find.byType(TextField),
-        );
-        expect(tester.widget<TextField>(field).controller!.text, preloaded);
-        if (replacement != null) {
-          await tester.enterText(field, replacement);
-          await tester.pump();
-        }
-        await tester.tap(find.text('Save'));
-        // Let the dialog finish its exit transition before the API responds.
-        // Controller disposal during that transition is a separate existing bug.
-        await tester.pumpAndSettle();
-        pendingResponse!.complete(http.Response(reflectedError!, 422));
-        await tester.pumpAndSettle();
-      }
-      expect(submitted, [composed, preloaded, edited]);
-      await drain(tracker);
-      for (final id in ['instant.composer.text', 'instant.edit.content']) {
-        final input = gateway.events.where(
-          (e) => e['element_id'] == id && e['event_type'] == 'input',
-        );
-        expect(input, isNotEmpty, reason: id);
-        expect(
-          input.every((e) => e['value'] == null && e['sensitive'] == true),
-          isTrue,
-        );
-      }
-      expect(gateway.events.any((e) => e['event_type'] == 'submit'), isTrue);
-      expect(gateway.errors, hasLength(3));
       expect(
-        gateway.errors.every(
-          (e) => (e['message'] as String).contains('status=422'),
-        ),
-        isTrue,
+        find.byKey(const Key('room-state-connectionLost')),
+        findsOneWidget,
       );
-      expect(gateway.errors.every((e) => e['stack'] == ''), isTrue);
-      for (final value in [code, composed, preloaded, edited, 'fragment']) {
+      await drain(tracker);
+      expect(gateway.errors, isNotEmpty);
+      for (final value in [code, preloaded, 'fragment']) {
         expect(gateway.bodies.join(), isNot(contains(value)));
       }
       await tester.pumpWidget(const SizedBox());
+      await tester.pump(const Duration(seconds: 1));
       gateway.transport.close();
     },
   );

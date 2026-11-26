@@ -17,19 +17,27 @@ void main() {
         if (request.url.path == '/catalog') {
           return http.Response('{"topics":[],"channels":[]}', 200);
         }
+        // annotations_api public discovery (GET /notes, #40).
+        expect(request.url.path, '/notes');
         query = request.url.queryParameters['q'];
         return http.Response(
           jsonEncode({
             'items': [
               {
+                'note_id': 'n1',
+                'author_id': 'a1',
+                'author_name': 'Wilson',
                 'title': 'Retrieval basics',
                 'summary': 'Example',
-                'slug': 'rag',
                 'language': 'en',
-                'channels': ['wilson'],
-                'topics': ['rag'],
+                'tags': ['rag'],
+                'views': ['original', 'typed'],
+                'default_view': 'original',
+                'published_at': 1794996000,
               },
             ],
+            'next_cursor': null,
+            'browse_token': 'b1',
           }),
           200,
         );

@@ -7,13 +7,13 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import '../../domain/models/note_document.dart';
-import '../../domain/services/local_note_store.dart';
+import '../../domain/services/editor_files.dart';
 import '../../domain/services/object_clipboard.dart';
 
 final class LocalClipboardFiles implements ClipboardFiles {
   const LocalClipboardFiles(this.store);
 
-  final LocalNoteStore store;
+  final EditorFiles store;
 
   /// A local file is usable when the store holds its managed copy. A paste
   /// of an item whose file is not on this device is then rejected, so a
