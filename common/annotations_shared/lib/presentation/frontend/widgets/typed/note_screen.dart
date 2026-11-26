@@ -6,16 +6,21 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_quill/flutter_quill.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../../core/platform_profile.dart';
+import '../../../../core/landing_settings.dart';
 import '../../../../domain/models/note_document.dart';
 import '../../../../domain/services/ink_outline.dart';
+import '../../../../domain/services/quiz_card_service.dart';
+import '../../../../domain/services/task_card_service.dart';
 import '../../../../domain/services/note_views.dart';
 import '../../../../dal/local/quill_text_engine.dart';
 import '../../components/card_layout.dart';
 import '../../components/controls.dart';
 import '../../components/icons.dart';
 import '../../components/paper_controls.dart';
+import '../../components/quiz_card_view.dart';
 import '../../components/save_state.dart';
 import '../../components/scope.dart';
 import '../../components/text_tools.dart';
@@ -26,19 +31,35 @@ import '../../handlers/attachment_handler.dart';
 import '../../handlers/paper_handler.dart';
 import '../../handlers/typed_note_handler.dart';
 import '../paper/paper_canvas.dart';
+import '../paper/note_embedded_cards_layer.dart';
 import '../paper/paper_screen.dart';
 
 class NoteScreen extends StatelessWidget {
   final PaperHandler handler;
   final PlatformProfile profile;
-  const NoteScreen({super.key, required this.handler, required this.profile});
+  final Future<QuizSummary?> Function(String quizId)? loadQuizCard;
+  final Future<TaskSummary?> Function(String taskId)? loadTaskCard;
+  const NoteScreen({
+    super.key,
+    required this.handler,
+    required this.profile,
+    this.loadQuizCard,
+    this.loadTaskCard,
+  });
 
   @override
   Widget build(BuildContext context) =>
       switch (noteViewFor(profile, handler.document)) {
-        NoteView.paper => PaperScreen(handler: handler),
+        NoteView.paper => PaperScreen(
+          handler: handler,
+          loadQuizCard: loadQuizCard,
+          loadTaskCard: loadTaskCard,
+        ),
         NoteView.typed => TypedNoteEditor(paper: handler),
-        NoteView.readOnly => NoteReader(handler: handler),
+        NoteView.readOnly => NoteReader(
+          handler: handler,
+          loadQuizCard: loadQuizCard,
+        ),
       };
 }
 
@@ -47,7 +68,8 @@ class NoteScreen extends StatelessWidget {
 /// edited or saved.
 class NoteReader extends StatefulWidget {
   final PaperHandler handler;
-  const NoteReader({super.key, required this.handler});
+  final Future<QuizSummary?> Function(String quizId)? loadQuizCard;
+  const NoteReader({super.key, required this.handler, this.loadQuizCard});
 
   @override
   State<NoteReader> createState() => _NoteReaderState();
@@ -93,6 +115,8 @@ class _NoteReaderState extends State<NoteReader> {
         files: widget.handler.files,
         title: widget.handler.title,
         onOpen: (url) => cards.launchLink(url),
+        loadQuizCard: widget.loadQuizCard,
+        onOpenQuiz: _openQuiz,
       );
     }
     final c = context.colors;
@@ -105,6 +129,19 @@ class _NoteReaderState extends State<NoteReader> {
           onTap: _tap,
           onWheel: cards.wheel,
         ),
+        if (document is PaperDocument && widget.loadQuizCard != null)
+          ValueListenableBuilder<PaperView?>(
+            valueListenable: widget.handler.view,
+            builder: (context, view, _) => view == null
+                ? const SizedBox.shrink()
+                : NoteEmbeddedCardsLayer(
+                    key: const Key('reader-quiz-cards'),
+                    document: document,
+                    view: view,
+                    loadQuiz: widget.loadQuizCard,
+                    quizOnly: true,
+                  ),
+          ),
         Positioned(
           left: 12,
           bottom: 12,
@@ -139,6 +176,15 @@ class _NoteReaderState extends State<NoteReader> {
         ),
       ],
     );
+  }
+
+  void _openQuiz(String quizId) {
+    final normalizedId = quizId.trim();
+    if (normalizedId.isEmpty) return;
+    final uri = Uri.parse(
+      '${LandingSettings.certifications}/v1/quizzes/${Uri.encodeComponent(normalizedId)}',
+    );
+    launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 }
 
@@ -328,6 +374,8 @@ class TypedNoteReader extends StatelessWidget {
   /// The author line under the title on the formal page (annotations#40).
   final String? byline;
   final ValueChanged<String>? onOpen;
+  final Future<QuizSummary?> Function(String quizId)? loadQuizCard;
+  final ValueChanged<String>? onOpenQuiz;
   const TypedNoteReader({
     super.key,
     required this.document,
@@ -335,6 +383,8 @@ class TypedNoteReader extends StatelessWidget {
     this.title,
     this.byline,
     this.onOpen,
+    this.loadQuizCard,
+    this.onOpenQuiz,
   });
 
   @override
@@ -472,7 +522,20 @@ class TypedNoteReader extends StatelessWidget {
               ),
             );
           } else {
-            children.add(_BlockPicture(json: j, files: files, onOpen: onOpen));
+            if (j['kind'] == 'quiz_card') {
+              children.add(
+                _TypedQuizCard(
+                  key: ValueKey('typed-quiz-${j['id']}'),
+                  item: j,
+                  load: loadQuizCard,
+                  onOpen: onOpenQuiz,
+                ),
+              );
+            } else {
+              children.add(
+                _BlockPicture(json: j, files: files, onOpen: onOpen),
+              );
+            }
           }
       }
     }
@@ -544,6 +607,105 @@ class _BlockPicture extends StatelessWidget {
       },
     );
   }
+}
+
+class _TypedQuizCard extends StatefulWidget {
+  const _TypedQuizCard({
+    super.key,
+    required this.item,
+    required this.load,
+    required this.onOpen,
+  });
+
+  final Map<String, Object?> item;
+  final Future<QuizSummary?> Function(String quizId)? load;
+  final ValueChanged<String>? onOpen;
+
+  @override
+  State<_TypedQuizCard> createState() => _TypedQuizCardState();
+}
+
+class _TypedQuizCardState extends State<_TypedQuizCard> {
+  QuizSummary? _quiz;
+  bool _loading = false;
+  bool _failed = false;
+  int _generation = 0;
+
+  String? get _quizId {
+    final raw = widget.item['quiz_id'];
+    if (raw is! String || raw.trim().isEmpty) return null;
+    return raw.trim();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void didUpdateWidget(_TypedQuizCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.item['quiz_id'] != widget.item['quiz_id'] ||
+        oldWidget.load != widget.load) {
+      _quiz = null;
+      _failed = false;
+      _load();
+    }
+  }
+
+  Future<void> _load() async {
+    final quizId = _quizId;
+    final loader = widget.load;
+    final generation = ++_generation;
+    if (quizId == null || loader == null) {
+      setState(() {
+        _loading = false;
+        _failed = true;
+      });
+      return;
+    }
+    setState(() {
+      _loading = true;
+      _failed = false;
+    });
+    try {
+      final result = await loader(quizId);
+      if (!mounted || generation != _generation) return;
+      setState(() {
+        if (result?.quizId == quizId) {
+          _quiz = result;
+        } else {
+          _failed = true;
+        }
+        _loading = false;
+      });
+    } on Object {
+      if (!mounted || generation != _generation) return;
+      setState(() {
+        _failed = true;
+        _loading = false;
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _generation++;
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 6),
+    child: QuizCardView(
+      quiz: _quiz,
+      loading: _loading,
+      unavailable: _failed,
+      onRetry: _failed ? _load : null,
+      onOpen: _quizId == null ? null : () => widget.onOpen?.call(_quizId!),
+    ),
+  );
 }
 
 class _BlockPainter extends CustomPainter {

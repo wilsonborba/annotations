@@ -6,6 +6,7 @@ import 'dart:io';
 import 'package:annotations_shared/core/platform_profile.dart';
 import 'package:annotations_shared/domain/models/note_document.dart';
 import 'package:annotations_shared/domain/services/note_views.dart';
+import 'package:annotations_shared/domain/services/quiz_card_service.dart';
 import 'package:annotations_shared/presentation/frontend/handlers/paper_handler.dart';
 import 'package:annotations_shared/presentation/frontend/handlers/typed_note_handler.dart';
 import 'package:flutter_quill/flutter_quill.dart'
@@ -170,6 +171,84 @@ void main() {
       expect(utf8.encode(jsonEncode(h.document.toJson())), before);
     });
   }
+
+  testWidgets('read-only phone reader loads the saved owner quiz card', (
+    tester,
+  ) async {
+    await setWindow(tester, phone);
+    final document = NoteDocument.fromJson({
+      'page': {
+        'width': 1000,
+        'background': {'kind': 'blank'},
+      },
+      'items': [
+        {
+          'id': 'quiz-card',
+          'kind': 'quiz_card',
+          'x': 40,
+          'y': 60,
+          'width': 340,
+          'height': 140,
+          'quiz_id': 'quiz-saved-1',
+        },
+      ],
+    }, schema: DocumentSchema('note-original', 1));
+    final handler = handlerFor(document, title: 'Saved quiz');
+    addTearDown(handler.dispose);
+    var requests = 0;
+    await tester.pumpWidget(
+      host(
+        NoteScreen(
+          handler: handler,
+          profile: PlatformProfile.phone,
+          loadQuizCard: (quizId) async {
+            requests++;
+            expect(quizId, 'quiz-saved-1');
+            return const QuizSummary(
+              quizId: 'quiz-saved-1',
+              title: 'Owner quiz title',
+              questionCount: 0,
+            );
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(requests, 1);
+    expect(find.text('Owner quiz title'), findsOneWidget);
+    expect(find.text('0 questions'), findsOneWidget);
+    expect(find.byKey(const Key('quiz-card-open')), findsOneWidget);
+
+    final typedDocument = NoteDocument.fromJson({
+      'blocks': [
+        {
+          'id': 'typed-quiz-card',
+          'kind': 'quiz_card',
+          'width': 320,
+          'height': 140,
+          'quiz_id': 'quiz-saved-1',
+        },
+      ],
+    }, schema: DocumentSchema('note-typed', 1));
+    final typedHandler = handlerFor(typedDocument, title: 'Typed saved quiz');
+    addTearDown(typedHandler.dispose);
+    await tester.pumpWidget(
+      host(
+        NoteScreen(
+          handler: typedHandler,
+          profile: PlatformProfile.phone,
+          loadQuizCard: (quizId) async => const QuizSummary(
+            quizId: 'quiz-saved-1',
+            title: 'Typed owner quiz title',
+            questionCount: null,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Typed owner quiz title'), findsOneWidget);
+    expect(find.text('Question count unavailable'), findsOneWidget);
+  });
 
   testWidgets('the typed editor: text, styles, Undo, the title; opening '
       'alone saves nothing', (tester) async {

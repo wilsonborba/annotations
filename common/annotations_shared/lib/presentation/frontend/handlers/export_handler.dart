@@ -15,6 +15,7 @@ import '../../../domain/models/reports_embed_data.dart';
 import '../../../domain/services/local_note_store.dart';
 import '../../../domain/services/card_content.dart';
 import '../../../domain/services/pdf_export_mapper.dart';
+import '../../../domain/services/quiz_card_service.dart';
 import '../../../domain/services/task_card_service.dart';
 import 'pdf_page_renderer.dart'
     show PdfPageRenderer, pdfPagePixels, renderFirstPdfPage;
@@ -28,6 +29,7 @@ typedef ReportsEmbedLoader =
 typedef ReportsChartRenderer =
     Future<Uint8List> Function(ReportsEmbedData data, {required bool partial});
 typedef TaskSummaryLoader = Future<TaskSummary?> Function(String taskId);
+typedef QuizSummaryLoader = Future<QuizSummary?> Function(String quizId);
 
 final class _ExportSaveRequest {
   const _ExportSaveRequest({
@@ -86,6 +88,7 @@ class ExportHandler extends ChangeNotifier {
     this.loadReportsEmbed,
     this.renderReportsChart,
     this.loadTaskSummary,
+    this.loadQuizSummary,
     this.untitledTitle = 'Untitled note',
   }) : _mapper = mapper ?? PdfExportMapper(),
        _render = renderPages ?? renderPdfPages,
@@ -111,6 +114,7 @@ class ExportHandler extends ChangeNotifier {
   final ReportsEmbedLoader? loadReportsEmbed;
   final ReportsChartRenderer? renderReportsChart;
   final TaskSummaryLoader? loadTaskSummary;
+  final QuizSummaryLoader? loadQuizSummary;
   final PdfExportMapper _mapper;
   final PdfPagesRenderer _render;
   final PdfPageRenderer _renderPdfPage;
@@ -365,6 +369,30 @@ class ExportHandler extends ChangeNotifier {
     return ids;
   }
 
+  static Set<String> _quizIds(Iterable<NoteDocument?> documents) {
+    final ids = <String>{};
+    void scan(Object? value) {
+      if (value is Map) {
+        if (value['kind'] == 'quiz_card' && value['quiz_id'] is String) {
+          final id = (value['quiz_id'] as String).trim();
+          if (id.isNotEmpty) ids.add(id);
+        }
+        for (final child in value.values) {
+          scan(child);
+        }
+      } else if (value is List) {
+        for (final child in value) {
+          scan(child);
+        }
+      }
+    }
+
+    for (final document in documents) {
+      if (document != null) scan(document.toJson());
+    }
+    return ids;
+  }
+
   static Set<String> _referenceFileIds(
     Iterable<NoteDocument?> documents,
     String kind,
@@ -496,6 +524,21 @@ class ExportHandler extends ChangeNotifier {
           }
         }
       }
+      final quizSummaries = <String, QuizSummary>{};
+      final quizLoader = loadQuizSummary;
+      if (audience == PdfAudience.personal && quizLoader != null) {
+        for (final quizId in _quizIds(selectedDocuments)) {
+          try {
+            final summary = await quizLoader(quizId);
+            if (_disposed || seq != _buildSeq) return;
+            if (summary != null && summary.quizId == quizId) {
+              quizSummaries[quizId] = summary;
+            }
+          } on Object {
+            // Owner metadata remains an explicit preflight item on failure.
+          }
+        }
+      }
       final reportImages = <String, Uint8List>{};
       final failedChartIds = <String>{};
       final partialChartIds = <String>{};
@@ -550,6 +593,7 @@ class ExportHandler extends ChangeNotifier {
         reportImages: reportImages,
         attachments: attachments,
         taskSummaries: taskSummaries,
+        quizSummaries: quizSummaries,
         csvTables: csvTables,
         pdfPreviews: pdfPreviews,
         baseFont: _bundledLatin,

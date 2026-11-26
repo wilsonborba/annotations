@@ -15,6 +15,7 @@ import 'package:annotations_shared/domain/services/local_note_store.dart';
 import 'package:annotations_shared/domain/services/local_workspace.dart';
 import 'package:annotations_shared/domain/services/note_sync_service.dart';
 import 'package:annotations_shared/domain/services/pdf_export_mapper.dart';
+import 'package:annotations_shared/domain/services/quiz_card_service.dart';
 import 'package:annotations_shared/domain/services/task_card_service.dart';
 import 'package:annotations_shared/domain/services/preferences.dart';
 import 'package:annotations_shared/presentation/frontend/components/controls.dart';
@@ -1967,6 +1968,7 @@ final class _TitleSpy extends PdfExportMapper {
     Map<String, Uint8List> reportImages = const {},
     Map<String, Uint8List> attachments = const {},
     Map<String, TaskSummary> taskSummaries = const {},
+    Map<String, QuizSummary> quizSummaries = const {},
     Map<String, List<List<String>>> csvTables = const {},
     Map<String, Uint8List> pdfPreviews = const {},
     pw.Font? baseFont,
@@ -1988,6 +1990,7 @@ final class _TitleSpy extends PdfExportMapper {
       reportImages: reportImages,
       attachments: attachments,
       taskSummaries: taskSummaries,
+      quizSummaries: quizSummaries,
       csvTables: csvTables,
       pdfPreviews: pdfPreviews,
       baseFont: baseFont,

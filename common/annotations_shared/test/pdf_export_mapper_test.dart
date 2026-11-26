@@ -6,6 +6,7 @@ import 'package:annotations_shared/domain/models/ink.dart';
 import 'package:annotations_shared/domain/models/note_document.dart';
 import 'package:annotations_shared/domain/services/editor_rules.dart';
 import 'package:annotations_shared/domain/services/pdf_export_mapper.dart';
+import 'package:annotations_shared/domain/services/quiz_card_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -59,6 +60,57 @@ void main() {
       dir.deleteSync(recursive: true);
     }
   }
+
+  test(
+    'personal quiz-card preflight requires owner summary while zero and unknown stay distinct',
+    () {
+      final quizDocument = NoteDocument.fromJson({
+        'page': {
+          'width': 1000,
+          'background': {'kind': 'blank'},
+        },
+        'items': [
+          {
+            'id': 'quiz-card-1',
+            'kind': 'quiz_card',
+            'x': 20,
+            'y': 20,
+            'width': 300,
+            'height': 120,
+            'quiz_id': 'quiz-1',
+          },
+        ],
+      }, schema: origSchema);
+      final pending = PdfExportMapper.preflight(
+        original: quizDocument,
+        typed: null,
+        options: const PdfExportOptions(audience: PdfAudience.personal),
+      );
+      expect(pending.issues.map((issue) => issue.refId), ['quiz-1']);
+
+      final withKnownZero = PdfExportMapper.preflight(
+        original: quizDocument,
+        typed: null,
+        options: const PdfExportOptions(audience: PdfAudience.personal),
+        quizSummaries: const {
+          'quiz-1': QuizSummary(
+            quizId: 'quiz-1',
+            title: null,
+            questionCount: 0,
+            subject: null,
+          ),
+        },
+      );
+      expect(withKnownZero.issues, isEmpty);
+
+      final public = PdfExportMapper.preflight(
+        original: quizDocument,
+        typed: null,
+        options: const PdfExportOptions(audience: PdfAudience.public),
+      );
+      expect(public.issues, isEmpty);
+    },
+  );
 
   test(
     'public export redacts private charts (verified via pdftotext and no image XObject)',
