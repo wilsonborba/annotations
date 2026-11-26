@@ -591,7 +591,8 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
                                     client: installed.client,
                                   ),
                                   hasStoredViewerSession: () async =>
-                                      await installed.auth.storage.readSession() !=
+                                      await installed.auth.storage
+                                          .readSession() !=
                                       null,
                                 );
                           final language = scope.preferences.locale;
@@ -605,8 +606,7 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
                                     if (installed == null ||
                                         !installed.signedIn) {
                                       return const ReportsEmbedData(
-                                        state:
-                                            ReportsEmbedState.signInRequired,
+                                        state: ReportsEmbedState.signInRequired,
                                         reference: null,
                                       );
                                     }
