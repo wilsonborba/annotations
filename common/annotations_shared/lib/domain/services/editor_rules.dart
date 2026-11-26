@@ -205,6 +205,11 @@ final class EditorRules {
         : EditDecision._(document, decision.error, json, null);
   }
 
+  /// Returns an unchanged, rejected edit for an app-side editing precondition.
+  /// These reasons are local to the editor and are never sent as operations.
+  EditDecision rejectEditor(NoteDocument document, String code) =>
+      _reject(document, EditorRuleError(EditorRule.editor, code, 'editor'));
+
   /// Moves the items [ids] by [dx], [dy] page units (rounded to 1/100). A group
   /// moves with all its members. Call it during a drag for the proposed
   /// position; commit only an accepted decision on drop.

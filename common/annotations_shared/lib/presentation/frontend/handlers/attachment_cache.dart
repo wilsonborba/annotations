@@ -12,7 +12,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../../domain/models/local_note.dart';
 import '../../../domain/services/card_content.dart';
-import '../../../domain/services/local_note_store.dart';
+import '../../../domain/services/editor_files.dart';
 import 'pdf_page_renderer.dart';
 
 class AttachmentCache extends ChangeNotifier {
@@ -24,7 +24,7 @@ class AttachmentCache extends ChangeNotifier {
   @visibleForTesting
   static PdfPageRenderer defaultPdfPageRenderer = renderFirstPdfPage;
 
-  final LocalNoteStore? store;
+  final EditorFiles? store;
 
   /// Draws the first page of a PDF into a picture (pdfrx by default).
   final PdfPageRenderer renderPdfPage;

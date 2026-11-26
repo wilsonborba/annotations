@@ -389,6 +389,12 @@ const strings = <String, List<String>>{
   ],
   'copy': ['Copy link', 'Copiar link', 'คัดลอกลิงก์'],
   'copied': ['Link copied', 'Link copiado', 'คัดลอกลิงก์แล้ว'],
+  'shareQr': ['Show QR code', 'Mostrar código QR', 'แสดงคิวอาร์โค้ด'],
+  'qrInstantCaption': [
+    'Scan to open this Instant room',
+    'Escaneie para abrir esta sala Instant',
+    'สแกนเพื่อเปิดห้อง Instant นี้',
+  ],
   'open': ['Open original', 'Abrir original', 'เปิดต้นฉบับ'],
   'back': ['Back to notes', 'Voltar às anotações', 'กลับไปที่บันทึก'],
   'roomTitle': [
@@ -447,6 +453,31 @@ const strings = <String, List<String>>{
   'aboutAuthor': ['About the author', 'Sobre o autor', 'เกี่ยวกับผู้เขียน'],
   'save': ['Save', 'Salvar', 'บันทึก'],
   'cancel': ['Cancel', 'Cancelar', 'ยกเลิก'],
+  // Instant room with the shared editor (annotations#44, C1).
+  'roomConnecting': ['Connecting', 'Conectando', 'กำลังเชื่อมต่อ'],
+  'roomSharing': ['Sharing', 'Compartilhando', 'กำลังแชร์'],
+  'roomShared': ['Shared', 'Compartilhado', 'แชร์แล้ว'],
+  'roomConnectionLost': [
+    'Connection lost',
+    'Conexão perdida',
+    'การเชื่อมต่อขาดหาย',
+  ],
+  'roomExpiresSoon': [
+    'This room expires soon',
+    'Esta sala expira em breve',
+    'ห้องนี้จะหมดอายุในไม่ช้า',
+  ],
+  'roomHasExpired': [
+    'This room has expired',
+    'Esta sala expirou',
+    'ห้องนี้หมดอายุแล้ว',
+  ],
+  'roomRefused': [
+    'Someone changed this first. Your text was not shared:',
+    'Alguém alterou isto antes. Seu texto não foi compartilhado:',
+    'มีคนแก้ไขส่วนนี้ก่อน ข้อความของคุณยังไม่ได้แชร์:',
+  ],
+  'copyText': ['Copy text', 'Copiar texto', 'คัดลอกข้อความ'],
   'roomEmpty': [
     'Your next transfer starts here.',
     'Sua próxima transferência começa aqui.',
@@ -736,11 +767,6 @@ const strings = <String, List<String>>{
   'filterProject': ['Project', 'Projeto', 'โปรเจกต์'],
   'qrNote': ['Note QR code', 'Código QR da anotação', 'คิวอาร์โค้ดบันทึก'],
   'qrRoom': ['Room QR code', 'Código QR da sala', 'คิวอาร์โค้ดห้อง'],
-  'qrInstantCaption': [
-    'Scan to open this Instant room',
-    'Escaneie para abrir esta sala Instant',
-    'สแกนเพื่อเปิดห้อง Instant นี้',
-  ],
   'openNote': ['Open note', 'Abrir anotação', 'เปิดบันทึก'],
 };
 String translate(String key, String locale) {

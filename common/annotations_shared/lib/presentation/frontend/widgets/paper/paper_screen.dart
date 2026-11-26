@@ -65,6 +65,19 @@ class PaperScreen extends StatefulWidget {
 
   /// Link previews from the server for cloud notes; local notes have none.
   final LinkPreviewSource? linkPreview;
+
+  /// Replaces the save state in the status panel: an Instant room shows its
+  /// sharing state there (annotations#44).
+  final Widget? status;
+
+  /// Simple typed controls (A2 matrix, phones and the phone browser in an
+  /// Instant room): a tap types; every object stays visible, but there is
+  /// no drawing, selection, move, resize, point editing, adding of files or
+  /// change of the paper background.
+  final bool typedOnly;
+
+  /// Disables document editing while an Instant room is disconnected.
+  final bool readOnly;
   const PaperScreen({
     super.key,
     required this.handler,
@@ -76,6 +89,9 @@ class PaperScreen extends StatefulWidget {
     this.onFocusChanged,
     this.attachments,
     this.linkPreview,
+    this.status,
+    this.typedOnly = false,
+    this.readOnly = false,
   });
 
   @override
@@ -95,6 +111,22 @@ class _PaperScreenState extends State<PaperScreen> {
   /// the status panel goes. Content, selection, mode, view and history stay,
   /// and Focus does not lock the view. It ends with the editor.
   bool _focus = false;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.handler.editingEnabled = !widget.readOnly;
+  }
+
+  @override
+  void didUpdateWidget(PaperScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    widget.handler.editingEnabled = !widget.readOnly;
+    if (!oldWidget.readOnly && widget.readOnly) {
+      text.end();
+      text.focus.unfocus();
+    }
+  }
 
   void _setFocus(bool on) {
     if (on == _focus) return;
@@ -179,8 +211,9 @@ class _PaperScreenState extends State<PaperScreen> {
       draw: draw,
       text: text,
       points: points,
-      selection: selection,
-      attachments: attachments,
+      selection: widget.typedOnly ? null : selection,
+      attachments: widget.typedOnly ? null : attachments,
+      typedOnly: widget.typedOnly,
       placement: p,
       onPlacement: _place,
       onDrag: (g) => setState(() => _dragAt = _local(g)),
@@ -215,7 +248,7 @@ class _PaperScreenState extends State<PaperScreen> {
       child: Align(
         key: const Key('toolbar-place'),
         alignment: align,
-        child: bar,
+        child: IgnorePointer(ignoring: widget.readOnly, child: bar),
       ),
     );
   }
@@ -277,6 +310,7 @@ class _PaperScreenState extends State<PaperScreen> {
     fit: StackFit.expand,
     children: [
       _droppable(
+        enabled: !widget.typedOnly && !widget.readOnly,
         formats: dropFormats,
         hitTestBehavior: HitTestBehavior.opaque,
         onDropOver: (_) => DropOperation.copy,
@@ -292,22 +326,34 @@ class _PaperScreenState extends State<PaperScreen> {
             view.toPage(event.position.local),
           );
         },
-        child: PaperCanvas(
-          handler: widget.handler,
-          onTap: selection.tap,
-          input: selection,
-          onKey: selection.key,
-          onWheel: attachments.wheel,
-          foreground: (context, view) => Stack(
-            fit: StackFit.expand,
-            children: [
-              TextBlockLayer(text: text, view: view),
-              EraserLayer(draw: draw, view: view),
-              PointEditLayer(points: points, view: view),
-              SelectionLayer(selection: selection, view: view),
-              AttachmentJobsLayer(attachments: attachments, view: view),
-              if (widget.foreground != null) widget.foreground!(context, view),
-            ],
+        child: IgnorePointer(
+          ignoring: widget.readOnly,
+          child: PaperCanvas(
+            handler: widget.handler,
+            onTap: widget.typedOnly
+                ? (local, global) => text.tapAt(local, global: global)
+                : selection.tap,
+            input: widget.typedOnly ? null : selection,
+            onKey: widget.readOnly
+                ? (_) => KeyEventResult.handled
+                : widget.typedOnly
+                ? null
+                : selection.key,
+            onWheel: attachments.wheel,
+            foreground: (context, view) => Stack(
+              fit: StackFit.expand,
+              children: [
+                TextBlockLayer(text: text, view: view),
+                if (!widget.typedOnly) ...[
+                  EraserLayer(draw: draw, view: view),
+                  PointEditLayer(points: points, view: view),
+                  SelectionLayer(selection: selection, view: view),
+                  AttachmentJobsLayer(attachments: attachments, view: view),
+                ],
+                if (widget.foreground != null)
+                  widget.foreground!(context, view),
+              ],
+            ),
           ),
         ),
       ),
@@ -337,6 +383,8 @@ class _PaperScreenState extends State<PaperScreen> {
             child: PaperStatusPanel(
               handler: widget.handler,
               onFocus: () => _setFocus(true),
+              status: widget.status,
+              background: !widget.typedOnly && !widget.readOnly,
             ),
           ),
         ),
@@ -364,7 +412,19 @@ class PaperStatusPanel extends StatelessWidget {
 
   /// Starts Focus; the Focus button shows when it is set.
   final VoidCallback? onFocus;
-  const PaperStatusPanel({super.key, required this.handler, this.onFocus});
+
+  /// Shown instead of the save state (an Instant room's sharing state).
+  final Widget? status;
+
+  /// The Paper button; false where backgrounds are display only.
+  final bool background;
+  const PaperStatusPanel({
+    super.key,
+    required this.handler,
+    this.onFocus,
+    this.status,
+    this.background = true,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -387,21 +447,26 @@ class PaperStatusPanel extends StatelessWidget {
         alignment: WrapAlignment.end,
         crossAxisAlignment: WrapCrossAlignment.center,
         children: [
-          SaveStateIndicator(
-            state: handler.saveState,
-            onRetry: handler.retrySave,
-          ),
-          divider(),
-          ListenableBuilder(
-            listenable: Listenable.merge([handler, handler.preview]),
-            builder: (context, _) => PaperBackgroundButton(
-              guides: handler.guides,
-              settings: handler.settings,
-              onPick: handler.pickPattern,
-              onPreview: handler.previewGuides,
-              onCommit: handler.setGuides,
+          status ??
+              SaveStateIndicator(
+                state: handler.saveState,
+                onRetry: handler.retrySave,
+              ),
+          // Instant's longer Shared/Retry status can fill a phone row. Keep
+          // the separator with the controls instead of stranding it after
+          // Retry when Wrap moves the controls to the next row.
+          if (status == null) divider(),
+          if (background)
+            ListenableBuilder(
+              listenable: Listenable.merge([handler, handler.preview]),
+              builder: (context, _) => PaperBackgroundButton(
+                guides: handler.guides,
+                settings: handler.settings,
+                onPick: handler.pickPattern,
+                onPreview: handler.previewGuides,
+                onCommit: handler.setGuides,
+              ),
             ),
-          ),
           ListenableBuilder(
             listenable: Listenable.merge([handler.view, handler]),
             builder: (context, _) => ZoomControls(
@@ -500,6 +565,7 @@ class FingerSettingsButton extends StatelessWidget {
 /// Drag and drop of files and links needs the native drop plugin. Widget
 /// tests have no native plugins, so the region is left out there.
 Widget _droppable({
+  bool enabled = true,
   required List<DataFormat> formats,
   required HitTestBehavior hitTestBehavior,
   required DropOperation Function(DropOverEvent) onDropOver,
@@ -507,7 +573,7 @@ Widget _droppable({
   required Widget child,
 }) {
   final binding = WidgetsBinding.instance.runtimeType.toString();
-  if (binding.contains('TestWidgetsFlutterBinding')) return child;
+  if (!enabled || binding.contains('TestWidgetsFlutterBinding')) return child;
   return DropRegion(
     formats: formats,
     hitTestBehavior: hitTestBehavior,

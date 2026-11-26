@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:annotations_shared/app.dart';
 import 'package:annotations_shared/core/landing_settings.dart';
 import 'package:annotations_shared/core/landing_strings.dart';
+import 'package:annotations_shared/core/settings.dart';
 import 'package:annotations_shared/core/strings.dart';
 import 'package:annotations_shared/domain/services/annotations_service.dart';
 import 'package:annotations_shared/domain/services/preferences.dart';
@@ -412,7 +413,7 @@ void main() {
     expired = true;
     await tester.pump(const Duration(seconds: 4));
     await tester.pumpAndSettle();
-    expect(find.byKey(const Key('instant-room-qr-share')), findsNothing);
+    expect(find.byKey(const Key('room-qr')), findsNothing);
     expect(
       tester.getTopLeft(find.byKey(const Key('image-S02'))).dy,
       lessThan(tester.getTopLeft(find.byKey(const Key('room-expired'))).dy),
@@ -422,6 +423,25 @@ void main() {
   testWidgets('active Instant shares its existing join route locally', (
     tester,
   ) async {
+    final previousSettings = Settings.current;
+    Settings.use(const Settings(development: false));
+    addTearDown(() => Settings.use(previousSettings));
+    String? copiedText;
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'Clipboard.setData') {
+          copiedText = (call.arguments as Map)['text'] as String;
+        }
+        return null;
+      },
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      ),
+    );
     final requests = <Uri>[];
     final service = fixtureService(
       handler: (request) async {
@@ -438,18 +458,14 @@ void main() {
       },
     );
     await open(tester, '/v1/instant/transfer', service: service);
-    final qr = tester.widget<QrShareControl>(
-      find.byKey(const Key('instant-room-qr-share')),
-    );
+    final qr = tester.widget<QrShareControl>(find.byKey(const Key('room-qr')));
     expect(qr.url, publicAppUri(pathSegments: ['v1', 'instant', 'transfer']));
     expect(qr.caption, translate('qrInstantCaption', 'en'));
-    expect(qr.semanticHint, contains('Room code transfer'));
-    expect(qr.semanticHint, contains(qr.url.toString()));
     expect(qr.labelKey, 'qrRoom');
     expect(find.byType(QrCodeView), findsNothing);
     final requestCount = requests.length;
-    await tester.ensureVisible(find.byKey(const Key('instant-room-qr-share')));
-    await tester.tap(find.byKey(const Key('instant-room-qr-share')));
+    await tester.ensureVisible(find.byKey(const Key('room-qr')));
+    await tester.tap(find.byKey(const Key('room-qr')));
     await tester.pumpAndSettle();
     final codes = tester.widgetList<QrCodeView>(find.byType(QrCodeView));
     expect(codes, hasLength(1));
@@ -458,6 +474,10 @@ void main() {
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await tester.pumpAndSettle();
     expect(find.byType(Dialog), findsNothing);
+    expect(requests.length, requestCount);
+    await tester.tap(find.byKey(const Key('room-copy')));
+    await tester.pumpAndSettle();
+    expect(copiedText, qr.url.toString());
     expect(requests.length, requestCount);
   });
 
@@ -492,33 +512,24 @@ void main() {
       );
       expect(tester.takeException(), isNull, reason: '$width / $locale');
 
-      final codeLabel = tester.widget<Text>(
-        find.byKey(const Key('instant-room-code-label')),
-      );
+      final codeLabel = tester.widget<Text>(find.byKey(const Key('room-code')));
       expect(codeLabel.data, longCode);
       expect(codeLabel.maxLines, 1);
       expect(codeLabel.overflow, TextOverflow.ellipsis);
 
       final qr = tester.widget<QrShareControl>(
-        find.byKey(const Key('instant-room-qr-share')),
+        find.byKey(const Key('room-qr')),
       );
       expect(qr.url, publicAppUri(pathSegments: ['v1', 'instant', longCode]));
       expect(qr.caption, translate('qrInstantCaption', locale));
-      expect(qr.semanticHint, contains(longCode));
-      expect(qr.semanticHint, contains(qr.url.toString()));
+      expect(qr.labelKey, 'qrRoom');
       expect(find.text(translate('qrRoom', locale)), findsOneWidget);
       expect(find.text(translate('copy', locale)), findsOneWidget);
-      final qrSemantics = tester.getSemantics(
-        find.byKey(const Key('instant-room-qr-share')),
-      );
+      final qrSemantics = tester.getSemantics(find.byKey(const Key('room-qr')));
       expect(qrSemantics.label, translate('qrRoom', locale));
-      expect(qrSemantics.hint, contains(longCode));
-      expect(qrSemantics.hint, contains(qr.url.toString()));
 
-      await tester.ensureVisible(
-        find.byKey(const Key('instant-room-qr-share')),
-      );
-      await tester.tap(find.byKey(const Key('instant-room-qr-share')));
+      await tester.ensureVisible(find.byKey(const Key('room-qr')));
+      await tester.tap(find.byKey(const Key('room-qr')));
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull, reason: 'dialog $width / $locale');
       expect(

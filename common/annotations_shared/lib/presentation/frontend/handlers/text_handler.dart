@@ -85,6 +85,7 @@ class TextHandler extends ChangeNotifier {
   /// mode it ends the open block, then opens the text block there or starts
   /// a new block on empty paper. [global] places the cursor in a block.
   void tapAt(Offset screen, {Offset? global}) {
+    if (!paper.editingEnabled) return;
     final view = paper.view.value;
     if (view == null || paper.tool != SelectionTool.type) return;
     if (paper.document is! PaperDocument) return;
@@ -226,6 +227,7 @@ class TextHandler extends ChangeNotifier {
   }
 
   void _accepted() {
+    if (!paper.editingEnabled) return;
     if (limited || messageShown) {
       limited = false;
       messageShown = false;
@@ -243,6 +245,7 @@ class TextHandler extends ChangeNotifier {
   /// Applies [format] to the selection only, as one formatting change that
   /// the type C guard checks (a larger size may not fit).
   void apply(TextFormat format) {
+    if (!paper.editingEnabled) return;
     final c = _controller;
     if (c == null) return;
     c.formatSelectionWith(format);
