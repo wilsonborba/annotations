@@ -75,6 +75,135 @@ final class ReportsSearchPage {
       );
 }
 
+/// An active project returned by Reports' public catalog. This intentionally
+/// retains only fields the app needs to choose a real project.
+final class ReportsProjectChoice {
+  const ReportsProjectChoice({
+    required this.slug,
+    required this.name,
+    required this.reportCount,
+  });
+
+  final String slug;
+  final String name;
+  final int reportCount;
+
+  factory ReportsProjectChoice.fromJson(Map<String, dynamic> json) {
+    final slug = json['slug'];
+    final name = json['name'];
+    final count = json['report_count'];
+    if (slug is! String ||
+        slug.trim().isEmpty ||
+        name is! String ||
+        name.trim().isEmpty ||
+        count is! num ||
+        count < 0 ||
+        count % 1 != 0) {
+      throw const FormatException('Invalid Reports project summary.');
+    }
+    return ReportsProjectChoice(
+      slug: slug,
+      name: name,
+      reportCount: count.toInt(),
+    );
+  }
+}
+
+final class ReportsProjectPage {
+  const ReportsProjectPage({
+    required this.items,
+    required this.page,
+    required this.total,
+  });
+  final List<ReportsProjectChoice> items;
+  final int page;
+  final int total;
+
+  factory ReportsProjectPage.fromJson(Map<String, dynamic> json) {
+    final raw = json['items'];
+    final page = json['page'];
+    final total = json['total'];
+    if (raw is! List ||
+        raw.any((item) => item is! Map) ||
+        page is! num ||
+        total is! num ||
+        page < 1 ||
+        total < 0 ||
+        page % 1 != 0 ||
+        total % 1 != 0) {
+      throw const FormatException('Invalid Reports catalog page.');
+    }
+    return ReportsProjectPage(
+      items: raw
+          .map(
+            (item) => ReportsProjectChoice.fromJson(
+              Map<String, dynamic>.from(item as Map),
+            ),
+          )
+          .toList(growable: false),
+      page: page.toInt(),
+      total: total.toInt(),
+    );
+  }
+}
+
+/// Published template metadata is kept as JSON-shaped values so the UI uses
+/// the exact slot and option names supplied by Reports rather than inventing
+/// a local schema.
+final class ReportsTemplateChoice {
+  const ReportsTemplateChoice({
+    required this.templateId,
+    required this.version,
+    required this.kind,
+    required this.visual,
+    required this.title,
+    required this.slots,
+    required this.options,
+  });
+  final String templateId;
+  final int version;
+  final String kind;
+  final String visual;
+  final String title;
+  final List<Map<String, dynamic>> slots;
+  final List<Map<String, dynamic>> options;
+
+  factory ReportsTemplateChoice.fromJson(Map<String, dynamic> json) {
+    final id = json['template_id'];
+    final version = json['version'];
+    final kind = json['kind'];
+    final visual = json['visual'];
+    final title = json['title'];
+    if (id is! String ||
+        id.trim().isEmpty ||
+        version is! num ||
+        kind is! String ||
+        visual is! String ||
+        title is! String) {
+      throw const FormatException('Invalid Reports template metadata.');
+    }
+    List<Map<String, dynamic>> objects(String key) {
+      final value = json[key];
+      if (value is! List || value.any((entry) => entry is! Map)) {
+        throw FormatException('Invalid Reports template $key.');
+      }
+      return value
+          .map((entry) => Map<String, dynamic>.from(entry as Map))
+          .toList(growable: false);
+    }
+
+    return ReportsTemplateChoice(
+      templateId: id,
+      version: version.toInt(),
+      kind: kind,
+      visual: visual,
+      title: title,
+      slots: objects('slots'),
+      options: objects('options'),
+    );
+  }
+}
+
 /// Adapter/service seam used by Annotations editing, reading, and export.
 /// It returns authorized Reports schemas and rows for reports_view, or a
 /// content-free access state. It never writes Reports data into a note.
@@ -94,6 +223,62 @@ final class ReportsEmbedSource {
   final Future<bool> Function()? hasStoredViewerSession;
 
   String? _activeUserId;
+
+  Future<ReportsProjectPage> projectCatalog({
+    String language = 'en',
+    int page = 1,
+  }) async {
+    final session = await _viewerSession();
+    final result = ReportsProjectPage.fromJson(
+      await api.projectCatalog(language: language, page: page),
+    );
+    await _assertSameViewer(session);
+    return result;
+  }
+
+  Future<List<ReportsProjectChoice>> allProjects({
+    String language = 'en',
+  }) async {
+    final projects = <ReportsProjectChoice>[];
+    var pageNumber = 1;
+    var total = 0;
+    do {
+      final page = await projectCatalog(language: language, page: pageNumber);
+      if (page.page != pageNumber) {
+        throw const FormatException(
+          'Reports catalog page changed unexpectedly.',
+        );
+      }
+      projects.addAll(page.items);
+      total = page.total;
+      if (page.items.isEmpty && projects.length < total) {
+        throw const FormatException('Reports catalog ended before its total.');
+      }
+      if (projects.length >= total) break;
+      pageNumber++;
+    } while (true);
+    return List.unmodifiable(projects);
+  }
+
+  Future<List<ReportsTemplateChoice>> templatesForProject(
+    String project, {
+    String language = 'en',
+  }) async {
+    final session = await _viewerSession();
+    final response = await api.projectTemplates(project, language: language);
+    await _assertSameViewer(session);
+    final templates = response['templates'];
+    if (templates is! List || templates.any((entry) => entry is! Map)) {
+      throw const FormatException('Invalid Reports templates response.');
+    }
+    return templates
+        .map(
+          (entry) => ReportsTemplateChoice.fromJson(
+            Map<String, dynamic>.from(entry as Map),
+          ),
+        )
+        .toList(growable: false);
+  }
 
   Future<ReportsEmbedData> loadEmbed(
     ReportsEmbed item, {

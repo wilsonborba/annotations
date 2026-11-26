@@ -17,7 +17,8 @@ import '../../../../domain/services/certifications_browser_handoff.dart';
 import '../../../../domain/services/installed_account.dart';
 import '../../../../domain/services/local_note_store.dart';
 import '../../../../domain/services/note_autosave.dart';
-import '../../../../domain/services/note_history.dart';
+import '../../../../domain/services/note_history.dart'
+    show CommandKind, HistoryCommand;
 import '../../../../domain/services/native_auth_service.dart';
 import '../../../../domain/services/prepared_certification_service.dart';
 import '../../../../domain/services/quiz_card_service.dart';
@@ -30,6 +31,7 @@ import '../../handlers/paper_handler.dart';
 import '../../handlers/export_handler.dart';
 import '../../handlers/reports_pdf_capture.dart';
 import '../export/export_dialog.dart';
+import '../../components/reports_search_dialog.dart';
 import '../typed/note_screen.dart';
 
 /// `/v1/write/<id>`: one local note in the editor of this platform.
@@ -49,11 +51,132 @@ class _NoteEditorPageState extends State<NoteEditorPage>
   bool _missing = false;
   bool _preparingQuiz = false;
   InstalledAccount? _installed;
+  ReportsEmbedSource? _reportsSource;
+  InstalledAccount? _reportsSourceInstalled;
+  NativeSession? _reportsSourceSession;
+  String? _reportsSourceAccountId;
   ExportHandler? _activeExport;
   int _openGeneration = 0;
+  final ValueNotifier<int> _reportsOwnerScopeRevision = ValueNotifier(0);
   int _returnCheckSerial = 0;
   _PreparedQuizReturn? _pendingQuizReturn;
   bool _hasOpened = false;
+
+  String _newCardId() {
+    final random = math.Random.secure();
+    return List.generate(
+      16,
+      (_) => random.nextInt(256).toRadixString(16).padLeft(2, '0'),
+    ).join();
+  }
+
+  bool _reportsOwnerIsCurrent({
+    required int generation,
+    required PaperHandler handler,
+    required LocalNote note,
+    required InstalledAccount installed,
+    required NativeSession session,
+  }) =>
+      mounted &&
+      generation == _openGeneration &&
+      identical(handler, _handler) &&
+      identical(note, _note) &&
+      identical(installed, _installed) &&
+      identical(session, installed.activeSession) &&
+      installed.signedIn &&
+      note.accountId != null &&
+      note.accountId == installed.userId &&
+      session.verifiedUserId == note.accountId;
+
+  Future<void> _addReportsCard(
+    BuildContext dialogContext,
+    PaperHandler handler,
+  ) async {
+    final note = _note;
+    final installed = _installed;
+    final source = _reportsSource;
+    final session = installed?.activeSession;
+    if (note == null ||
+        installed == null ||
+        source == null ||
+        session == null) {
+      return;
+    }
+    final generation = _openGeneration;
+    bool current() => _reportsOwnerIsCurrent(
+      generation: generation,
+      handler: handler,
+      note: note,
+      installed: installed,
+      session: session,
+    );
+    if (!current()) return;
+    try {
+      final language = AppScope.of(dialogContext).preferences.locale;
+      final project = await showReportsProjectPicker(
+        dialogContext,
+        source: source,
+        language: language,
+        isOwnerScopeCurrent: current,
+        ownerScopeRevision: _reportsOwnerScopeRevision,
+        expectedOwnerScopeRevision: generation,
+      );
+      if (!current() || project == null || !dialogContext.mounted) return;
+      final reference = await showReportsSearchDialog(
+        dialogContext,
+        source: source,
+        project: project.slug,
+        language: language,
+        isOwnerScopeCurrent: current,
+        ownerScopeRevision: _reportsOwnerScopeRevision,
+        expectedOwnerScopeRevision: generation,
+      );
+      if (!current() || reference == null) return;
+
+      final document = handler.document;
+      final items = document is PaperDocument
+          ? (document.toJson()['items'] as List? ?? const [])
+          : const [];
+      var y = 24.0;
+      for (final raw in items.whereType<Map>()) {
+        final top = raw['y'];
+        final height = raw['height'];
+        if (top is num && height is num) {
+          y = math.max(y, top.toDouble() + height.toDouble() + 16);
+        }
+      }
+      final width = math.min(360.0, math.max(1.0, handler.pageWidth - 48));
+      final item = <String, Object?>{
+        'id': _newCardId(),
+        'kind': 'reports_embed',
+        'x': 24,
+        'y': y,
+        'width': width,
+        'height': 224,
+        ...reference.toDocumentFields(),
+      };
+      final decision = handler.apply(
+        HistoryCommand(CommandKind.card),
+        (rules, currentDocument) =>
+            rules.check(currentDocument, {'op': 'add', 'item': item}),
+      );
+      if (!decision.accepted) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(context.tr('reportsSearchError'))),
+          );
+        }
+        return;
+      }
+      await handler.autosave.flush();
+    } on Object {
+      if (mounted && current()) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(context.tr('reportsSearchError'))),
+        );
+      }
+    }
+  }
 
   @override
   void initState() {
@@ -86,7 +209,20 @@ class _NoteEditorPageState extends State<NoteEditorPage>
 
   Future<void> _open() async {
     final generation = ++_openGeneration;
+    _reportsOwnerScopeRevision.value = generation;
     _pendingQuizReturn = null;
+    final reportsSource = _reportsSource;
+    final clearReportsSource =
+        reportsSource != null &&
+        (!identical(_reportsSourceInstalled, _installed) ||
+            !identical(_reportsSourceSession, _installed?.activeSession));
+    final reportsSourceToClear = clearReportsSource ? reportsSource : null;
+    if (clearReportsSource) {
+      _reportsSource = null;
+      _reportsSourceInstalled = null;
+      _reportsSourceSession = null;
+      _reportsSourceAccountId = null;
+    }
     final activeExport = _activeExport;
     activeExport?.invalidate();
     _activeExport = null;
@@ -99,6 +235,9 @@ class _NoteEditorPageState extends State<NoteEditorPage>
     _note = null;
     _missing = false;
     if (mounted) setState(() {});
+    if (reportsSourceToClear != null) {
+      await reportsSourceToClear.clearRestrictedCache();
+    }
     if (prior != null) {
       await prior.autosave.flush();
       prior.autosave.dispose();
@@ -557,6 +696,41 @@ class _NoteEditorPageState extends State<NoteEditorPage>
         session.verifiedUserId == note.accountId;
   }
 
+  ReportsEmbedSource? _reportsSourceFor(
+    LocalNote note,
+    InstalledAccount? installed,
+  ) {
+    final session = installed?.activeSession;
+    final accountId = note.accountId;
+    if (installed == null ||
+        accountId == null ||
+        accountId != installed.localOwnerId ||
+        session?.verifiedUserId != accountId) {
+      return null;
+    }
+    if (_reportsSource == null ||
+        !identical(_reportsSourceInstalled, installed) ||
+        !identical(_reportsSourceSession, session) ||
+        _reportsSourceAccountId != accountId) {
+      _reportsSource = ReportsEmbedSource(
+        api: ReportsApiAdapter(
+          headersProvider: ReportsApiAdapter.nativeSessionHeaders(
+            installed.auth,
+          ),
+          client: installed.client,
+        ),
+        hasStoredViewerSession: () async {
+          final stored = await installed.auth.storage.readSession();
+          return stored?.verifiedUserId == accountId;
+        },
+      );
+      _reportsSourceInstalled = installed;
+      _reportsSourceSession = session;
+      _reportsSourceAccountId = accountId;
+    }
+    return _reportsSource;
+  }
+
   Future<TaskSummary?> _loadTaskCard(String taskId) async {
     final note = _note;
     final installed = _installed;
@@ -760,6 +934,7 @@ class _NoteEditorPageState extends State<NoteEditorPage>
     _activeExport?.invalidate();
     _activeExport = null;
     WidgetsBinding.instance.removeObserver(this);
+    _reportsOwnerScopeRevision.dispose();
     _installed?.removeListener(_accountChanged);
     final handler = _handler;
     // Keep the last edit, then release the editor.
@@ -770,8 +945,13 @@ class _NoteEditorPageState extends State<NoteEditorPage>
 
   @override
   Widget build(BuildContext context) {
-    final workspace = AppScope.of(context).workspace;
+    final scope = AppScope.of(context);
+    final workspace = scope.workspace;
     final handler = _handler;
+    final note = _note;
+    final reportsSource = note == null
+        ? null
+        : _reportsSourceFor(note, _installed);
     return Scaffold(
       body: SafeArea(
         child: Column(
@@ -864,21 +1044,10 @@ class _NoteEditorPageState extends State<NoteEditorPage>
                           if (!context.mounted) return;
                           final scope = AppScope.of(context);
                           final installed = exportInstalled;
-                          final reportsSource = installed == null
-                              ? null
-                              : ReportsEmbedSource(
-                                  api: ReportsApiAdapter(
-                                    headersProvider:
-                                        ReportsApiAdapter.nativeSessionHeaders(
-                                          installed.auth,
-                                        ),
-                                    client: installed.client,
-                                  ),
-                                  hasStoredViewerSession: () async =>
-                                      await installed.auth.storage
-                                          .readSession() !=
-                                      null,
-                                );
+                          final reportsSource = _reportsSourceFor(
+                            note,
+                            installed,
+                          );
                           final taskCards =
                               installed != null &&
                                   installed.signedIn &&
@@ -933,16 +1102,15 @@ class _NoteEditorPageState extends State<NoteEditorPage>
                                 ? null
                                 : (item) async {
                                     if (installed == null ||
-                                        !installed.signedIn) {
+                                        note.accountId == null ||
+                                        note.accountId !=
+                                            installed.localOwnerId ||
+                                        installed
+                                                .activeSession
+                                                ?.verifiedUserId !=
+                                            note.accountId) {
                                       return const ReportsEmbedData(
                                         state: ReportsEmbedState.signInRequired,
-                                        reference: null,
-                                      );
-                                    }
-                                    if (note.accountId != null &&
-                                        note.accountId != installed.userId) {
-                                      return const ReportsEmbedData(
-                                        state: ReportsEmbedState.restricted,
                                         reference: null,
                                       );
                                     }
@@ -1013,11 +1181,22 @@ class _NoteEditorPageState extends State<NoteEditorPage>
                       key: const Key('editor-missing'),
                       child: Text(context.tr('notFound')),
                     )
-                  : handler == null || workspace == null
+                  : handler == null || workspace == null || note == null
                   ? const Center(child: CircularProgressIndicator())
                   : NoteScreen(
                       handler: handler,
                       profile: workspace.profile,
+                      reportsSource: reportsSource,
+                      trustedReportsAccountId: reportsSource == null
+                          ? null
+                          : note.accountId,
+                      reportsLanguage: scope.preferences.locale,
+                      onAddReport:
+                          reportsSource != null &&
+                              _installed?.signedIn == true &&
+                              note.accountId == _installed?.userId
+                          ? _addReportsCard
+                          : null,
                       loadQuizCard: _hasTrustedOwnerSession()
                           ? _loadQuizCard
                           : null,

@@ -213,6 +213,31 @@ final class ReportsApiAdapter {
     headers: session.headers,
   );
 
+  /// Public Reports catalog. The list is guest-readable; callers still need
+  /// an owner session for mutations and private report content.
+  Future<Map<String, dynamic>> projectCatalog({
+    String language = 'en',
+    int page = 1,
+    int pageSize = 100,
+  }) => api.request(
+    '/catalog',
+    query: {
+      'lang': language,
+      'page': '$page',
+      'page_size': '${pageSize.clamp(1, 100)}',
+    },
+  );
+
+  /// Public, published template discovery for a project.
+  Future<Map<String, dynamic>> projectTemplates(
+    String project, {
+    String language = 'en',
+    String? kind,
+  }) => api.request(
+    '/projects/${Uri.encodeComponent(project)}/templates',
+    query: {'lang': language, 'kind': ?kind},
+  );
+
   Future<Map<String, dynamic>> createOwnerItem({
     required String project,
     required String templateId,

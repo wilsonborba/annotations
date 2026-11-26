@@ -40,6 +40,8 @@ void main() {
     NoteDocument? document,
     Size size = const Size(1280, 900),
     Brightness brightness = Brightness.light,
+    Future<void> Function(BuildContext context, PaperHandler handler)?
+    onAddReport,
   }) async {
     await setWindow(tester, size);
     paper = handlerFor(document ?? drawNote());
@@ -70,6 +72,7 @@ void main() {
               text: texts,
               draw: draw,
               points: points,
+              onAddReport: onAddReport,
             ),
           ),
         ),
@@ -114,6 +117,25 @@ void main() {
       paper.view.value!.toScreen(Offset.zero).dy,
       greaterThan(toolbar.bottom),
     );
+    await finish(tester);
+  });
+
+  testWidgets('Add menu reaches the owner-scoped Reports action', (
+    tester,
+  ) async {
+    var invoked = false;
+    await pump(
+      tester,
+      onAddReport: (context, handler) async {
+        invoked = true;
+      },
+    );
+    await tester.tap(byKey('add-menu'));
+    await tester.pumpAndSettle();
+    expect(byKey('add-reports-chart'), findsOneWidget);
+    await tester.tap(byKey('add-reports-chart'));
+    await tester.pumpAndSettle();
+    expect(invoked, isTrue);
     await finish(tester);
   });
 

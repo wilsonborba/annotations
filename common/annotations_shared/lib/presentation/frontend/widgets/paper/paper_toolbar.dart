@@ -49,6 +49,7 @@ class PaperToolbar extends StatefulWidget {
 
   /// The Add menu and the card actions (annotations#34).
   final AttachmentHandler? attachments;
+  final VoidCallback? onAddReport;
   final ToolbarPlacement placement;
   final ValueChanged<ToolbarPlacement> onPlacement;
 
@@ -74,6 +75,7 @@ class PaperToolbar extends StatefulWidget {
     required this.points,
     this.selection,
     this.attachments,
+    this.onAddReport,
     required this.placement,
     required this.onPlacement,
     required this.onDrag,
@@ -350,7 +352,9 @@ class _PaperToolbarState extends State<PaperToolbar> {
           when !drawMode &&
               text.controller == null &&
               (widget.selection?.selection.isEmpty ?? true)) {
-        children.add(AddMenu(attachments: files));
+        children.add(
+          AddMenu(attachments: files, onAddReport: widget.onAddReport),
+        );
       }
       if (drawMode && points.active) {
         children.addAll([

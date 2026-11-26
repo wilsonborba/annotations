@@ -16,7 +16,8 @@ import '../../handlers/paper_handler.dart';
 /// Add: a file or picture through the file picker, or a link.
 class AddMenu extends StatelessWidget {
   final AttachmentHandler attachments;
-  const AddMenu({super.key, required this.attachments});
+  final VoidCallback? onAddReport;
+  const AddMenu({super.key, required this.attachments, this.onAddReport});
 
   @override
   Widget build(BuildContext context) => AppMenuButton(
@@ -39,6 +40,13 @@ class AddMenu extends StatelessWidget {
           if (url != null) await attachments.addLink(url);
         },
       ),
+      if (onAddReport != null)
+        AppMenuEntry(
+          key: const Key('add-reports-chart'),
+          label: context.tr('reportsAdd'),
+          icon: AppIcons.fileText,
+          onSelected: onAddReport!,
+        ),
     ],
   );
 }

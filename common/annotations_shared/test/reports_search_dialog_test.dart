@@ -21,6 +21,90 @@ Future<void> _pumpFrames(WidgetTester tester) async {
 }
 
 void main() {
+  testWidgets('project picker uses the published Reports catalog', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final requests = <http.Request>[];
+    final source = ReportsEmbedSource(
+      api: ReportsApiAdapter(
+        client: MockClient((request) async {
+          requests.add(request);
+          if (request.url.path.endsWith('/me')) {
+            return http.Response(jsonEncode({'user_id': 'viewer-1'}), 200);
+          }
+          if (request.url.path.endsWith('/catalog')) {
+            return http.Response(
+              jsonEncode({
+                'items': [
+                  {
+                    'slug': 'approved-project',
+                    'name': 'Approved project',
+                    'report_count': 2,
+                  },
+                ],
+                'page': 1,
+                'page_size': 100,
+                'total': 1,
+                'language': 'en',
+              }),
+              200,
+            );
+          }
+          throw StateError('Unexpected Reports request: ${request.url.path}');
+        }),
+        headersProvider: ({required mutation}) async => const {
+          'cookie': 'session=fixture',
+        },
+      ),
+    );
+    final preferences = Preferences()..locale = 'en';
+    Future<ReportsProjectChoice?>? result;
+
+    await tester.pumpWidget(
+      AppScope(
+        preferences: preferences,
+        service: AnnotationsService(
+          api: ApiAdapter(
+            client: MockClient((_) async => throw StateError('unused app API')),
+          ),
+        ),
+        child: MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => ElevatedButton(
+                onPressed: () {
+                  result = showReportsProjectPicker(
+                    context,
+                    source: source,
+                    language: 'en',
+                  );
+                },
+                child: const Text('Choose project'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Choose project'));
+    await _pumpFrames(tester);
+    expect(
+      find.byKey(const Key('reports-project-approved-project')),
+      findsOneWidget,
+    );
+    await tester.tap(find.byKey(const Key('reports-project-approved-project')));
+
+    expect(
+      (await result!.timeout(const Duration(seconds: 2)))?.slug,
+      'approved-project',
+    );
+    expect(
+      requests.map((request) => request.url.path),
+      contains('/apps/reports/v1/catalog'),
+    );
+  });
+
   testWidgets('search filters access and adds the selected live dataset', (
     tester,
   ) async {
@@ -298,5 +382,98 @@ void main() {
       selected?.capturedAt,
       DateTime.utc(2026, 11, 24, 10).millisecondsSinceEpoch ~/ 1000,
     );
+  });
+
+  testWidgets('owner change closes a Reports search with private results', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    var ownerCurrent = true;
+    final ownerRevision = ValueNotifier<int>(7);
+    final source = ReportsEmbedSource(
+      api: ReportsApiAdapter(
+        client: MockClient((request) async {
+          if (request.url.path.endsWith('/me')) {
+            return http.Response(jsonEncode({'user_id': 'owner-a'}), 200);
+          }
+          if (request.url.path.endsWith('/projects/work/reports')) {
+            return http.Response(
+              jsonEncode({
+                'items': [
+                  {
+                    'project': 'work',
+                    'slug': 'private-card',
+                    'title': 'OWNER A PRIVATE RESULT',
+                    'chart_types': ['bar'],
+                    'audience': 'personal',
+                    'can_view': true,
+                    'open_in_reports_url':
+                        'https://reports.asodya.com/v1/menu/work/private-card',
+                  },
+                ],
+                'page': 1,
+                'page_size': 12,
+                'total': 1,
+                'language': 'en',
+              }),
+              200,
+            );
+          }
+          throw StateError('Unexpected Reports request: ${request.url.path}');
+        }),
+        headersProvider: ({required mutation}) async => const {
+          'cookie': 'session=fixture',
+        },
+      ),
+    );
+    final preferences = Preferences()..locale = 'en';
+    Future<ReportsEmbedReference?>? result;
+    await tester.pumpWidget(
+      AppScope(
+        preferences: preferences,
+        service: AnnotationsService(
+          api: ApiAdapter(
+            client: MockClient((_) async => throw StateError('unused app API')),
+          ),
+        ),
+        child: MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => ElevatedButton(
+                onPressed: () {
+                  result = showReportsSearchDialog(
+                    context,
+                    source: source,
+                    project: 'work',
+                    language: 'en',
+                    isOwnerScopeCurrent: () => ownerCurrent,
+                    ownerScopeRevision: ownerRevision,
+                    expectedOwnerScopeRevision: 7,
+                  );
+                },
+                child: const Text('Open Reports search'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Open Reports search'));
+    await _pumpFrames(tester);
+    await tester.enterText(
+      find.byKey(const Key('reports-search-query')),
+      'private',
+    );
+    await tester.tap(find.byKey(const Key('reports-search-submit')));
+    await _pumpFrames(tester);
+    expect(find.text('OWNER A PRIVATE RESULT'), findsOneWidget);
+
+    ownerCurrent = false;
+    ownerRevision.value = 8;
+    await tester.pumpAndSettle();
+    expect(find.text('OWNER A PRIVATE RESULT'), findsNothing);
+    expect(find.byKey(const Key('reports-search-query')), findsNothing);
+    expect(await result!.timeout(const Duration(seconds: 2)), isNull);
+    ownerRevision.dispose();
   });
 }

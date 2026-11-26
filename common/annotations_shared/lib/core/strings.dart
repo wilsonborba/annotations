@@ -492,6 +492,16 @@ const strings = <String, List<String>>{
     'กลับไปที่ผลลัพธ์',
   ],
   'reportsAdd': ['Add chart', 'Adicionar gráfico', 'เพิ่มแผนภูมิ'],
+  'reportsProjectsTitle': [
+    'Choose a Reports project',
+    'Escolha um projeto do Reports',
+    'เลือกโปรเจกต์ Reports',
+  ],
+  'reportsProjectsEmpty': [
+    'No active Reports projects are available.',
+    'Não há projetos ativos do Reports disponíveis.',
+    'ไม่มีโปรเจกต์ Reports ที่เปิดใช้งาน',
+  ],
   'reportsSaving': [
     'Saving snapshot…',
     'Salvando instantâneo…',

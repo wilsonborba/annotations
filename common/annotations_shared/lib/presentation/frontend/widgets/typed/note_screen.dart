@@ -11,6 +11,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../../core/platform_profile.dart';
 import '../../../../core/landing_settings.dart';
 import '../../../../domain/models/note_document.dart';
+import '../../../../domain/services/reports_embed_source.dart';
 import '../../../../domain/services/ink_outline.dart';
 import '../../../../domain/services/quiz_card_service.dart';
 import '../../../../domain/services/task_card_service.dart';
@@ -39,12 +40,21 @@ class NoteScreen extends StatelessWidget {
   final PlatformProfile profile;
   final Future<QuizSummary?> Function(String quizId)? loadQuizCard;
   final Future<TaskSummary?> Function(String taskId)? loadTaskCard;
+  final ReportsEmbedSource? reportsSource;
+  final String? trustedReportsAccountId;
+  final String reportsLanguage;
+  final Future<void> Function(BuildContext context, PaperHandler handler)?
+  onAddReport;
   const NoteScreen({
     super.key,
     required this.handler,
     required this.profile,
     this.loadQuizCard,
     this.loadTaskCard,
+    this.reportsSource,
+    this.trustedReportsAccountId,
+    this.reportsLanguage = 'en',
+    this.onAddReport,
   });
 
   @override
@@ -52,6 +62,10 @@ class NoteScreen extends StatelessWidget {
       switch (noteViewFor(profile, handler.document)) {
         NoteView.paper => PaperScreen(
           handler: handler,
+          reportsSource: reportsSource,
+          trustedReportsAccountId: trustedReportsAccountId,
+          reportsLanguage: reportsLanguage,
+          onAddReport: onAddReport,
           loadQuizCard: loadQuizCard,
           loadTaskCard: loadTaskCard,
         ),
