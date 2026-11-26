@@ -200,6 +200,25 @@ class _NoteEditorPageState extends State<NoteEditorPage>
       final task = await showTaskCardPicker(
         dialogContext,
         tasks: tasks,
+        createTask:
+            ({required title, description, dueDate, required completed}) async {
+              if (!current()) throw StateError('The active note changed.');
+              final created = await service.createTask(
+                title: title,
+                description: description,
+                dueDate: dueDate,
+                completed: completed,
+                isInstant: false,
+              );
+              if (!current()) throw StateError('The active note changed.');
+              return created;
+            },
+        reloadTasks: () async {
+          if (!current()) throw StateError('The active note changed.');
+          final refreshed = await service.listOwnTasks();
+          if (!current()) throw StateError('The active note changed.');
+          return refreshed;
+        },
         isOwnerScopeCurrent: current,
         ownerScopeRevision: _reportsOwnerScopeRevision,
         expectedOwnerScopeRevision: generation,

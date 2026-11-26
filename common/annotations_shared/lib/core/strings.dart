@@ -564,6 +564,56 @@ const strings = <String, List<String>>{
     'Adicionar tarefa existente',
     'เพิ่มงานที่มีอยู่',
   ],
+  'taskCreateAction': ['Create new task', 'Criar nova tarefa', 'สร้างงานใหม่'],
+  'taskCreateTitle': ['Create task', 'Criar tarefa', 'สร้างงาน'],
+  'taskCreateDescription': [
+    'Description (optional)',
+    'Descrição (opcional)',
+    'คำอธิบาย (ไม่บังคับ)',
+  ],
+  'taskCreateDueDate': [
+    'Due date (optional)',
+    'Prazo (opcional)',
+    'วันครบกำหนด (ไม่บังคับ)',
+  ],
+  'taskCreateStatus': ['Status', 'Status', 'สถานะ'],
+  'taskCreateActionSubmit': ['Create task', 'Criar tarefa', 'สร้างงาน'],
+  'taskCreateSaving': ['Creating…', 'Criando…', 'กำลังสร้าง…'],
+  'taskCreateFailed': [
+    'The task was rejected. Review the details and try again.',
+    'A tarefa foi rejeitada. Revise os dados e tente novamente.',
+    'คำขอสร้างงานถูกปฏิเสธ โปรดตรวจรายละเอียดแล้วลองอีกครั้ง',
+  ],
+  'taskCreateInvalidDueDate': [
+    'Use YYYY-MM-DD.',
+    'Use AAAA-MM-DD.',
+    'ใช้รูปแบบ YYYY-MM-DD',
+  ],
+  'taskCreateOutcomeUnknown': [
+    'The task may have been created. Check your task list before trying again.',
+    'A tarefa pode ter sido criada. Confira sua lista antes de tentar novamente.',
+    'งานอาจถูกสร้างแล้ว โปรดตรวจสอบรายการงานก่อนลองอีกครั้ง',
+  ],
+  'taskCreateCheckExisting': [
+    'Check my tasks',
+    'Conferir minhas tarefas',
+    'ตรวจสอบงานของฉัน',
+  ],
+  'taskCreateChecking': [
+    'Checking tasks…',
+    'Verificando tarefas…',
+    'กำลังตรวจสอบงาน…',
+  ],
+  'taskCreateCheckFailed': [
+    'Could not load tasks to verify the result.',
+    'Não foi possível carregar as tarefas para verificar o resultado.',
+    'โหลดรายการงานเพื่อตรวจสอบผลลัพธ์ไม่ได้',
+  ],
+  'taskCreateAgain': [
+    'I checked; create again',
+    'Conferi; criar novamente',
+    'ตรวจแล้ว; สร้างอีกครั้ง',
+  ],
   'taskPickerEmpty': [
     'You have no tasks to add to this note.',
     'Você não tem tarefas para adicionar a esta nota.',
