@@ -823,6 +823,85 @@ class PdfExportMapper {
       final text = spans.isNotEmpty
           ? spans.map((s) => s is Map ? '${s['text'] ?? ''}' : '$s').join()
           : '${b['text'] ?? ''}';
+      if (kind == 'list') {
+        final items = (b['items'] as List?) ?? const [];
+        for (var index = 0; index < items.length; index++) {
+          final item = items[index];
+          if (item is! Map) continue;
+          final itemSpans = (item['spans'] as List?) ?? const [];
+          final marker = b['ordered'] == true ? '${index + 1}. ' : '• ';
+          final outputSpans = nativeSpans(
+            [
+              {'text': marker, 'bold': true},
+              ...itemSpans,
+            ],
+            baseSize: 11,
+            scale: 11.0 / editorTextSize,
+          );
+          blocksOut.add({
+            'kind': 'list_item',
+            'text': '$marker${itemSpans.map(_spanText).join()}',
+            'font_size': 11.0,
+            'line_height': 16.5,
+            'space_after': 2.0,
+            'spans': outputSpans,
+          });
+        }
+        continue;
+      }
+      if (kind == 'table') {
+        final rows = (b['rows'] as List?) ?? const [];
+        for (var rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+          final row = rows[rowIndex];
+          if (row is! Map) continue;
+          final cells = (row['cells'] as List?) ?? const [];
+          final isHeader = b['header'] == true && rowIndex == 0;
+          final rowSpans = <Object?>[];
+          for (var cellIndex = 0; cellIndex < cells.length; cellIndex++) {
+            if (cellIndex > 0) rowSpans.add({'text': ' | '});
+            final cell = cells[cellIndex];
+            if (cell is Map) {
+              rowSpans.addAll((cell['spans'] as List?) ?? const []);
+            }
+          }
+          blocksOut.add({
+            'kind': 'table_row',
+            'text': rowSpans.map(_spanText).join(),
+            'font_size': 11.0,
+            'line_height': 16.5,
+            'space_after': 3.0,
+            'spans': nativeSpans(
+              rowSpans,
+              baseSize: 11,
+              scale: 11.0 / editorTextSize,
+              bold: isHeader,
+            ),
+          });
+        }
+        continue;
+      }
+      if (kind == 'figure') {
+        final caption = (b['caption'] as List?) ?? const [];
+        if (caption.isNotEmpty) {
+          final captionSpans = <Object?>[
+            {'text': 'Figure: ', 'bold': true},
+            ...caption,
+          ];
+          blocksOut.add({
+            'kind': 'figure_caption',
+            'text': captionSpans.map(_spanText).join(),
+            'font_size': 11.0,
+            'line_height': 16.5,
+            'space_after': 6.0,
+            'spans': nativeSpans(
+              captionSpans,
+              baseSize: 11,
+              scale: 11.0 / editorTextSize,
+            ),
+          });
+        }
+        continue;
+      }
       if (kind == 'heading' || kind == 'h1' || kind == 'h2' || kind == 'h3') {
         blocksOut.add({
           'kind': kind,
@@ -908,6 +987,9 @@ class PdfExportMapper {
             'argb': colorArgb(sp['color'] as String, 1),
         },
   ];
+
+  static String _spanText(Object? span) =>
+      span is Map ? '${span['text'] ?? ''}' : '${span ?? ''}';
 
   pw.ThemeData? _theme(
     pw.Font? baseFont,
@@ -1338,6 +1420,127 @@ class PdfExportMapper {
         ),
       ];
     }
+    if (kind == 'list') {
+      final items = (b['items'] as List?) ?? const [];
+      return [
+        for (var itemIndex = 0; itemIndex < items.length; itemIndex++)
+          if (items[itemIndex] is Map)
+            pw.Padding(
+              padding: const pw.EdgeInsets.only(bottom: 2),
+              child: pw.Row(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.SizedBox(
+                    width: 24,
+                    child: pw.Text(
+                      b['ordered'] == true ? '${itemIndex + 1}.' : '•',
+                      style: const pw.TextStyle(fontSize: 11),
+                    ),
+                  ),
+                  pw.Expanded(
+                    child: _typedRichText(
+                      ((items[itemIndex] as Map)['spans'] as List?) ?? const [],
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+      ];
+    }
+    if (kind == 'table') {
+      final rows = (b['rows'] as List?) ?? const [];
+      return [
+        pw.Padding(
+          padding: const pw.EdgeInsets.symmetric(vertical: 4),
+          child: pw.Table(
+            border: pw.TableBorder.all(color: PdfColors.grey500, width: 0.5),
+            defaultVerticalAlignment: pw.TableCellVerticalAlignment.middle,
+            children: [
+              for (var rowIndex = 0; rowIndex < rows.length; rowIndex++)
+                if (rows[rowIndex] is Map)
+                  pw.TableRow(
+                    decoration: b['header'] == true && rowIndex == 0
+                        ? const pw.BoxDecoration(color: PdfColors.grey200)
+                        : null,
+                    children: [
+                      for (final cell
+                          in ((rows[rowIndex] as Map)['cells'] as List? ??
+                              const []))
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.all(4),
+                          child: _typedRichText(
+                            cell is Map
+                                ? (cell['spans'] as List? ?? const [])
+                                : const [],
+                            fontSize: 11,
+                            bold: b['header'] == true && rowIndex == 0,
+                          ),
+                        ),
+                    ],
+                  ),
+            ],
+          ),
+        ),
+      ];
+    }
+    if (kind == 'figure') {
+      final caption = (b['caption'] as List?) ?? const [];
+      if (caption.isEmpty) return const [];
+      return [
+        pw.Padding(
+          padding: const pw.EdgeInsets.symmetric(vertical: 4),
+          child: pw.RichText(
+            text: pw.TextSpan(
+              style: const pw.TextStyle(fontSize: 11),
+              children: [
+                pw.TextSpan(
+                  text: 'Figure: ',
+                  style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+                ),
+                ..._typedTextSpans(caption, fontSize: 11),
+              ],
+            ),
+          ),
+        ),
+      ];
+    }
     return [pw.Paragraph(text: text, style: const pw.TextStyle(fontSize: 11))];
   }
+
+  pw.Widget _typedRichText(
+    List spans, {
+    required double fontSize,
+    bool bold = false,
+  }) => pw.RichText(
+    text: pw.TextSpan(
+      style: pw.TextStyle(fontSize: fontSize),
+      children: _typedTextSpans(spans, fontSize: fontSize, bold: bold),
+    ),
+  );
+
+  List<pw.InlineSpan> _typedTextSpans(
+    List spans, {
+    required double fontSize,
+    bool bold = false,
+  }) => [
+    for (final span in spans)
+      if (span is Map && '${span['text'] ?? ''}'.isNotEmpty)
+        pw.TextSpan(
+          text: '${span['text']}',
+          style: pw.TextStyle(
+            fontSize: (span['size'] as num?)?.toDouble() ?? fontSize,
+            fontWeight: bold || span['bold'] == true
+                ? pw.FontWeight.bold
+                : null,
+            fontStyle: span['italic'] == true ? pw.FontStyle.italic : null,
+            decoration: span['strikethrough'] == true
+                ? pw.TextDecoration.lineThrough
+                : null,
+            color: span['color'] is String
+                ? PdfColor.fromInt(colorArgb(span['color'] as String, 1))
+                : null,
+          ),
+        ),
+  ];
 }
