@@ -76,11 +76,13 @@ final class PreparedCertificationStudy {
     required this.title,
     required this.status,
     required this.config,
+    this.quizId,
   });
 
   final String id;
   final String title;
   final String status;
+  final String? quizId;
 
   /// A null value means the server has not returned durable setup yet.
   final PreparedCertificationConfig? config;
@@ -407,16 +409,20 @@ final class PreparedCertificationService {
     final id = json['id'];
     final title = json['title'];
     final status = json['status'];
+    final rawQuizId = json['quiz_id'];
     if (id is! String ||
         id.trim().isEmpty ||
         title is! String ||
-        status is! String) {
+        status is! String ||
+        (rawQuizId != null && rawQuizId is! String)) {
       throw ApiError(502, 'The service returned an invalid study summary.');
     }
+    final quizId = (rawQuizId as String?)?.trim();
     return PreparedCertificationStudy(
       id: id,
       title: title,
       status: status,
+      quizId: quizId == null || quizId.isEmpty ? null : quizId,
       config: config != null
           ? PreparedCertificationConfig.fromJson(config)
           : null,
