@@ -669,6 +669,29 @@ class PdfExportMapper {
     return found;
   }
 
+  bool _hasOversizedOriginalUnit(
+    NoteDocument? document,
+    PdfExportOptions options,
+    String title,
+  ) {
+    if (document is! PaperDocument) return false;
+    final page = options.pageFormat;
+    final json = document.toJson();
+    final pageMap = (json['page'] as Map?) ?? const {};
+    final canvasWidth = ((pageMap['width'] as num?)?.toDouble() ?? 1000.0)
+        .clamp(200.0, 4000.0);
+    final printableWidth = page.width - marginPt * 2;
+    final printableHeight = page.height - marginPt * 2;
+    final scale = printableWidth / canvasWidth;
+    final plan = planOriginalPages(
+      document,
+      printableHeight:
+          math.max(1.0, printableHeight - _titleReservePt(title)).toDouble() /
+          scale,
+    );
+    return plan.any((page) => page.oversized != null);
+  }
+
   static Map<String, String> _fileReferenceKinds(
     Iterable<NoteDocument?> documents,
   ) {
@@ -831,6 +854,7 @@ class PdfExportMapper {
         resolvedRegular != null &&
         exportReportImages.isEmpty &&
         !hasAvailableInlineImages &&
+        !_hasOversizedOriginalUnit(selectedOriginal, options, title) &&
         !hasCsvOrPdfReferences &&
         !hasTypedHandwriting;
     final pre = preflight(
@@ -960,6 +984,9 @@ class PdfExportMapper {
       return 'Report snapshot unavailable (marked placeholder)';
     }
     if (kind == 'task') {
+      if (options.audience == PdfAudience.public) {
+        return 'Restricted content (lock notice)';
+      }
       final taskTitle = '${item['title'] ?? 'Task'}';
       final status = '${item['status'] ?? 'open'}';
       final link =
@@ -984,6 +1011,9 @@ class PdfExportMapper {
       ].join('\n');
     }
     if (kind == 'quiz') {
+      if (options.audience == PdfAudience.public) {
+        return 'Restricted content (lock notice)';
+      }
       final quizTitle = '${item['title'] ?? 'Quiz'}';
       final count = item['question_count'] ?? 0;
       final link =
@@ -1103,11 +1133,6 @@ class PdfExportMapper {
         final companionName = unitCompanions
             .firstWhere((file) => file.filename.endsWith('.json'))
             .filename;
-        final publicLink =
-            options.publicBaseUrl != null &&
-                options.audience == PdfAudience.public
-            ? '${options.publicBaseUrl}/items/$id'
-            : null;
         rects.add({
           'x': marginPt,
           'y': contentTop,
@@ -1149,9 +1174,7 @@ class PdfExportMapper {
           });
         }
         runs.add({
-          'text': publicLink != null
-              ? 'Full content link: $publicLink'
-              : 'Companion file: $companionName',
+          'text': 'Companion file: $companionName',
           'x': marginPt + 12.0,
           'y': contentTop + 76.0,
           'max_width': printableW - 24.0,
@@ -1606,6 +1629,10 @@ class PdfExportMapper {
                   options: options,
                   attachments: attachments,
                   renderableAttachments: renderableAttachments,
+                  reportImages: reportImages,
+                  taskSummaries: taskSummaries,
+                  csvTables: csvTables,
+                  pdfPreviews: pdfPreviews,
                   companions: companions,
                   printableW: printableW,
                   printableH: printableH - 40,
@@ -1706,7 +1733,13 @@ class PdfExportMapper {
   }) {
     final members = _oversizedGroupMembers(root, document);
     final rawItems = <Map<String, dynamic>>[root, ...members];
-    final restrictedKinds = const {'task_card', 'quiz_card', 'reports_embed'};
+    final restrictedKinds = const {
+      'task_card',
+      'quiz_card',
+      'task',
+      'quiz',
+      'reports_embed',
+    };
     final visibleIds = <String>{
       for (final item in rawItems)
         if (!(options.audience == PdfAudience.public &&
@@ -1772,14 +1805,19 @@ class PdfExportMapper {
 
     final includedFileIds = <String>{};
     for (final item in rawItems) {
-      final fileId = safeItem(item)['file_id'];
+      final safe = safeItem(item);
+      final kind = item['kind'];
+      final fileId =
+          safe[kind == 'website_card' || kind == 'youtube_card'
+              ? 'preview_file_id'
+              : 'file_id'];
       if (fileId is! String || fileId.isEmpty || !includedFileIds.add(fileId)) {
         continue;
       }
       final bytes = attachments[fileId];
       if (bytes == null) continue;
       final safeId = fileId.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
-      final extension = switch (item['kind']) {
+      final extension = switch (kind) {
         'csv_table' => 'csv',
         'pdf_preview' => 'pdf',
         _ => _binaryExtension(bytes),
@@ -1836,12 +1874,108 @@ class PdfExportMapper {
     return true;
   }
 
+  pw.Widget? _oversizedOriginalPreview(
+    Map<String, dynamic> root, {
+    required NoteDocument document,
+    required PdfExportOptions options,
+    required Map<String, Uint8List> attachments,
+    required Map<String, Uint8List> reportImages,
+    required Map<String, TaskSummary> taskSummaries,
+    required Map<String, List<List<String>>> csvTables,
+    required Map<String, Uint8List> pdfPreviews,
+    required double width,
+    required double height,
+  }) {
+    final rootId = root['id'];
+    final layout = DocumentLayout.of(document);
+    final ids = rootId is String
+        ? (layout?.withDescendants(rootId).toSet() ?? {rootId})
+        : <String>{};
+    final allItems = ((document.toJson()['items'] as List?) ?? const [])
+        .whereType<Map>()
+        .map((raw) => Map<String, dynamic>.from(raw))
+        .toList(growable: false);
+    final items = [
+      for (final item in allItems)
+        if (ids.contains(item['id']) && item['kind'] != 'group') item,
+    ];
+    if (items.isEmpty) {
+      return pw.Text('Content preview unavailable (marked placeholder)');
+    }
+
+    final bounds = layout?.boundsOf(ids);
+    var left = bounds?.left.toDouble();
+    var top = bounds?.top.toDouble();
+    var right = bounds?.right.toDouble();
+    var bottom = bounds?.bottom.toDouble();
+    if (left == null || top == null || right == null || bottom == null) {
+      for (final item in items) {
+        final x = (item['x'] as num?)?.toDouble() ?? 0;
+        final y = (item['y'] as num?)?.toDouble() ?? 0;
+        final itemWidth = (item['width'] as num?)?.toDouble() ?? 160;
+        final itemHeight = (item['height'] as num?)?.toDouble() ?? 40;
+        left = left == null ? x : math.min(left, x).toDouble();
+        top = top == null ? y : math.min(top, y).toDouble();
+        right = right == null
+            ? x + itemWidth
+            : math.max(right, x + itemWidth).toDouble();
+        bottom = bottom == null
+            ? y + itemHeight
+            : math.max(bottom, y + itemHeight).toDouble();
+      }
+    }
+    final sourceWidth = math.max(1.0, right! - left!);
+    final sourceHeight = math.max(1.0, bottom! - top!);
+    final scale = math
+        .min(width / sourceWidth, height / sourceHeight)
+        .toDouble();
+    final typedItems = _typedItems(document);
+    return pw.ClipRect(
+      child: pw.SizedBox(
+        width: width,
+        height: height,
+        child: pw.Stack(
+          children: [
+            for (final item in items)
+              if (item['kind'] == 'stroke' || item['kind'] == 'shape')
+                _originalInkWidget(
+                  item,
+                  typedItems[item['id']],
+                  xOrigin: left,
+                  yOrigin: top,
+                  scale: scale,
+                )
+              else
+                _buildPositionedOriginalItem(
+                  item,
+                  xOrigin: left,
+                  yOrigin: top,
+                  scale: scale,
+                  options: options,
+                  reportImages: reportImages,
+                  attachments: attachments,
+                  taskSummaries: taskSummaries,
+                  csvTables: csvTables,
+                  pdfPreviews: pdfPreviews,
+                  minimumWidth: 0.1,
+                  minimumHeight: 0.1,
+                ),
+          ],
+        ),
+      ),
+    );
+  }
+
   pw.Widget _buildOversizedPage(
     Map<String, dynamic> item, {
     required NoteDocument document,
     required PdfExportOptions options,
     required Map<String, Uint8List> attachments,
     Map<String, Uint8List>? renderableAttachments,
+    Map<String, Uint8List> reportImages = const {},
+    Map<String, TaskSummary> taskSummaries = const {},
+    Map<String, List<List<String>>> csvTables = const {},
+    Map<String, Uint8List> pdfPreviews = const {},
     required List<PdfCompanionFile> companions,
     required double printableW,
     required double printableH,
@@ -1861,37 +1995,20 @@ class PdfExportMapper {
     companionName ??= unitCompanions
         .firstWhere((file) => file.filename.endsWith('.json'))
         .filename;
-    final groupText = _oversizedGroupTextMembers(item, document)
-        .map((member) => _plainText(member['spans']).trim())
-        .where((text) => text.isNotEmpty)
-        .toList(growable: false);
-    final fileId = item['file_id'] as String?;
-    final imageBytes = item['kind'] == 'image' && fileId != null
-        ? (renderableAttachments ?? attachments)[fileId]
-        : null;
-    final generatedPreview = imageBytes != null
-        ? pw.Image(pw.MemoryImage(imageBytes), fit: pw.BoxFit.contain)
-        : groupText.isNotEmpty
-        ? pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            children: [
-              for (final text in groupText)
-                pw.Padding(
-                  padding: const pw.EdgeInsets.only(bottom: 4),
-                  child: pw.Text(
-                    text,
-                    maxLines: 2,
-                    style: const pw.TextStyle(fontSize: 9),
-                  ),
-                ),
-            ],
-          )
-        : null;
-
-    final publicLink =
-        options.publicBaseUrl != null && options.audience == PdfAudience.public
-        ? '${options.publicBaseUrl}/items/$id'
-        : null;
+    final previewWidget =
+        contentPreview ??
+        _oversizedOriginalPreview(
+          item,
+          document: document,
+          options: options,
+          attachments: renderableAttachments ?? attachments,
+          reportImages: reportImages,
+          taskSummaries: taskSummaries,
+          csvTables: csvTables,
+          pdfPreviews: pdfPreviews,
+          width: math.max(1, printableW - 24),
+          height: math.max(1, printableH - 98),
+        );
 
     return pw.Container(
       width: printableW,
@@ -1908,17 +2025,13 @@ class PdfExportMapper {
             'Preview, see full content',
             style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold),
           ),
-          if (contentPreview != null || generatedPreview != null) ...[
+          if (previewWidget != null) ...[
             pw.SizedBox(height: 8),
-            pw.Expanded(child: contentPreview ?? generatedPreview!),
+            pw.Expanded(child: previewWidget),
             pw.SizedBox(height: 8),
           ],
           pw.Text('Item: $id (${item['kind'] ?? 'object'})'),
-          pw.Text(
-            publicLink != null
-                ? 'Full content link: $publicLink'
-                : 'Companion file: $companionName',
-          ),
+          pw.Text('Companion file: $companionName'),
         ],
       ),
     );
@@ -1929,6 +2042,7 @@ class PdfExportMapper {
   /// `ink_outline.dart`: each outline is one non-zero filled path.
   pw.Widget _buildInkLayer(
     List<({List<List<InkVec>> pieces, int argb})> fills, {
+    double xOrigin = 0,
     required double yOrigin,
     required double scale,
   }) {
@@ -1945,11 +2059,14 @@ class PdfExportMapper {
             for (final piece in f.pieces) {
               if (piece.length < 3) continue;
               canvas.moveTo(
-                piece.first.x * scale,
+                (piece.first.x - xOrigin) * scale,
                 size.y - (piece.first.y - yOrigin) * scale,
               );
               for (final v in piece.skip(1)) {
-                canvas.lineTo(v.x * scale, size.y - (v.y - yOrigin) * scale);
+                canvas.lineTo(
+                  (v.x - xOrigin) * scale,
+                  size.y - (v.y - yOrigin) * scale,
+                );
               }
               canvas.closePath();
             }
@@ -1965,14 +2082,20 @@ class PdfExportMapper {
   pw.Widget _originalInkWidget(
     Map<String, dynamic> json,
     DocumentItem? item, {
+    double xOrigin = 0,
     required double yOrigin,
     required double scale,
   }) {
     final fills = inkFills(item);
     if (fills.isNotEmpty) {
-      return _buildInkLayer(fills, yOrigin: yOrigin, scale: scale);
+      return _buildInkLayer(
+        fills,
+        xOrigin: xOrigin,
+        yOrigin: yOrigin,
+        scale: scale,
+      );
     }
-    final x = _inkItemCoordinate(json, 'x') * scale;
+    final x = (_inkItemCoordinate(json, 'x') - xOrigin) * scale;
     final y = (_inkItemCoordinate(json, 'y') - yOrigin) * scale;
     return pw.Positioned(
       left: math.max(0, x),
@@ -2008,6 +2131,7 @@ class PdfExportMapper {
 
   pw.Widget _buildPositionedOriginalItem(
     Map<String, dynamic> item, {
+    double xOrigin = 0,
     required double yOrigin,
     required double scale,
     required PdfExportOptions options,
@@ -2016,15 +2140,17 @@ class PdfExportMapper {
     required Map<String, TaskSummary> taskSummaries,
     Map<String, List<List<String>>> csvTables = const {},
     Map<String, Uint8List> pdfPreviews = const {},
+    double minimumWidth = 24,
+    double minimumHeight = 18,
   }) {
-    final x = ((item['x'] as num?)?.toDouble() ?? 0.0) * scale;
+    final x = (((item['x'] as num?)?.toDouble() ?? 0.0) - xOrigin) * scale;
     final y = (((item['y'] as num?)?.toDouble() ?? 0.0) - yOrigin) * scale;
     final w = math.max(
-      24.0,
+      minimumWidth,
       ((item['width'] as num?)?.toDouble() ?? 160.0) * scale,
     );
     final h = math.max(
-      18.0,
+      minimumHeight,
       ((item['height'] as num?)?.toDouble() ?? 40.0) * scale,
     );
     final kind = '${item['kind'] ?? 'text'}';
@@ -2243,6 +2369,12 @@ class PdfExportMapper {
     }
 
     if (kind == 'task') {
+      if (options.audience == PdfAudience.public) {
+        return pw.Text(
+          'Restricted content (lock notice)',
+          style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700),
+        );
+      }
       final taskTitle = '${item['title'] ?? 'Task'}';
       final status = '${item['status'] ?? 'open'}';
       final link =
@@ -2301,6 +2433,12 @@ class PdfExportMapper {
     }
 
     if (kind == 'quiz') {
+      if (options.audience == PdfAudience.public) {
+        return pw.Text(
+          'Restricted content (lock notice)',
+          style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700),
+        );
+      }
       final quizTitle = '${item['title'] ?? 'Quiz'}';
       final count = item['question_count'] ?? 0;
       final link =

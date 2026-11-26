@@ -12,6 +12,7 @@ import 'package:annotations_shared/domain/services/krilla_pdf_backend.dart';
 import 'package:annotations_shared/domain/services/editor_rules.dart';
 import 'package:annotations_shared/domain/services/pdf_export_mapper.dart';
 import 'package:annotations_shared/domain/services/task_card_service.dart';
+import 'package:annotations_shared/domain/models/stroke_samples_codec.dart';
 import 'package:annotations_shared/presentation/frontend/handlers/export_handler.dart';
 import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -254,7 +255,13 @@ void main() {
           {
             'id': 'group',
             'kind': 'group',
-            'members': ['text-a', 'text-b', 'report-private'],
+            'members': [
+              'text-a',
+              'text-b',
+              'report-private',
+              'legacy-task',
+              'legacy-quiz',
+            ],
           },
           {
             'id': 'text-a',
@@ -292,6 +299,26 @@ void main() {
             'captured_at': 1795000000,
             'dataset_id': 'private-dataset-id',
           },
+          {
+            'id': 'legacy-task',
+            'kind': 'task',
+            'x': 20,
+            'y': 4300,
+            'width': 300,
+            'height': 40,
+            'title': 'PRIVATE_LEGACY_TASK_SENTINEL',
+            'status': 'completed',
+          },
+          {
+            'id': 'legacy-quiz',
+            'kind': 'quiz',
+            'x': 20,
+            'y': 4400,
+            'width': 300,
+            'height': 40,
+            'title': 'PRIVATE_LEGACY_QUIZ_SENTINEL',
+            'question_count': 100,
+          },
         ],
       }, schema: paperSchema);
       final output = await PdfExportMapper().export(
@@ -317,10 +344,106 @@ void main() {
       expect(content, isNot(contains('PRIVATE_CHART_SOURCE_SENTINEL')));
       expect(content, isNot(contains('private-report-id')));
       expect(content, isNot(contains('private-snapshot-id')));
+      expect(content, isNot(contains('PRIVATE_LEGACY_TASK_SENTINEL')));
+      expect(content, isNot(contains('PRIVATE_LEGACY_QUIZ_SENTINEL')));
       expect(
         await _extractPdfText(output.pdfs.single.bytes),
         contains('ORIGINAL_COMPANION_TEXT_SENTINEL'),
       );
+    },
+  );
+
+  test(
+    'oversized grouped Original preview preserves image and vector ink',
+    () async {
+      final document = NoteDocument.fromJson({
+        'page': {
+          'width': 1000,
+          'background': {'kind': 'blank'},
+        },
+        'items': [
+          {
+            'id': 'group-image',
+            'kind': 'image',
+            'file_id': 'group-logo',
+            'x': 40,
+            'y': 40,
+            'width': 200,
+            'height': 200,
+          },
+          {
+            'id': 'group-ink',
+            'kind': 'stroke',
+            'tool': 'round',
+            'brush_version': 1,
+            'width': 12,
+            'color': '#DC2626FF',
+            'opacity': 1,
+            'samples': SampleCodec.encode(
+              const SampleColumns(
+                x: [10000, 50000],
+                y: [280000, 280000],
+                t: [0, 10],
+              ),
+            ),
+            'nodes': [
+              {
+                'x': 10000,
+                'y': 280000,
+                'out': {'x': 10600, 'y': 279800},
+                'mode': 'smooth',
+                'corner': false,
+                'sample': 0,
+              },
+              {
+                'x': 50000,
+                'y': 280000,
+                'in': {'x': 49000, 'y': 280000},
+                'mode': 'independent',
+                'corner': true,
+                'sample': 1,
+              },
+            ],
+          },
+          {
+            'id': 'oversized-group',
+            'kind': 'group',
+            'members': ['group-image', 'group-ink'],
+          },
+        ],
+      }, schema: paperSchema);
+      final output = await PdfExportMapper().export(
+        title: 'Grouped image and ink',
+        slug: 'grouped-image-ink',
+        original: document,
+        options: const PdfExportOptions(mode: PdfExportMode.original),
+        attachments: {'group-logo': logo},
+        availableFileIds: const {'group-logo'},
+        baseFont: baseFont,
+        thaiFont: thaiFont,
+      );
+
+      expect(output.preflight.ok, isTrue);
+      expect(output.companions, hasLength(2));
+      final metadataFile = output.companions.singleWhere(
+        (file) => file.filename.endsWith('.json'),
+      );
+      final metadata =
+          jsonDecode(utf8.decode(metadataFile.bytes)) as Map<String, dynamic>;
+      expect(metadata['items'], isA<List>());
+      expect(utf8.decode(metadataFile.bytes), contains('group-ink'));
+      expect(
+        output.companions
+            .singleWhere((file) => file.filename.endsWith('.png'))
+            .bytes,
+        logo,
+      );
+      final raster = await PdfRaster.page(output.pdfs.single.bytes, page: 2);
+      expect(
+        raster.count((r, g, b) => g > 180 && r < 150 && b < 100),
+        greaterThan(10),
+      );
+      expect(raster.count(isRed), greaterThan(40));
     },
   );
 
