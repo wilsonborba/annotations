@@ -12,7 +12,6 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
-import '../../dal/remote/api_adapter.dart';
 import '../models/local_note.dart';
 import '../models/note_document.dart';
 import 'editor_files.dart';
@@ -157,7 +156,7 @@ final class RoomShare implements PaperSaver {
         if (!clean) conflicts.value = List.of(sync.conflicts);
         _show();
         state.value = _pending == null ? SaveState.saved : SaveState.saving;
-      } on ApiError catch (err) {
+      } on Object {
         if (_disposed) return;
         if (room.state == InstantSharingState.expired) {
           _expire();
@@ -167,15 +166,7 @@ final class RoomShare implements PaperSaver {
         _pending ??= local;
         state.value = SaveState.failed;
         _set(room.state);
-        if (err.status == 400 || err.status == 422) return;
-      } on Object {
-        if (_disposed) return;
-        if (room.state == InstantSharingState.expired) {
-          _expire();
-          return;
-        }
-        _pending ??= local;
-        state.value = SaveState.failed;
+        return;
       }
       if (_disposed || room.state == InstantSharingState.expired) return;
       _set(room.state);

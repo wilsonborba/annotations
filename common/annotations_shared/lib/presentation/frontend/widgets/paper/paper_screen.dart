@@ -113,8 +113,15 @@ class _PaperScreenState extends State<PaperScreen> {
   bool _focus = false;
 
   @override
+  void initState() {
+    super.initState();
+    widget.handler.editingEnabled = !widget.readOnly;
+  }
+
+  @override
   void didUpdateWidget(PaperScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
+    widget.handler.editingEnabled = !widget.readOnly;
     if (!oldWidget.readOnly && widget.readOnly) {
       text.end();
       text.focus.unfocus();
@@ -377,7 +384,7 @@ class _PaperScreenState extends State<PaperScreen> {
               handler: widget.handler,
               onFocus: () => _setFocus(true),
               status: widget.status,
-              background: !widget.typedOnly,
+              background: !widget.typedOnly && !widget.readOnly,
             ),
           ),
         ),

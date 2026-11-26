@@ -7,6 +7,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 
@@ -16,10 +17,12 @@ import '../../../../core/tracking.dart';
 import '../../../../core/tracking_manifest.dart';
 import '../../../../dal/local/read_path.dart';
 import '../../../../domain/services/instant_room_service.dart';
+import '../../../../domain/services/note_autosave.dart';
 import '../../components/controls.dart';
 import '../../components/icons.dart';
 import '../../components/landing_image.dart';
 import '../../components/qr_share.dart';
+import '../../components/save_state.dart';
 import '../../components/scope.dart';
 import '../../components/shell.dart';
 import '../../components/theme.dart';
@@ -111,7 +114,11 @@ class _InstantRoomPageState extends State<InstantRoomPage> {
             ),
             typedOnly: InstantRoomPage.typedOnly(context),
             readOnly: h.sharing == InstantSharingState.connectionLost,
-            status: RoomStatus(state: h.sharing, onRetry: h.retry),
+            status: RoomStatus(
+              state: h.sharing,
+              saveState: h.share!.state,
+              onRetry: h.retry,
+            ),
           ),
         ),
       ],
@@ -237,11 +244,29 @@ class RoomHeader extends StatelessWidget {
 /// Connecting, Sharing, Shared, or Connection lost with Try again (C1.4).
 class RoomStatus extends StatelessWidget {
   final InstantSharingState state;
+  final ValueListenable<SaveState> saveState;
   final VoidCallback onRetry;
-  const RoomStatus({super.key, required this.state, required this.onRetry});
+  const RoomStatus({
+    super.key,
+    required this.state,
+    required this.saveState,
+    required this.onRetry,
+  });
 
   @override
   Widget build(BuildContext context) {
+    if (state != InstantSharingState.connectionLost) {
+      return ValueListenableBuilder<SaveState>(
+        valueListenable: saveState,
+        builder: (context, value, _) => value == SaveState.failed
+            ? SaveStateView(state: value, onRetry: onRetry)
+            : _roomState(context),
+      );
+    }
+    return _roomState(context);
+  }
+
+  Widget _roomState(BuildContext context) {
     final c = context.colors;
     final lost = state == InstantSharingState.connectionLost;
     final (icon, label) = switch (state) {

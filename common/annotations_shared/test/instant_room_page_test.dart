@@ -8,6 +8,8 @@ import 'package:annotations_shared/dal/remote/api_adapter.dart';
 import 'package:annotations_shared/domain/services/annotations_service.dart';
 import 'package:annotations_shared/domain/models/note_document.dart';
 import 'package:annotations_shared/domain/services/instant_room_share.dart';
+import 'package:annotations_shared/domain/services/note_autosave.dart';
+import 'package:annotations_shared/domain/services/paper_page.dart';
 import 'package:annotations_shared/presentation/frontend/components/qr_share.dart';
 import 'package:annotations_shared/presentation/frontend/handlers/instant_room_handler.dart';
 import 'package:annotations_shared/presentation/frontend/widgets/instant/instant_room_page.dart';
@@ -193,6 +195,42 @@ void main() {
     await closeRoom(tester);
   });
 
+  testWidgets('an already open paper menu cannot edit after disconnect', (
+    tester,
+  ) async {
+    final server = FakeRoomServer();
+    await openRoom(tester, server);
+    final paper = tester.widget<PaperScreen>(find.byType(PaperScreen)).handler;
+    await tester.tap(find.byKey(const Key('paper-button')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('paper-grid')), findsOneWidget);
+
+    server.offline = true;
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pump();
+    expect(find.byKey(const Key('room-state-connectionLost')), findsOneWidget);
+    expect(find.byKey(const Key('paper-grid')), findsNothing);
+    expect(paper.storedGuides.pattern.name, 'blank');
+    expect(paper.pickPattern(PaperPattern.grid).accepted, isFalse);
+    expect(paper.storedGuides.pattern.name, 'blank');
+    await closeRoom(tester);
+  });
+
+  testWidgets('a rejected Instant edit is shown as a failed save', (
+    tester,
+  ) async {
+    final server = FakeRoomServer();
+    await openRoom(tester, server);
+    final screen = tester.widget<PaperScreen>(find.byType(PaperScreen));
+    final status = screen.status! as RoomStatus;
+    (status.saveState as ValueNotifier<SaveState>).value = SaveState.failed;
+    await tester.pump();
+    expect(find.byKey(const Key('room-state-shared')), findsNothing);
+    expect(find.byKey(const Key('save-state-failed')), findsOneWidget);
+    expect(find.byKey(const Key('save-retry')), findsOneWidget);
+    await closeRoom(tester);
+  });
+
   testWidgets('an expired room shows S02 and This room has expired', (
     tester,
   ) async {
@@ -211,12 +249,29 @@ void main() {
   ) async {
     final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
     final server = FakeRoomServer(expiresAt: now + 2);
+    server.items['existing'] = {
+      'id': 'existing',
+      'kind': 'shape',
+      'shape': 'rectangle',
+      'color': '#DC2626FF',
+      'line_width': 2,
+      'opacity': 1,
+      'x': 100,
+      'y': 100,
+      'width': 200,
+      'height': 80,
+    };
+    server.itemRevisions['existing'] = 1;
     await openRoom(tester, server);
+    final paper = tester.widget<PaperScreen>(find.byType(PaperScreen)).handler;
+    paper.holding = true;
     expect(find.byKey(const Key('paper-status')), findsOneWidget);
     await tester.pump(const Duration(seconds: 3));
     await tester.pump();
     expect(find.byKey(const Key('room-expired')), findsOneWidget);
     expect(find.byKey(const Key('paper-status')), findsNothing);
+    expect((paper.document.toJson()['items'] as List), isEmpty);
+    expect(paper.holding, isFalse);
     await closeRoom(tester);
   });
 

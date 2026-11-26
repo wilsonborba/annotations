@@ -130,6 +130,10 @@ class PaperHandler extends ChangeNotifier {
   final PaperPage page;
   final EditorSession session;
 
+  /// False while a shared room is disconnected or expired. All document
+  /// mutation entry points use this gate, including actions from an open menu.
+  bool editingEnabled = true;
+
   /// The paragraph style of text items: the style that the text engine
   /// measures with, so drawn text has the stored block size.
   final TextStyle textStyle;
@@ -251,6 +255,9 @@ class PaperHandler extends ChangeNotifier {
   /// Undo step in Notes) and goes to autosave; a rejected one changes
   /// nothing and keeps its operation in the decision.
   EditDecision apply(HistoryCommand command, EditBuilder edit) {
+    if (!editingEnabled) {
+      return session.rules.check(document, const {'op': 'room_read_only'});
+    }
     final s = session;
     final decision = switch (s) {
       NotesEditor() => s.apply(command, edit),
@@ -287,7 +294,9 @@ class PaperHandler extends ChangeNotifier {
 
   /// Keeps an edit that a tool committed to [session] itself: the live text
   /// editor commits through its text binding (annotations#27).
-  void edited() => _changed();
+  void edited() {
+    if (editingEnabled) _changed();
+  }
 
   String? _editingText;
 
@@ -319,6 +328,9 @@ class PaperHandler extends ChangeNotifier {
   /// Saves the background [guides] as one page change.
   EditDecision setGuides(PaperGuides guides) {
     preview.value = null;
+    if (!editingEnabled) {
+      return session.rules.check(document, const {'op': 'room_read_only'});
+    }
     if (guides == storedGuides) {
       notifyListeners();
       return session.rules.check(document);
@@ -357,8 +369,13 @@ class PaperHandler extends ChangeNotifier {
   /// Returns false while a gesture holds the page or a stroke is being
   /// drawn: the caller tries again later, so an unfinished gesture is never
   /// mixed with a shared change. Not a local edit: nothing is shared back.
-  bool receive(InstantRoomDocument next) {
-    if (holding || activeInk.value != null) return false;
+  bool receive(InstantRoomDocument next, {bool force = false}) {
+    if (!force && (holding || activeInk.value != null)) return false;
+    if (force) {
+      holding = false;
+      activeInk.value = null;
+      preview.value = null;
+    }
     final editor = session;
     if (editor is! InstantEditor) return false;
     editor.receive(next);

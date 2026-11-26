@@ -33,18 +33,22 @@ final class _PaperRoomEditor implements RoomEditor {
 
   @override
   bool receive(InstantRoomDocument document) {
-    if (paper.holding || paper.activeInk.value != null) return false;
+    final expired = owner.room?.state == InstantSharingState.expired;
+    if (!expired && (paper.holding || paper.activeInk.value != null)) {
+      return false;
+    }
     final text = owner.text;
-    if (InstantRoomHandler.changesOpenBlock(
-      paper.document,
-      document,
-      text?.editing,
-    )) {
+    if (expired ||
+        InstantRoomHandler.changesOpenBlock(
+          paper.document,
+          document,
+          text?.editing,
+        )) {
       // The open block still holds the local text; it closes so the next
       // keystroke cannot write it over the room version (C1.5).
-      text!.end();
+      text?.end();
     }
-    return paper.receive(document);
+    return paper.receive(document, force: expired);
   }
 }
 
