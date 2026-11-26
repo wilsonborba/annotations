@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -228,4 +229,116 @@ void main() {
       client.close();
     },
   );
+
+  test(
+    'resume reports live progress and persists each cursor before EOF',
+    () async {
+      final persistence = InMemoryContentJobPersistence();
+      await persistence.saveRef(
+        const ContentJobRef(
+          noteId: 'n1',
+          clientJobId: 'client-1',
+          jobId: 'job-1',
+          lastEventSeq: 1,
+          status: 'running',
+          uploadedFileIds: [],
+        ),
+      );
+      final client = _GatedContentJobClient();
+      final service = ContentJobService(
+        api: ApiAdapter(client: client, base: 'https://api.test'),
+        persistence: persistence,
+        enabled: true,
+      );
+      final progress = <(int, String)>[];
+      final sawProgress = Completer<void>();
+      var completed = false;
+      final waiting = service
+          .resumeJob(
+            'n1',
+            onProgress: (sequence, status) {
+              progress.add((sequence, status));
+              if (status == 'running' && !sawProgress.isCompleted) {
+                sawProgress.complete();
+              }
+            },
+          )
+          .then((value) {
+            completed = true;
+            return value;
+          });
+      await client.eventRequestStarted.future;
+      expect(client.eventRequest?.url.queryParameters['after'], '1');
+      expect(client.eventRequest?.headers['last-event-id'], '1');
+
+      final progressPrefix = utf8.encode(
+        'id: 2\r\nevent: progress\r\ndata: {"status":"running","label":"',
+      );
+      final thai = utf8.encode('กิ');
+      client.events.add([...progressPrefix, thai.first]);
+      client.events.add([...thai.skip(1), ...utf8.encode('"}\r')]);
+      client.events.add(utf8.encode('\n\r\n'));
+      await sawProgress.future.timeout(const Duration(seconds: 2));
+      expect(progress, [(2, 'running')]);
+      expect((await persistence.loadRef('n1'))?.lastEventSeq, 2);
+      expect(completed, isFalse);
+
+      client.events.add(
+        utf8.encode(
+          'id: 3\nevent: completed\ndata: {"status":"completed"}\n\n',
+        ),
+      );
+      await client.events.close();
+      final draft = await waiting;
+      expect(progress, [(2, 'running'), (3, 'completed')]);
+      expect(draft?.extractedText, 'Summary');
+      expect((await persistence.loadRef('n1'))?.lastEventSeq, 3);
+      expect(client.draftReads, 1);
+      client.close();
+    },
+  );
+}
+
+final class _GatedContentJobClient extends http.BaseClient {
+  final eventRequestStarted = Completer<void>();
+  final StreamController<List<int>> events = StreamController<List<int>>();
+  http.BaseRequest? eventRequest;
+  int draftReads = 0;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    if (request.url.path.endsWith('/events')) {
+      eventRequest = request;
+      eventRequestStarted.complete();
+      return http.StreamedResponse(
+        events.stream,
+        200,
+        headers: {'content-type': 'text/event-stream'},
+      );
+    }
+    if (request.url.path.endsWith('/job-1')) {
+      draftReads++;
+      return http.StreamedResponse(
+        Stream<List<int>>.value(
+          utf8.encode(
+            jsonEncode({
+              'job_id': 'job-1',
+              'draft': {'format': 'markdown', 'text': 'Summary'},
+            }),
+          ),
+        ),
+        200,
+        headers: {'content-type': 'application/json'},
+      );
+    }
+    return http.StreamedResponse(
+      Stream<List<int>>.value(utf8.encode('{}')),
+      404,
+    );
+  }
+
+  @override
+  void close() {
+    if (!events.isClosed) events.close();
+  }
 }

@@ -341,7 +341,10 @@ class ContentJobService {
 
   /// Resumes SSE events from `GET /me/content_jobs/{id}/events?after=<seq>` with
   /// `Last-Event-ID` header without re-uploading any files.
-  Future<ContentJobDraft?> resumeJob(String noteId) async {
+  Future<ContentJobDraft?> resumeJob(
+    String noteId, {
+    void Function(int sequence, String status)? onProgress,
+  }) async {
     if (!enabled) return null;
     final ref = await persistence.loadRef(noteId);
     if (ref == null || ref.jobId == null) return null;
@@ -357,23 +360,33 @@ class ContentJobService {
     if (ref.lastEventSeq > 0) {
       req.headers['last-event-id'] = '${ref.lastEventSeq}';
     }
-    final resp = await http.Response.fromStream(await api.client.send(req));
-    if (resp.statusCode >= 400) {
-      throw ApiError(resp.statusCode, 'Failed to read content job events');
+    final response = await api.client.send(req);
+    if (response.statusCode >= 400) {
+      await response.stream.drain<void>();
+      throw ApiError(response.statusCode, 'Failed to read content job events');
     }
 
     var nextSeq = ref.lastEventSeq;
     var status = ref.status;
-    final frames = parseSseFrames(resp.body);
-    if (frames.isNotEmpty) {
-      for (final f in frames) {
-        if (f.seq > nextSeq) nextSeq = f.seq;
-        status = f.status;
+    final contentType = response.headers['content-type'] ?? '';
+    if (contentType.toLowerCase().contains('application/json')) {
+      final body = await response.stream.bytesToString();
+      final decoded = jsonDecode(body);
+      if (decoded is! Map<String, dynamic>) {
+        throw const FormatException('Invalid content job event response.');
       }
-    } else if (resp.body.trim().startsWith('{')) {
-      final decoded = jsonDecode(resp.body) as Map<String, dynamic>;
       nextSeq = (decoded['last_event_seq'] as num?)?.toInt() ?? nextSeq;
       status = '${decoded['status'] ?? status}';
+    } else {
+      await for (final frame in _parseContentJobSse(response.stream)) {
+        if (frame.seq <= nextSeq) continue;
+        nextSeq = frame.seq;
+        status = frame.status;
+        await persistence.saveRef(
+          ref.copyWith(lastEventSeq: nextSeq, status: status),
+        );
+        onProgress?.call(frame.seq, frame.status);
+      }
     }
 
     await persistence.saveRef(
@@ -401,4 +414,82 @@ class ContentJobService {
     }
     return null;
   }
+}
+
+Stream<({int seq, String status})> _parseContentJobSse(
+  Stream<List<int>> bytes,
+) async* {
+  const maxFrameCharacters = 64 * 1024;
+  int? id;
+  String? event;
+  final data = <String>[];
+  var frameCharacters = 0;
+
+  ({int seq, String status})? flush() {
+    final eventId = id;
+    if (eventId == null) return null;
+    var status = event ?? 'running';
+    if (data.isNotEmpty) {
+      final decoded = jsonDecode(data.join('\n'));
+      if (decoded is Map && decoded['status'] is String) {
+        status = decoded['status'] as String;
+      }
+    }
+    return (seq: eventId, status: status);
+  }
+
+  ({int seq, String status})? consumeLine(String line) {
+    frameCharacters += line.length + 1;
+    if (frameCharacters > maxFrameCharacters) {
+      throw const FormatException('Content job event frame is too large.');
+    }
+    if (line.isEmpty) {
+      final frame = flush();
+      id = null;
+      event = null;
+      data.clear();
+      frameCharacters = 0;
+      return frame;
+    }
+    if (line.startsWith(':')) return null;
+    if (line.startsWith('id:')) {
+      id = int.tryParse(line.substring(3).trim());
+    } else if (line.startsWith('event:')) {
+      event = line.substring(6).trim();
+    } else if (line.startsWith('data:')) {
+      data.add(line.substring(5).trim());
+    }
+    return null;
+  }
+
+  var pendingLine = '';
+  await for (final chunk in bytes.transform(utf8.decoder)) {
+    final text = pendingLine + chunk;
+    var lineStart = 0;
+    for (var i = 0; i < text.length; i++) {
+      final code = text.codeUnitAt(i);
+      if (code != 10 && code != 13) continue;
+      if (code == 13 && i == text.length - 1) break;
+      final frame = consumeLine(text.substring(lineStart, i));
+      if (frame != null) yield frame;
+      if (code == 13 && text.codeUnitAt(i + 1) == 10) i++;
+      lineStart = i + 1;
+    }
+    pendingLine = text.substring(lineStart);
+    if (pendingLine.length > maxFrameCharacters) {
+      throw const FormatException('Content job event line is too large.');
+    }
+  }
+
+  if (pendingLine.endsWith('\r')) {
+    final frame = consumeLine(pendingLine.substring(0, pendingLine.length - 1));
+    if (frame != null) yield frame;
+    final finalFrame = consumeLine('');
+    if (finalFrame != null) yield finalFrame;
+  } else if (pendingLine.isNotEmpty) {
+    final frame = consumeLine(pendingLine);
+    if (frame != null) yield frame;
+  }
+  final finalFrame = flush();
+  if (finalFrame != null) yield finalFrame;
 }
