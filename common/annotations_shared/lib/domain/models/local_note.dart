@@ -70,6 +70,7 @@ final class LocalNote {
     this.serverRevision,
     this.serverOriginalRevisionId,
     this.serverTypedRevisionId,
+    this.preparedStudyId,
     this.isConflictCopy = false,
   });
 
@@ -100,6 +101,10 @@ final class LocalNote {
   /// and used for `PUT /me/notes/{id}/publication`.
   final String? serverOriginalRevisionId;
   final String? serverTypedRevisionId;
+
+  /// Server-owned prepared Certifications study. Stored locally with the
+  /// account-bound note metadata; its setup remains on the Certifications API.
+  final String? preparedStudyId;
 
   /// True when this is an owner-bound local copy of a server conflict.
   final bool isConflictCopy;
