@@ -100,7 +100,7 @@ class PaperHandler extends ChangeNotifier {
   /// Opens a saved local note.
   factory PaperHandler.open(
     LocalNote note,
-    NoteAutosave autosave, {
+    PaperSaver autosave, {
     PaperSettings settings = const PaperSettings(),
   }) => PaperHandler(
     noteId: note.id,
@@ -124,18 +124,22 @@ class PaperHandler extends ChangeNotifier {
     _changed();
   }
 
-  final NoteAutosave autosave;
+  final PaperSaver autosave;
   final PaperSettings settings;
   final ObjectSelector selector;
   final PaperPage page;
   final EditorSession session;
+
+  /// False while a shared room is disconnected or expired. All document
+  /// mutation entry points use this gate, including actions from an open menu.
+  bool editingEnabled = true;
 
   /// The paragraph style of text items: the style that the text engine
   /// measures with, so drawn text has the stored block size.
   final TextStyle textStyle;
 
   /// The stored files that cards show (annotations#34).
-  late final files = AttachmentCache(autosave.store);
+  late final files = AttachmentCache(autosave.files);
 
   /// The view, null until the canvas has its size.
   final view = ValueNotifier<PaperView?>(null);
@@ -251,6 +255,9 @@ class PaperHandler extends ChangeNotifier {
   /// Undo step in Notes) and goes to autosave; a rejected one changes
   /// nothing and keeps its operation in the decision.
   EditDecision apply(HistoryCommand command, EditBuilder edit) {
+    if (!editingEnabled) {
+      return session.rules.rejectEditor(document, 'editing_disabled');
+    }
     final s = session;
     final decision = switch (s) {
       NotesEditor() => s.apply(command, edit),
@@ -287,7 +294,9 @@ class PaperHandler extends ChangeNotifier {
 
   /// Keeps an edit that a tool committed to [session] itself: the live text
   /// editor commits through its text binding (annotations#27).
-  void edited() => _changed();
+  void edited() {
+    if (editingEnabled) _changed();
+  }
 
   String? _editingText;
 
@@ -319,6 +328,9 @@ class PaperHandler extends ChangeNotifier {
   /// Saves the background [guides] as one page change.
   EditDecision setGuides(PaperGuides guides) {
     preview.value = null;
+    if (!editingEnabled) {
+      return session.rules.rejectEditor(document, 'editing_disabled');
+    }
     if (guides == storedGuides) {
       notifyListeners();
       return session.rules.check(document);
@@ -351,6 +363,30 @@ class PaperHandler extends ChangeNotifier {
     // A locked view never follows an edit (B8).
     if (v != null && !_locked) view.value = _clamped(v.scroll, v.zoom, v.size);
     notifyListeners();
+  }
+
+  /// Shows a room document that came from the server (annotations#44).
+  /// Returns false while a gesture holds the page or a stroke is being
+  /// drawn: the caller tries again later, so an unfinished gesture is never
+  /// mixed with a shared change. Not a local edit: nothing is shared back.
+  bool receive(InstantRoomDocument next, {bool force = false}) {
+    if (!force && (holding || activeInk.value != null)) return false;
+    if (force) {
+      holding = false;
+      activeInk.value = null;
+      preview.value = null;
+    }
+    final editor = session;
+    if (editor is! InstantEditor) return false;
+    editor.receive(next);
+    _height = null;
+    _layout = null;
+    selection.value = selector.prune(document, selection.value);
+    if (hover.value != null && layout?.unitOf(hover.value!) == null) {
+      hover.value = null;
+    }
+    notifyListeners();
+    return true;
   }
 
   /// Saves again after a failure.

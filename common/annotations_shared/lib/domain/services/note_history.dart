@@ -162,6 +162,11 @@ final class InstantEditor extends EditorSession {
     if (decision.accepted) _document = decision.document;
     return decision;
   }
+
+  /// Shows the room as the server accepted it, with the local changes that
+  /// are not shared yet on top (annotations#44). The server checked every
+  /// shared change; this is not a local edit and creates nothing to undo.
+  void receive(InstantRoomDocument document) => _document = document;
 }
 
 /// The editor of one open Notes document, with its one history.
