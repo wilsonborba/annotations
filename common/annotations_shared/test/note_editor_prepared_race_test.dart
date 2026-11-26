@@ -17,6 +17,7 @@ import 'package:annotations_shared/domain/services/note_sync_service.dart';
 import 'package:annotations_shared/domain/services/preferences.dart';
 import 'package:annotations_shared/presentation/frontend/components/scope.dart';
 import 'package:annotations_shared/presentation/frontend/widgets/workspace/note_editor_page.dart';
+import 'package:annotations_shared/presentation/frontend/widgets/paper/paper_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -216,8 +217,511 @@ class _StubHttpResponse extends Stream<List<int>>
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+class _QuizReturnFixture {
+  _QuizReturnFixture({
+    required this.store,
+    required this.root,
+    required this.account,
+    required this.apiClient,
+    required this.accountClient,
+    required this.workspace,
+    required this.preferences,
+    required this.studyReads,
+    required this.releaseReturnStudy,
+    required this.overrides,
+    required this.launchCalls,
+  });
+
+  final SqliteNoteStore store;
+  final Directory root;
+  final SwitchableInstalledAccount account;
+  final MockClient apiClient;
+  final MockClient accountClient;
+  final LocalWorkspace workspace;
+  final Preferences preferences;
+  final List<int> studyReads;
+  final Completer<http.Response> releaseReturnStudy;
+  final _TestHttpOverrides overrides;
+  final List<String> launchCalls;
+}
+
+Future<_QuizReturnFixture> _makeQuizReturnFixture(
+  WidgetTester tester, {
+  String? quizId = 'quiz-ready',
+  bool gateReturnStudy = false,
+  bool existingCard = false,
+  bool failReturnStudy = false,
+  bool launchAccepted = true,
+}) async {
+  SharedPreferences.setMockInitialValues({});
+  late Directory root;
+  late SqliteNoteStore store;
+  await tester.runAsync(() async {
+    root = await Directory.systemTemp.createTemp('prepared_return_');
+    store = await SqliteNoteStore.open(root.path);
+  });
+  addTearDown(() async {
+    await store.close();
+    await root.delete(recursive: true);
+  });
+
+  final schema = DocumentSchema('note-original', 1);
+  final items = <Map<String, Object?>>[
+    {
+      'id': 'text-existing',
+      'kind': 'text',
+      'x': 0,
+      'y': 0,
+      'width': 304,
+      'height': 40,
+      'spans': [
+        {'text': 'Saved note text'},
+      ],
+    },
+    if (existingCard)
+      {
+        'id': 'quiz-card-existing',
+        'kind': 'quiz_card',
+        'x': 16,
+        'y': 80,
+        'width': 320,
+        'height': 120,
+        'study_id': 'study-existing',
+        'quiz_id': 'quiz-old',
+      },
+  ];
+  final document = NoteDocument.fromJson({
+    'page': {
+      'width': 1000,
+      'background': {'kind': 'blank'},
+    },
+    'items': items,
+  }, schema: schema);
+  await tester.runAsync(
+    () => store.save(
+      LocalNoteDraft(
+        id: 'note-return',
+        schema: schema,
+        document: document,
+        title: 'Local note',
+        accountId: 'account-a',
+      ),
+    ),
+  );
+  await tester.runAsync(
+    () => store.setSync(
+      'note-return',
+      state: LocalSyncState.synced,
+      accountId: 'account-a',
+      serverNoteId: 'server-note-a',
+      serverRevision: 1,
+      serverOriginalRevisionId: 'original-revision-1',
+    ),
+  );
+  await tester.runAsync(
+    () => store.savePreparedStudyReference(
+      'note-return',
+      accountId: 'account-a',
+      serverNoteId: 'server-note-a',
+      serverRevision: 1,
+      studyId: 'study-existing',
+    ),
+  );
+
+  final accountClient = MockClient((_) async => http.Response('{}', 200));
+  addTearDown(accountClient.close);
+  final account = SwitchableInstalledAccount(
+    const NativeSession(
+      sessionId: 'session-a',
+      csrfToken: 'csrf-a',
+      verifiedUserId: 'account-a',
+    ),
+    accountClient,
+  );
+  final studyReads = <int>[];
+  final releaseReturnStudy = Completer<http.Response>();
+  final apiClient = MockClient((request) async {
+    if (request.method == 'GET' &&
+        request.url.path == '/apps/annotations/v1/me/notes/server-note-a') {
+      return http.Response(
+        jsonEncode({
+          'note_id': 'server-note-a',
+          'revision': 1,
+          'title': 'Server note',
+          'representations': [
+            {
+              'representation': 'original',
+              'revision_id': 'original-revision-1',
+              'document': document.toJson(),
+            },
+          ],
+        }),
+        200,
+      );
+    }
+    if (request.method == 'GET' &&
+        request.url.path == '/apps/certifications/v1/studies/study-existing') {
+      studyReads.add(studyReads.length + 1);
+      if (studyReads.length == 2 && failReturnStudy) {
+        return http.Response('{}', 503);
+      }
+      final response = http.Response(
+        jsonEncode({
+          'study': {
+            'id': 'study-existing',
+            'title': 'Study',
+            'status': 'ready',
+            'quiz_id': quizId,
+          },
+          'sources': [],
+          'quota': {'used_bytes': 0, 'max_bytes': 100},
+          'config': {'language': 'en', 'count': 10},
+        }),
+        200,
+      );
+      if (studyReads.length == 2 && gateReturnStudy) {
+        return releaseReturnStudy.future;
+      }
+      return response;
+    }
+    return http.Response('{}', 404);
+  });
+  addTearDown(apiClient.close);
+  final workspace = LocalWorkspace(
+    store: store,
+    catalog: ProjectTagCatalog(),
+    profile: PlatformProfile.fullWriter,
+  );
+  final preferences = Preferences();
+  addTearDown(preferences.dispose);
+  final overrides = _TestHttpOverrides((method, uri, body) async {
+    expect(method, 'POST');
+    expect(uri.path, '/apps/api/v1/exchange');
+    final action =
+        (jsonDecode(utf8.decode(body)) as Map<String, dynamic>)['action'];
+    if (action == 'cancel_browser_handoff') {
+      return _StubHttpResponse(utf8.encode('{}'));
+    }
+    expect(action, 'create_browser_handoff');
+    return _StubHttpResponse(
+      utf8.encode(
+        jsonEncode({
+          'data': {
+            'launch_url':
+                'https://certifications.asodya.com/continue?handoff_id=handoff-return-1',
+            'expires_at': DateTime.now().millisecondsSinceEpoch ~/ 1000 + 3600,
+          },
+        }),
+      ),
+    );
+  });
+  final launchCalls = <String>[];
+  const launcherChannel = MethodChannel('plugins.flutter.io/url_launcher');
+  tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+    launcherChannel,
+    (call) async {
+      launchCalls.add(call.method);
+      return launchAccepted;
+    },
+  );
+  addTearDown(
+    () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      launcherChannel,
+      null,
+    ),
+  );
+  tester.platformDispatcher.accessibilityFeaturesTestValue =
+      const FakeAccessibilityFeatures(disableAnimations: true);
+  addTearDown(tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
+  tester.view.devicePixelRatio = 1;
+  tester.view.physicalSize = const Size(1200, 900);
+  addTearDown(tester.view.reset);
+
+  await tester.pumpWidget(
+    MaterialApp(
+      home: AppScope(
+        preferences: preferences,
+        service: AnnotationsService(
+          api: ApiAdapter(
+            base: 'https://api.asodya.com/apps/annotations/v1',
+            client: apiClient,
+          ),
+        ),
+        workspace: workspace,
+        installed: account,
+        child: const NoteEditorPage(noteId: 'note-return'),
+      ),
+    ),
+  );
+  await pumpEditorFrames(tester);
+
+  return _QuizReturnFixture(
+    store: store,
+    root: root,
+    account: account,
+    apiClient: apiClient,
+    accountClient: accountClient,
+    workspace: workspace,
+    preferences: preferences,
+    studyReads: studyReads,
+    releaseReturnStudy: releaseReturnStudy,
+    overrides: overrides,
+    launchCalls: launchCalls,
+  );
+}
+
 void main() {
   setUpAll(loadAppFonts);
+
+  testWidgets('one app return reads the saved quiz once and adds one card', (
+    tester,
+  ) async {
+    final fixture = await _makeQuizReturnFixture(tester);
+    await HttpOverrides.runZoned(() async {
+      await tester.tap(find.byKey(const Key('editor-prepare-quiz')));
+      await tester.pump();
+      await pumpEditorFrames(tester);
+      expect(fixture.launchCalls, isNotEmpty);
+      expect(fixture.studyReads.length, 1);
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+      await pumpEditorFrames(tester);
+      expect(fixture.studyReads.length, 2, reason: 'one return GET must run');
+      final handler = tester
+          .widget<PaperScreen>(find.byType(PaperScreen))
+          .handler;
+      final cards = handler.document.toJson()['items'] as List;
+      final quizCards = cards.where(
+        (item) => item is Map && item['kind'] == 'quiz_card',
+      );
+      expect(quizCards, hasLength(1));
+      expect(fixture.studyReads.length, 2);
+      await tester.runAsync(() => handler.autosave.flush());
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+      await pumpEditorFrames(tester);
+      expect(fixture.studyReads.length, 2);
+      expect(
+        (handler.document.toJson()['items'] as List).where(
+          (item) => item is Map && item['kind'] == 'quiz_card',
+        ),
+        hasLength(1),
+      );
+    }, createHttpClient: fixture.overrides.createHttpClient);
+  });
+
+  testWidgets('no quiz card is added until the study has a saved quiz id', (
+    tester,
+  ) async {
+    final fixture = await _makeQuizReturnFixture(tester, quizId: null);
+    await HttpOverrides.runZoned(() async {
+      await tester.tap(find.byKey(const Key('editor-prepare-quiz')));
+      await tester.pump();
+      await pumpEditorFrames(tester);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+      await pumpEditorFrames(tester);
+
+      final handler = tester
+          .widget<PaperScreen>(find.byType(PaperScreen))
+          .handler;
+      expect(
+        (handler.document.toJson()['items'] as List).where(
+          (item) => item is Map && item['kind'] == 'quiz_card',
+        ),
+        isEmpty,
+      );
+      expect(fixture.studyReads.length, 2);
+    }, createHttpClient: fixture.overrides.createHttpClient);
+  });
+
+  testWidgets('a failed return status read leaves the note unchanged', (
+    tester,
+  ) async {
+    final fixture = await _makeQuizReturnFixture(tester, failReturnStudy: true);
+    await HttpOverrides.runZoned(() async {
+      await tester.tap(find.byKey(const Key('editor-prepare-quiz')));
+      await tester.pump();
+      await pumpEditorFrames(tester);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+      await pumpEditorFrames(tester);
+
+      final handler = tester
+          .widget<PaperScreen>(find.byType(PaperScreen))
+          .handler;
+      expect(
+        (handler.document.toJson()['items'] as List).where(
+          (item) => item is Map && item['kind'] == 'quiz_card',
+        ),
+        isEmpty,
+      );
+      expect(fixture.studyReads.length, 2);
+    }, createHttpClient: fixture.overrides.createHttpClient);
+  });
+
+  testWidgets('a refused browser launch does not arm a return read', (
+    tester,
+  ) async {
+    final fixture = await _makeQuizReturnFixture(tester, launchAccepted: false);
+    await HttpOverrides.runZoned(() async {
+      await tester.tap(find.byKey(const Key('editor-prepare-quiz')));
+      await tester.pump();
+      await pumpEditorFrames(tester);
+      expect(fixture.launchCalls, isNotEmpty);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+      await pumpEditorFrames(tester);
+      expect(fixture.studyReads.length, 1);
+    }, createHttpClient: fixture.overrides.createHttpClient);
+  });
+
+  testWidgets('return updates the matching quiz card without moving it', (
+    tester,
+  ) async {
+    final fixture = await _makeQuizReturnFixture(tester, existingCard: true);
+    await HttpOverrides.runZoned(() async {
+      await tester.tap(find.byKey(const Key('editor-prepare-quiz')));
+      await tester.pump();
+      await pumpEditorFrames(tester);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+      await pumpEditorFrames(tester);
+
+      final handler = tester
+          .widget<PaperScreen>(find.byType(PaperScreen))
+          .handler;
+      expect(fixture.studyReads.length, 2, reason: 'one return GET must run');
+      final cards = (handler.document.toJson()['items'] as List)
+          .whereType<Map>()
+          .where((item) => item['kind'] == 'quiz_card')
+          .toList();
+      expect(cards, hasLength(1));
+      expect(cards.single['id'], 'quiz-card-existing');
+      expect(cards.single['x'], 16);
+      expect(cards.single['y'], 80);
+      expect(cards.single['study_id'], 'study-existing');
+      expect(cards.single['quiz_id'], 'quiz-ready');
+    }, createHttpClient: fixture.overrides.createHttpClient);
+  });
+
+  testWidgets('late return status cannot edit after the account changes', (
+    tester,
+  ) async {
+    final fixture = await _makeQuizReturnFixture(tester, gateReturnStudy: true);
+    await HttpOverrides.runZoned(() async {
+      await tester.tap(find.byKey(const Key('editor-prepare-quiz')));
+      await tester.pump();
+      await pumpEditorFrames(tester);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+      for (
+        var frame = 0;
+        frame < 12 && fixture.studyReads.length < 2;
+        frame++
+      ) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+      expect(fixture.studyReads.length, 2);
+
+      fixture.account.switchTo(
+        const NativeSession(
+          sessionId: 'session-b',
+          csrfToken: 'csrf-b',
+          verifiedUserId: 'account-b',
+        ),
+      );
+      await pumpEditorFrames(tester);
+      fixture.releaseReturnStudy.complete(
+        http.Response(
+          jsonEncode({
+            'study': {
+              'id': 'study-existing',
+              'title': 'Study',
+              'status': 'ready',
+              'quiz_id': 'quiz-ready',
+            },
+            'sources': [],
+            'quota': {'used_bytes': 0, 'max_bytes': 100},
+            'config': {'language': 'en', 'count': 10},
+          }),
+          200,
+        ),
+      );
+      await pumpEditorFrames(tester);
+      final saved = await tester.runAsync(
+        () => fixture.store.load('note-return'),
+      );
+      expect(saved!.document.toJson()['items'], hasLength(1));
+      expect(fixture.account.localOwnerId, 'account-b');
+    }, createHttpClient: fixture.overrides.createHttpClient);
+  });
+
+  testWidgets(
+    'late return status is discarded after the note revision changes',
+    (tester) async {
+      final fixture = await _makeQuizReturnFixture(
+        tester,
+        gateReturnStudy: true,
+      );
+      await HttpOverrides.runZoned(() async {
+        await tester.tap(find.byKey(const Key('editor-prepare-quiz')));
+        await tester.pump();
+        await pumpEditorFrames(tester);
+        tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.resumed,
+        );
+        await tester.pump();
+        for (
+          var frame = 0;
+          frame < 12 && fixture.studyReads.length < 2;
+          frame++
+        ) {
+          await tester.pump(const Duration(milliseconds: 50));
+        }
+        expect(fixture.studyReads.length, 2);
+
+        final before = await tester.runAsync(
+          () => fixture.store.load('note-return'),
+        );
+        await tester.runAsync(
+          () => fixture.store.save(
+            LocalNoteDraft(
+              id: before!.id,
+              schema: before.schema,
+              document: before.document,
+              title: 'Changed while away',
+              accountId: before.accountId,
+            ),
+          ),
+        );
+        fixture.releaseReturnStudy.complete(
+          http.Response(
+            jsonEncode({
+              'study': {
+                'id': 'study-existing',
+                'title': 'Study',
+                'status': 'ready',
+                'quiz_id': 'quiz-ready',
+              },
+              'sources': [],
+              'quota': {'used_bytes': 0, 'max_bytes': 100},
+              'config': {'language': 'en', 'count': 10},
+            }),
+            200,
+          ),
+        );
+        await pumpEditorFrames(tester);
+        final saved = await tester.runAsync(
+          () => fixture.store.load('note-return'),
+        );
+        expect(saved!.title, 'Changed while away');
+        expect(saved.document.toJson()['items'], hasLength(1));
+      }, createHttpClient: fixture.overrides.createHttpClient);
+    },
+  );
 
   testWidgets(
     'account switch during source catalog read stops the prepared quiz flow',
