@@ -101,7 +101,7 @@ class _ReportsCreateDialogState extends State<_ReportsCreateDialog> {
 
   ReportsChartSourceTable? get _table {
     for (final candidate in widget.tables) {
-      if (candidate.fileId == _tableId) return candidate;
+      if (candidate.selectionId == _tableId) return candidate;
     }
     return widget.tables.firstOrNull;
   }
@@ -112,7 +112,7 @@ class _ReportsCreateDialogState extends State<_ReportsCreateDialog> {
   void initState() {
     super.initState();
     _templateId = widget.templates.firstOrNull?.templateId;
-    _tableId = widget.tables.firstOrNull?.fileId;
+    _tableId = widget.tables.firstOrNull?.selectionId;
     widget.ownerScopeRevision?.addListener(_scopeChanged);
     _syncTemplateDefaults();
   }
@@ -300,14 +300,14 @@ class _ReportsCreateDialogState extends State<_ReportsCreateDialog> {
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
                 key: const Key('reports-create-table'),
-                initialValue: table?.fileId,
+                initialValue: table?.selectionId,
                 decoration: InputDecoration(
                   labelText: context.tr('reportsCreateSourceTable'),
                 ),
                 items: [
                   for (final candidate in widget.tables)
                     DropdownMenuItem(
-                      value: candidate.fileId,
+                      value: candidate.selectionId,
                       child: Text(
                         '${candidate.name} · ${candidate.rows.length}',
                         overflow: TextOverflow.ellipsis,
@@ -417,7 +417,7 @@ class _ReportsCreateDialogState extends State<_ReportsCreateDialog> {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: DropdownButtonFormField<String>(
-        key: Key('reports-create-slot-$_templateId-${table.fileId}-$name'),
+        key: Key('reports-create-slot-$_templateId-${table.selectionId}-$name'),
         initialValue: _mapping[name] ?? (required ? null : ''),
         decoration: InputDecoration(
           labelText: '${_humanize(role)}${required ? ' *' : ''}',

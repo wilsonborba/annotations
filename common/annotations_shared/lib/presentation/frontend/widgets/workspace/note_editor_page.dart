@@ -25,6 +25,7 @@ import '../../../../domain/services/prepared_certification_service.dart';
 import '../../../../domain/services/quiz_card_service.dart';
 import '../../../../domain/services/reports_embed_source.dart';
 import '../../../../domain/services/reports_chart_data.dart';
+import '../../../../domain/services/reports_xlsx_data.dart';
 import '../../../../domain/services/task_card_service.dart';
 import '../../components/controls.dart';
 import '../../components/icons.dart';
@@ -272,24 +273,37 @@ class _NoteEditorPageState extends State<NoteEditorPage>
     final tables = <ReportsChartSourceTable>[];
     final seen = <String>{};
     for (final item in document.itemsJson) {
-      if (item['kind'] != 'csv_table') continue;
+      final kind = item['kind'];
+      if (kind != 'csv_table' && kind != 'file_card') continue;
       final fileId = item['file_id'];
       if (fileId is! String || !seen.add(fileId)) continue;
       final file = await handler.autosave.files.attachment(fileId);
       if (file == null) {
-        throw const FormatException('The selected table file is missing.');
+        if (kind == 'csv_table') {
+          throw const FormatException('The selected table file is missing.');
+        }
+        continue;
+      }
+      if (kind == 'file_card' && !file.name.toLowerCase().endsWith('.xlsx')) {
+        continue;
       }
       final bytes = await handler.autosave.files.readAttachment(fileId);
       if (bytes == null) {
         throw const FormatException('The selected table file cannot be read.');
       }
-      tables.add(
-        ReportsChartSourceTable.parse(
-          fileId: fileId,
-          name: file.name,
-          bytes: bytes,
-        ),
-      );
+      if (kind == 'csv_table') {
+        tables.add(
+          ReportsChartSourceTable.parse(
+            fileId: fileId,
+            name: file.name,
+            bytes: bytes,
+          ),
+        );
+      } else {
+        tables.addAll(
+          ReportsXlsxData.parse(fileId: fileId, name: file.name, bytes: bytes),
+        );
+      }
     }
     return List.unmodifiable(tables);
   }

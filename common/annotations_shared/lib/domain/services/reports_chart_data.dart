@@ -3,18 +3,23 @@ import 'dart:typed_data';
 
 import 'card_content.dart' show parseCsvBytes;
 
-/// A CSV table already attached to the selected local note, normalized for a
-/// user-selected Reports template. No bytes are sent until the user creates a
-/// chart.
+/// A CSV or selected worksheet already attached to the local note, normalized
+/// for a user-selected Reports template. No source bytes are sent until the
+/// user creates a chart.
 final class ReportsChartSourceTable {
   const ReportsChartSourceTable({
     required this.fileId,
     required this.name,
     required this.columns,
     required this.rows,
-  });
+    String? selectionId,
+  }) : selectionId = selectionId ?? fileId;
 
   final String fileId;
+
+  /// Dialog identity. Multi-sheet workbooks can expose multiple tables from
+  /// the same managed attachment, so this is distinct from [fileId].
+  final String selectionId;
   final String name;
   final List<ReportsChartSourceColumn> columns;
   final List<Map<String, Object?>> rows;
@@ -105,6 +110,7 @@ final class ReportsChartSourceTable {
     return ReportsChartSourceTable(
       fileId: fileId,
       name: name,
+      selectionId: fileId,
       columns: List.unmodifiable(columns),
       rows: List.unmodifiable(rows),
     );

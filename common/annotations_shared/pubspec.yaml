@@ -16,6 +16,9 @@ dependencies:
   pdf: ^3.12.0
   # Direct use for packaging the generated PDFs and companion files.
   archive: 4.0.9
+  # Bounded OOXML worksheet parsing for chart sources. Keep the locked XML
+  # version aligned with the PDF export dependency graph.
+  xml: 6.6.1
   # image 4.11.0 needs archive 4.1 while pdf allows archive below 4.1 only.
   image: ">=4.10.2 <4.11.0"
   go_router: ^17.5.0
