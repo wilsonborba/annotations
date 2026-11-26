@@ -614,6 +614,13 @@ const strings = <String, List<String>>{
     'Conferi; criar novamente',
     'ตรวจแล้ว; สร้างอีกครั้ง',
   ],
+  'taskLoadMore': ['Load more tasks', 'Carregar mais tarefas', 'โหลดงานเพิ่ม'],
+  'taskLoadingMore': ['Loading tasks…', 'Carregando tarefas…', 'กำลังโหลดงาน…'],
+  'taskLoadMoreFailed': [
+    'Could not load more tasks. Try again.',
+    'Não foi possível carregar mais tarefas. Tente novamente.',
+    'โหลดงานเพิ่มเติมไม่ได้ โปรดลองอีกครั้ง',
+  ],
   'taskPickerEmpty': [
     'You have no tasks to add to this note.',
     'Você não tem tarefas para adicionar a esta nota.',

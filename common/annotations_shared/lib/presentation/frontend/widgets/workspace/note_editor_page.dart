@@ -195,11 +195,12 @@ class _NoteEditorPageState extends State<NoteEditorPage>
       ApiAdapter(client: SessionClient(installed, installed.client)),
     );
     try {
-      final tasks = await service.listOwnTasks();
+      final firstPage = await service.listOwnTaskPage();
       if (!current() || !dialogContext.mounted) return;
       final task = await showTaskCardPicker(
         dialogContext,
-        tasks: tasks,
+        tasks: firstPage.items,
+        nextCursor: firstPage.nextCursor,
         createTask:
             ({required title, description, dueDate, required completed}) async {
               if (!current()) throw StateError('The active note changed.');
@@ -213,9 +214,9 @@ class _NoteEditorPageState extends State<NoteEditorPage>
               if (!current()) throw StateError('The active note changed.');
               return created;
             },
-        reloadTasks: () async {
+        loadTaskPage: ({String? cursor}) async {
           if (!current()) throw StateError('The active note changed.');
-          final refreshed = await service.listOwnTasks();
+          final refreshed = await service.listOwnTaskPage(cursor: cursor);
           if (!current()) throw StateError('The active note changed.');
           return refreshed;
         },

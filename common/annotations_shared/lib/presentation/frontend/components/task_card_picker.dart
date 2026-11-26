@@ -18,8 +18,9 @@ typedef CreateOwnerTask =
 Future<TaskSummary?> showTaskCardPicker(
   BuildContext context, {
   required List<TaskSummary> tasks,
+  String? nextCursor,
   CreateOwnerTask? createTask,
-  Future<List<TaskSummary>> Function()? reloadTasks,
+  Future<TaskSummaryPage> Function({String? cursor})? loadTaskPage,
   bool Function()? isOwnerScopeCurrent,
   ValueListenable<int>? ownerScopeRevision,
   int? expectedOwnerScopeRevision,
@@ -29,8 +30,9 @@ Future<TaskSummary?> showTaskCardPicker(
     context: context,
     builder: (dialogContext) => _TaskCardPickerDialog(
       tasks: tasks,
+      nextCursor: nextCursor,
       createTask: createTask,
-      reloadTasks: reloadTasks,
+      loadTaskPage: loadTaskPage,
       isOwnerScopeCurrent: isOwnerScopeCurrent,
       ownerScopeRevision: ownerScopeRevision,
       expectedOwnerScopeRevision: expectedOwnerScopeRevision,
@@ -41,16 +43,18 @@ Future<TaskSummary?> showTaskCardPicker(
 class _TaskCardPickerDialog extends StatefulWidget {
   const _TaskCardPickerDialog({
     required this.tasks,
+    required this.nextCursor,
     required this.createTask,
-    required this.reloadTasks,
+    required this.loadTaskPage,
     required this.isOwnerScopeCurrent,
     required this.ownerScopeRevision,
     required this.expectedOwnerScopeRevision,
   });
 
   final List<TaskSummary> tasks;
+  final String? nextCursor;
   final CreateOwnerTask? createTask;
-  final Future<List<TaskSummary>> Function()? reloadTasks;
+  final Future<TaskSummaryPage> Function({String? cursor})? loadTaskPage;
   final bool Function()? isOwnerScopeCurrent;
   final ValueListenable<int>? ownerScopeRevision;
   final int? expectedOwnerScopeRevision;
@@ -60,6 +64,11 @@ class _TaskCardPickerDialog extends StatefulWidget {
 }
 
 class _TaskCardPickerDialogState extends State<_TaskCardPickerDialog> {
+  late List<TaskSummary> _tasks;
+  String? _nextCursor;
+  bool _loadingMore = false;
+  int _pageGeneration = 0;
+
   bool get _scopeIsCurrent => widget.isOwnerScopeCurrent?.call() ?? true;
 
   Future<void> _createTask() async {
@@ -69,7 +78,7 @@ class _TaskCardPickerDialogState extends State<_TaskCardPickerDialog> {
       context: context,
       builder: (context) => _TaskCreateDialog(
         createTask: create,
-        reloadTasks: widget.reloadTasks,
+        loadTaskPage: widget.loadTaskPage,
         isOwnerScopeCurrent: widget.isOwnerScopeCurrent,
         ownerScopeRevision: widget.ownerScopeRevision,
         expectedOwnerScopeRevision: widget.expectedOwnerScopeRevision,
@@ -82,7 +91,53 @@ class _TaskCardPickerDialogState extends State<_TaskCardPickerDialog> {
   @override
   void initState() {
     super.initState();
+    _tasks = List<TaskSummary>.of(widget.tasks);
+    _nextCursor = widget.nextCursor;
     widget.ownerScopeRevision?.addListener(_scopeChanged);
+  }
+
+  String? _pageError;
+
+  Future<void> _loadMore() async {
+    final loadPage = widget.loadTaskPage;
+    final cursor = _nextCursor;
+    if (loadPage == null ||
+        cursor == null ||
+        _loadingMore ||
+        !_scopeIsCurrent) {
+      return;
+    }
+    final generation = ++_pageGeneration;
+    setState(() {
+      _loadingMore = true;
+      _pageError = null;
+    });
+    try {
+      final page = await loadPage(cursor: cursor);
+      if (!mounted ||
+          !_scopeIsCurrent ||
+          generation != _pageGeneration ||
+          cursor != _nextCursor) {
+        return;
+      }
+      final known = _tasks.map((task) => task.taskId).toSet();
+      setState(() {
+        _tasks = [
+          ..._tasks,
+          for (final task in page.items)
+            if (known.add(task.taskId)) task,
+        ];
+        _nextCursor = page.nextCursor;
+      });
+    } on Object {
+      if (mounted && _scopeIsCurrent && generation == _pageGeneration) {
+        setState(() => _pageError = context.tr('taskLoadMoreFailed'));
+      }
+    } finally {
+      if (mounted && generation == _pageGeneration) {
+        setState(() => _loadingMore = false);
+      }
+    }
   }
 
   void _scopeChanged() {
@@ -107,30 +162,49 @@ class _TaskCardPickerDialogState extends State<_TaskCardPickerDialog> {
     title: Text(context.tr('taskAddToNote')),
     content: SizedBox(
       width: 420,
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxHeight: 480),
-        child: widget.tasks.isEmpty
-            ? Text(context.tr('taskPickerEmpty'))
-            : ListView.builder(
-                shrinkWrap: true,
-                itemCount: widget.tasks.length,
-                itemBuilder: (context, index) {
-                  final task = widget.tasks[index];
-                  return ListTile(
-                    key: Key('task-choice-${task.taskId}'),
-                    title: Text(task.title),
-                    subtitle: Text(
-                      context.tr(task.completed ? 'taskCompleted' : 'taskOpen'),
-                    ),
-                    onTap: _scopeIsCurrent
-                        ? () => Navigator.of(context).pop(task)
-                        : null,
-                  );
-                },
-              ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (_pageError != null)
+            Text(_pageError!, key: const Key('task-load-more-error')),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 300),
+            child: _tasks.isEmpty
+                ? Text(context.tr('taskPickerEmpty'))
+                : ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: _tasks.length,
+                    itemBuilder: (context, index) {
+                      final task = _tasks[index];
+                      return ListTile(
+                        key: Key('task-choice-${task.taskId}'),
+                        title: Text(task.title),
+                        subtitle: Text(
+                          context.tr(
+                            task.completed ? 'taskCompleted' : 'taskOpen',
+                          ),
+                        ),
+                        onTap: _scopeIsCurrent
+                            ? () => Navigator.of(context).pop(task)
+                            : null,
+                      );
+                    },
+                  ),
+          ),
+        ],
       ),
     ),
     actions: [
+      if (_nextCursor != null)
+        TextButton(
+          key: const Key('task-load-more'),
+          onPressed: _loadingMore ? null : _loadMore,
+          child: Text(
+            _loadingMore
+                ? context.tr('taskLoadingMore')
+                : context.tr('taskLoadMore'),
+          ),
+        ),
       TextButton(
         onPressed: () => Navigator.of(context).pop(),
         child: Text(context.tr('cancel')),
@@ -149,14 +223,14 @@ class _TaskCardPickerDialogState extends State<_TaskCardPickerDialog> {
 class _TaskCreateDialog extends StatefulWidget {
   const _TaskCreateDialog({
     required this.createTask,
-    required this.reloadTasks,
+    required this.loadTaskPage,
     required this.isOwnerScopeCurrent,
     required this.ownerScopeRevision,
     required this.expectedOwnerScopeRevision,
   });
 
   final CreateOwnerTask createTask;
-  final Future<List<TaskSummary>> Function()? reloadTasks;
+  final Future<TaskSummaryPage> Function({String? cursor})? loadTaskPage;
   final bool Function()? isOwnerScopeCurrent;
   final ValueListenable<int>? ownerScopeRevision;
   final int? expectedOwnerScopeRevision;
@@ -174,7 +248,10 @@ class _TaskCreateDialogState extends State<_TaskCreateDialog> {
   bool _uncertain = false;
   bool _checking = false;
   List<TaskSummary>? _checkedTasks;
+  String? _checkedNextCursor;
   String? _error;
+  bool _checkingMore = false;
+  int _checkGeneration = 0;
 
   bool get _scopeIsCurrent => widget.isOwnerScopeCurrent?.call() ?? true;
   bool get _fieldsEnabled => !_saving && !_uncertain;
@@ -246,6 +323,7 @@ class _TaskCreateDialogState extends State<_TaskCreateDialog> {
         // service and other failures may have happened after the POST.
         _uncertain = !rejected;
         _checkedTasks = null;
+        _checkedNextCursor = null;
       });
     } on Object {
       if (!mounted || !_scopeIsCurrent) return;
@@ -253,6 +331,7 @@ class _TaskCreateDialogState extends State<_TaskCreateDialog> {
         _error = null;
         _uncertain = true;
         _checkedTasks = null;
+        _checkedNextCursor = null;
       });
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -260,21 +339,73 @@ class _TaskCreateDialogState extends State<_TaskCreateDialog> {
   }
 
   Future<void> _checkTasks() async {
-    final reload = widget.reloadTasks;
-    if (reload == null || !_scopeIsCurrent) return;
+    final loadPage = widget.loadTaskPage;
+    if (loadPage == null || _checking || _checkingMore || !_scopeIsCurrent) {
+      return;
+    }
+    final generation = ++_checkGeneration;
     setState(() {
       _checking = true;
       _error = null;
     });
     try {
-      final tasks = await reload();
-      if (!mounted || !_scopeIsCurrent) return;
-      setState(() => _checkedTasks = tasks);
+      final page = await loadPage();
+      if (!mounted || !_scopeIsCurrent || generation != _checkGeneration) {
+        return;
+      }
+      setState(() {
+        _checkedTasks = page.items;
+        _checkedNextCursor = page.nextCursor;
+      });
     } on Object {
       if (!mounted || !_scopeIsCurrent) return;
       setState(() => _error = context.tr('taskCreateCheckFailed'));
     } finally {
       if (mounted) setState(() => _checking = false);
+    }
+  }
+
+  Future<void> _loadMoreCheckedTasks() async {
+    final loadPage = widget.loadTaskPage;
+    final cursor = _checkedNextCursor;
+    if (loadPage == null ||
+        cursor == null ||
+        _checkingMore ||
+        !_scopeIsCurrent) {
+      return;
+    }
+    final generation = ++_checkGeneration;
+    setState(() {
+      _checkingMore = true;
+      _error = null;
+    });
+    try {
+      final page = await loadPage(cursor: cursor);
+      if (!mounted ||
+          !_scopeIsCurrent ||
+          generation != _checkGeneration ||
+          cursor != _checkedNextCursor) {
+        return;
+      }
+      final known = (_checkedTasks ?? const <TaskSummary>[])
+          .map((task) => task.taskId)
+          .toSet();
+      setState(() {
+        _checkedTasks = [
+          ...?_checkedTasks,
+          for (final task in page.items)
+            if (known.add(task.taskId)) task,
+        ];
+        _checkedNextCursor = page.nextCursor;
+      });
+    } on Object {
+      if (mounted && _scopeIsCurrent && generation == _checkGeneration) {
+        setState(() => _error = context.tr('taskCreateCheckFailed'));
+      }
+    } finally {
+      if (mounted && generation == _checkGeneration) {
+        setState(() => _checkingMore = false);
+      }
     }
   }
 
@@ -406,7 +537,7 @@ class _TaskCreateDialogState extends State<_TaskCreateDialog> {
         onPressed: _saving ? null : () => Navigator.of(context).pop(),
         child: Text(context.tr('cancel')),
       ),
-      if (_uncertain && _checkedTasks == null && widget.reloadTasks != null)
+      if (_uncertain && _checkedTasks == null && widget.loadTaskPage != null)
         OutlinedButton(
           key: const Key('task-create-check-existing'),
           onPressed: _checking ? null : _checkTasks,
@@ -419,8 +550,18 @@ class _TaskCreateDialogState extends State<_TaskCreateDialog> {
       if (_uncertain && _checkedTasks != null)
         OutlinedButton(
           key: const Key('task-create-check-again'),
-          onPressed: _checking ? null : _checkTasks,
+          onPressed: _checking || _checkingMore || _saving ? null : _checkTasks,
           child: Text(context.tr('taskCreateCheckExisting')),
+        ),
+      if (_uncertain && _checkedNextCursor != null)
+        TextButton(
+          key: const Key('task-create-load-more'),
+          onPressed: _checkingMore || _saving ? null : _loadMoreCheckedTasks,
+          child: Text(
+            _checkingMore
+                ? context.tr('taskLoadingMore')
+                : context.tr('taskLoadMore'),
+          ),
         ),
       if (_uncertain && _checkedTasks != null)
         FilledButton(

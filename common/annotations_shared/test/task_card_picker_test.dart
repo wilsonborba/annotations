@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -153,7 +154,7 @@ void main() {
                       completed: completed,
                       isInstant: false,
                     ),
-                reloadTasks: service.listOwnTasks,
+                loadTaskPage: service.listOwnTaskPage,
               );
             },
             child: const Text('Open picker'),
@@ -267,7 +268,7 @@ void main() {
                       completed: completed,
                       isInstant: false,
                     ),
-                reloadTasks: service.listOwnTasks,
+                loadTaskPage: service.listOwnTaskPage,
               );
             },
             child: const Text('Open picker'),
@@ -317,5 +318,149 @@ void main() {
       'status': 'completed',
     });
     expect((await result)?.taskId, 'task-explicit-retry');
+  });
+
+  testWidgets('loads the next owner task page and selects its older task', (
+    tester,
+  ) async {
+    final requestedCursors = <String?>[];
+    final tasks = [
+      for (var index = 1; index <= 51; index++)
+        {'task_id': 'task-$index', 'title': 'Task $index', 'status': 'open'},
+    ];
+    final service = TaskCardService(
+      ApiAdapter(
+        client: MockClient((request) async {
+          if (request.method == 'GET' &&
+              request.url.path.endsWith('/me/tasks')) {
+            final cursor = request.url.queryParameters['cursor'];
+            requestedCursors.add(cursor);
+            expect(request.url.queryParameters['limit'], '50');
+            if (cursor == null) {
+              return http.Response(
+                jsonEncode({
+                  'items': tasks.take(50).toList(),
+                  'next_cursor': 'tasks:page-2',
+                }),
+                200,
+              );
+            }
+            expect(cursor, 'tasks:page-2');
+            return http.Response(
+              jsonEncode({
+                'items': tasks.skip(50).toList(),
+                'next_cursor': null,
+              }),
+              200,
+            );
+          }
+          fail('Unexpected request: ${request.method} ${request.url.path}');
+        }),
+      ),
+    );
+    Future<TaskSummary?>? result;
+    await tester.pumpWidget(
+      host(
+        Builder(
+          builder: (context) => TextButton(
+            onPressed: () async {
+              final page = await service.listOwnTaskPage();
+              result = showTaskCardPicker(
+                context,
+                tasks: page.items,
+                nextCursor: page.nextCursor,
+                loadTaskPage: service.listOwnTaskPage,
+              );
+            },
+            child: const Text('Open picker'),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Open picker'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('task-choice-task-1')), findsOneWidget);
+    expect(find.byKey(const Key('task-choice-task-51')), findsNothing);
+
+    await tester.tap(find.byKey(const Key('task-load-more')));
+    await tester.pumpAndSettle();
+    expect(requestedCursors, [null, 'tasks:page-2']);
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('task-choice-task-51')),
+      200,
+      scrollable: find
+          .descendant(
+            of: find.byType(AlertDialog).last,
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+    expect(find.byKey(const Key('task-choice-task-51')), findsOneWidget);
+    await tester.ensureVisible(find.byKey(const Key('task-choice-task-51')));
+    await tester.tap(find.byKey(const Key('task-choice-task-51')));
+    await tester.pumpAndSettle();
+    expect((await result)?.taskId, 'task-51');
+    expect(requestedCursors, [null, 'tasks:page-2']);
+  });
+
+  testWidgets('discards a task page returned after owner scope changes', (
+    tester,
+  ) async {
+    final revision = ValueNotifier<int>(0);
+    var ownerCurrent = true;
+    final pageResult = Completer<TaskSummaryPage>();
+    Future<TaskSummary?>? result;
+    await tester.pumpWidget(
+      host(
+        Builder(
+          builder: (context) => TextButton(
+            onPressed: () {
+              result = showTaskCardPicker(
+                context,
+                tasks: const [
+                  TaskSummary(
+                    taskId: 'task-first-page',
+                    title: 'First page task',
+                    completed: false,
+                  ),
+                ],
+                nextCursor: 'tasks:page-2',
+                isOwnerScopeCurrent: () => ownerCurrent,
+                ownerScopeRevision: revision,
+                expectedOwnerScopeRevision: 0,
+                loadTaskPage: ({String? cursor}) => pageResult.future,
+              );
+            },
+            child: const Text('Open picker'),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Open picker'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const Key('task-load-more')));
+    await tester.tap(find.byKey(const Key('task-load-more')));
+    await tester.pump();
+
+    ownerCurrent = false;
+    revision.value = 1;
+    await tester.pumpAndSettle();
+    pageResult.complete(
+      const TaskSummaryPage(
+        items: [
+          TaskSummary(
+            taskId: 'task-stale-page',
+            title: 'Stale page task',
+            completed: false,
+          ),
+        ],
+        nextCursor: null,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('task-choice-task-stale-page')), findsNothing);
+    expect(await result, isNull);
+    revision.dispose();
   });
 }
