@@ -13,7 +13,6 @@ import 'package:annotations_shared/presentation/frontend/handlers/paper_handler.
 import 'package:annotations_shared/presentation/frontend/components/reports_embed_card.dart';
 import 'package:annotations_shared/presentation/frontend/components/scope.dart';
 import 'package:annotations_shared/presentation/frontend/components/task_card_view.dart';
-import 'package:annotations_shared/presentation/frontend/components/quiz_card_view.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/testing.dart';

@@ -861,6 +861,7 @@ class _NoteEditorPageState extends State<NoteEditorPage>
                                   exportNoteBeforeLoad?.accountId) {
                             return;
                           }
+                          if (!context.mounted) return;
                           final scope = AppScope.of(context);
                           final installed = exportInstalled;
                           final reportsSource = installed == null
@@ -983,6 +984,10 @@ class _NoteEditorPageState extends State<NoteEditorPage>
                                   },
                           );
                           if (!exportEntryIsCurrent()) {
+                            export.dispose();
+                            return;
+                          }
+                          if (!context.mounted) {
                             export.dispose();
                             return;
                           }
