@@ -129,6 +129,38 @@ void main() {
     },
   );
 
+  test('reads only a saved nonblank quiz id from the study summary', () async {
+    Future<PreparedCertificationStudy> read(String? quizId) {
+      final service = PreparedCertificationService(
+        api: ApiAdapter(
+          base: 'https://api.test',
+          client: MockClient(
+            (_) async => http.Response(
+              jsonEncode({
+                'study': {
+                  'id': 'study-3',
+                  'title': 'Study',
+                  'status': 'ready',
+                  'quiz_id': quizId,
+                },
+                'sources': [],
+                'quota': {'used_bytes': 0, 'max_bytes': 100},
+                'config': {'language': 'en', 'count': 10},
+              }),
+              200,
+            ),
+          ),
+        ),
+        session: session,
+      );
+      return service.read('study-3');
+    }
+
+    expect((await read('quiz-9')).quizId, 'quiz-9');
+    expect((await read('   ')).quizId, isNull);
+    expect((await read(null)).quizId, isNull);
+  });
+
   test('does not continue when the server has not saved the config', () async {
     var calls = 0;
     final service = PreparedCertificationService(
