@@ -175,6 +175,7 @@ class RoomHeader extends StatelessWidget {
                 child: Text(
                   code,
                   key: const Key('room-code'),
+                  maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.titleMedium,
                 ),

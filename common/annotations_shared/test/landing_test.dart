@@ -514,6 +514,7 @@ void main() {
 
       final codeLabel = tester.widget<Text>(find.byKey(const Key('room-code')));
       expect(codeLabel.data, longCode);
+      expect(codeLabel.maxLines, 1);
       expect(codeLabel.overflow, TextOverflow.ellipsis);
 
       final qr = tester.widget<QrShareControl>(
