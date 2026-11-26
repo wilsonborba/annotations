@@ -136,6 +136,7 @@ class RoomHeader extends StatelessWidget {
       key: const Key('room-qr'),
       url: InstantRoomPage.joinUri(code),
       caption: context.tr('qrInstantCaption'),
+      labelKey: 'qrRoom',
     );
     return Container(
       key: const Key('room-header'),

@@ -706,11 +706,6 @@ const strings = <String, List<String>>{
   'filterProject': ['Project', 'Projeto', 'โปรเจกต์'],
   'qrNote': ['Note QR code', 'Código QR da anotação', 'คิวอาร์โค้ดบันทึก'],
   'qrRoom': ['Room QR code', 'Código QR da sala', 'คิวอาร์โค้ดห้อง'],
-  'qrInstantCaption': [
-    'Scan to open this Instant room',
-    'Escaneie para abrir esta sala Instant',
-    'สแกนเพื่อเปิดห้อง Instant นี้',
-  ],
   'openNote': ['Open note', 'Abrir anotação', 'เปิดบันทึก'],
 };
 String translate(String key, String locale) {

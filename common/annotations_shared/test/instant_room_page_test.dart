@@ -12,6 +12,7 @@ import 'package:annotations_shared/presentation/frontend/components/qr_share.dar
 import 'package:annotations_shared/presentation/frontend/handlers/instant_room_handler.dart';
 import 'package:annotations_shared/presentation/frontend/widgets/instant/instant_room_page.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -73,6 +74,60 @@ void main() {
     expect(find.byKey(const Key('room-time')), findsOneWidget);
     await closeRoom(tester);
   });
+
+  testWidgets(
+    'active room QR and Copy share the exact join URL on phone and desktop',
+    (tester) async {
+      final previousSettings = Settings.current;
+      Settings.use(const Settings(development: false));
+      addTearDown(() => Settings.use(previousSettings));
+      String? copiedText;
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (call) async {
+          if (call.method == 'Clipboard.setData') {
+            copiedText = (call.arguments as Map)['text'] as String;
+          }
+          return null;
+        },
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          null,
+        ),
+      );
+
+      for (final size in [const Size(390, 844), const Size(1280, 860)]) {
+        final server = FakeRoomServer(code: 'river-lab');
+        await openRoom(tester, server, size: size);
+        final expected = Uri.parse(
+          'https://annotations.asodya.com/v1/instant/river-lab',
+        );
+        expect(find.byKey(const Key('room-qr')), findsOneWidget);
+        final control = tester.widget<QrShareControl>(
+          find.byKey(const Key('room-qr')),
+        );
+        expect(control.url, expected);
+
+        await tester.tap(find.byKey(const Key('room-qr')));
+        await tester.pump(const Duration(milliseconds: 300));
+        expect(find.byType(QrCodeView), findsOneWidget);
+        expect(
+          tester.widget<QrCodeView>(find.byType(QrCodeView)).data,
+          expected.toString(),
+        );
+        await tester.tap(find.text('Close'));
+        await tester.pump(const Duration(milliseconds: 300));
+
+        copiedText = null;
+        await tester.tap(find.byKey(const Key('room-copy')));
+        await tester.pump(const Duration(milliseconds: 300));
+        expect(copiedText, expected.toString());
+        await closeRoom(tester);
+      }
+    },
+  );
 
   testWidgets('near the expiry the time shows a warning', (tester) async {
     final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
