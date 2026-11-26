@@ -2,8 +2,26 @@ import Flutter
 import Security
 import UIKit
 
+private final class PendingExport {
+  let requestID: String
+  let temporaryURL: URL
+  let result: FlutterResult
+  weak var picker: UIDocumentPickerViewController?
+  var cancelled = false
+  var completed = false
+
+  init(requestID: String, temporaryURL: URL, result: @escaping FlutterResult) {
+    self.requestID = requestID
+    self.temporaryURL = temporaryURL
+    self.result = result
+  }
+}
+
 @main
-@objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
+@objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate, UIDocumentPickerDelegate {
+  private let exportChannelName = "com.asodya.annotations/export"
+  private var pendingExport: PendingExport?
+
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
@@ -23,6 +41,25 @@ import UIKit
       if call.method == "isPad" {
         result(UIDevice.current.userInterfaceIdiom == .pad)
       } else {
+        result(FlutterMethodNotImplemented)
+      }
+    }
+
+    let exportChannel = FlutterMethodChannel(
+      name: exportChannelName,
+      binaryMessenger: messenger
+    )
+    exportChannel.setMethodCallHandler { [weak self] call, result in
+      guard let self = self else {
+        result(FlutterError(code: "SAVE_UNAVAILABLE", message: "Application is unavailable", details: nil))
+        return
+      }
+      switch call.method {
+      case "saveExport":
+        self.beginExport(call, result: result)
+      case "cancelExport":
+        self.cancelExport(call, result: result)
+      default:
         result(FlutterMethodNotImplemented)
       }
     }
@@ -109,5 +146,113 @@ import UIKit
         result(FlutterMethodNotImplemented)
       }
     }
+  }
+
+  private func beginExport(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+    guard let args = call.arguments as? [String: Any],
+          let requestID = args["request_id"] as? String,
+          !requestID.isEmpty,
+          let requestedName = args["name"] as? String,
+          let mimeType = args["mime_type"] as? String,
+          let typedBytes = args["bytes"] as? FlutterStandardTypedData else {
+      result(FlutterError(code: "INVALID_ARGS", message: "Missing export request fields", details: nil))
+      return
+    }
+    guard pendingExport == nil else {
+      result(FlutterError(code: "SAVE_BUSY", message: "Another export picker is active", details: nil))
+      return
+    }
+    let extensionName: String
+    switch mimeType {
+    case "application/pdf": extensionName = "pdf"
+    case "application/zip": extensionName = "zip"
+    default:
+      result(FlutterError(code: "INVALID_MIME", message: "Unsupported export MIME type", details: nil))
+      return
+    }
+    let safeName = safeExportName(requestedName, extensionName: extensionName)
+    let cache = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+      .appendingPathComponent("annotations-export", isDirectory: true)
+    let temporaryURL = cache.appendingPathComponent(UUID().uuidString + "-" + safeName)
+    do {
+      try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
+      try typedBytes.data.write(to: temporaryURL, options: .atomic)
+    } catch {
+      result(FlutterError(code: "SAVE_STAGE_FAILED", message: error.localizedDescription, details: nil))
+      return
+    }
+
+    let pending = PendingExport(requestID: requestID, temporaryURL: temporaryURL, result: result)
+    let picker: UIDocumentPickerViewController
+    if #available(iOS 14.0, *) {
+      picker = UIDocumentPickerViewController(forExporting: [temporaryURL], asCopy: true)
+    } else {
+      picker = UIDocumentPickerViewController(url: temporaryURL, in: .exportToService)
+    }
+    picker.delegate = self
+    pending.picker = picker
+    pendingExport = pending
+    guard var presenter = window?.rootViewController else {
+      finishExport(pending, value: FlutterError(code: "SAVE_UNAVAILABLE", message: "No active document presenter", details: nil))
+      return
+    }
+    while let presented = presenter.presentedViewController {
+      presenter = presented
+    }
+    presenter.present(picker, animated: true)
+  }
+
+  private func cancelExport(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+    guard let args = call.arguments as? [String: Any],
+          let requestID = args["request_id"] as? String,
+          let pending = pendingExport,
+          pending.requestID == requestID else {
+      result(false)
+      return
+    }
+    pending.cancelled = true
+    if let picker = pending.picker, picker.presentingViewController != nil {
+      picker.dismiss(animated: true) { [weak self] in
+        self?.finishExport(pending, value: ["status": "cancelled"])
+      }
+    } else {
+      finishExport(pending, value: ["status": "cancelled"])
+    }
+    result(true)
+  }
+
+  func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+    guard let pending = pendingExport, pending.picker === controller else { return }
+    pending.cancelled = true
+    finishExport(pending, value: ["status": "cancelled"])
+  }
+
+  func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+    guard let pending = pendingExport, pending.picker === controller else { return }
+    // The OS has accepted the export at this point. A later account change
+    // cannot retract a user-selected destination file.
+    finishExport(
+      pending,
+      value: ["status": !pending.cancelled && !urls.isEmpty ? "saved" : "cancelled"]
+    )
+  }
+
+  private func finishExport(_ pending: PendingExport, value: Any?) {
+    guard !pending.completed else { return }
+    pending.completed = true
+    if pendingExport === pending { pendingExport = nil }
+    try? FileManager.default.removeItem(at: pending.temporaryURL)
+    pending.result(value)
+  }
+
+  private func safeExportName(_ name: String, extensionName: String) -> String {
+    let component = URL(fileURLWithPath: name).lastPathComponent
+      .components(separatedBy: CharacterSet.controlCharacters).joined(separator: "_")
+      .replacingOccurrences(of: "/", with: "_")
+      .replacingOccurrences(of: "\\", with: "_")
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+      .trimmingCharacters(in: CharacterSet(charactersIn: "."))
+    let stem = component.replacingOccurrences(of: #"\.(pdf|zip)$"#, with: "", options: .regularExpression)
+    return (stem.isEmpty ? "export" : stem) + "." + extensionName
   }
 }

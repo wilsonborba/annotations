@@ -1,11 +1,11 @@
+import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:archive/archive.dart';
 import 'package:file_selector/file_selector.dart' as fs;
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart' show rootBundle;
+import 'package:flutter/services.dart' show MethodChannel, rootBundle;
 import 'package:pdf/widgets.dart' as pw;
 import 'package:pdfrx/pdfrx.dart';
 
@@ -28,6 +28,22 @@ typedef ReportsEmbedLoader =
 typedef ReportsChartRenderer =
     Future<Uint8List> Function(ReportsEmbedData data, {required bool partial});
 typedef TaskSummaryLoader = Future<TaskSummary?> Function(String taskId);
+
+final class _ExportSaveRequest {
+  const _ExportSaveRequest({
+    required this.id,
+    required this.name,
+    required this.mimeType,
+    required this.bytes,
+    required this.generation,
+  });
+
+  final String id;
+  final String name;
+  final String mimeType;
+  final Uint8List bytes;
+  final int generation;
+}
 
 /// Rendered preview pages grouped by their exported PDF filename.
 final class ExportPreviewPdf {
@@ -74,7 +90,12 @@ class ExportHandler extends ChangeNotifier {
   }) : _mapper = mapper ?? PdfExportMapper(),
        _render = renderPages ?? renderPdfPages,
        _renderPdfPage = renderPdfPage ?? renderFirstPdfPage,
-       _saveLocation = saveLocation ?? _pickSave {
+       _saveLocation = saveLocation ?? _pickSave,
+       _useNativeSave =
+           saveLocation == null &&
+           !kIsWeb &&
+           (defaultTargetPlatform == TargetPlatform.android ||
+               defaultTargetPlatform == TargetPlatform.iOS) {
     if (_isPairedRepresentation(pairedNote)) {
       _pairedNote = pairedNote;
       _pairedLoaded = true;
@@ -94,6 +115,17 @@ class ExportHandler extends ChangeNotifier {
   final PdfPagesRenderer _render;
   final PdfPageRenderer _renderPdfPage;
   final Future<String?> Function(String name) _saveLocation;
+  final bool _useNativeSave;
+
+  static const MethodChannel _exportChannel = MethodChannel(
+    'com.asodya.annotations/export',
+  );
+  static int _saveRequestSerial = 0;
+  int _saveToken = 0;
+  bool _saving = false;
+  String? _activeSaveId;
+
+  bool get isSaving => _saving;
 
   static Future<String?> _pickSave(String name) async =>
       (await fs.getSaveLocation(suggestedName: name))?.path;
@@ -160,6 +192,7 @@ class ExportHandler extends ChangeNotifier {
 
   int _buildSeq = 0;
   bool _disposed = false;
+  bool _invalidated = false;
   bool _placeholders = false;
   static pw.Font? _bundledLatin;
   static pw.Font? _bundledThai;
@@ -364,7 +397,8 @@ class ExportHandler extends ChangeNotifier {
   /// problem (B13 point 9: never a silent omission); omitting [placeholders]
   /// preserves the most recent user choice on retry or paper/orientation change.
   Future<void> build({bool? placeholders}) async {
-    if (_disposed) return;
+    if (_disposed || _invalidated) return;
+    _cancelActiveSave();
     if (placeholders != null) _placeholders = placeholders;
     final seq = ++_buildSeq;
     saveError = false;
@@ -373,11 +407,11 @@ class ExportHandler extends ChangeNotifier {
 
     try {
       await _ensurePairedLoaded();
-      if (_disposed || seq != _buildSeq) return;
+      if (_disposed || _invalidated || seq != _buildSeq) return;
       if (!modes.contains(mode)) mode = modes.first;
 
       await _ensureBundledFonts();
-      if (_disposed || seq != _buildSeq) return;
+      if (_disposed || _invalidated || seq != _buildSeq) return;
 
       final includeOriginal =
           mode != PdfExportMode.typed && originalNote != null;
@@ -389,7 +423,7 @@ class ExportHandler extends ChangeNotifier {
       final attachments = <String, Uint8List>{};
       for (final id in ids) {
         final fileBytes = await store.readAttachment(id);
-        if (_disposed || seq != _buildSeq) return;
+        if (_disposed || _invalidated || seq != _buildSeq) return;
         if (fileBytes != null) attachments[id] = fileBytes;
       }
 
@@ -400,7 +434,7 @@ class ExportHandler extends ChangeNotifier {
       final csvTables = <String, List<List<String>>>{};
       for (final fileId in _referenceFileIds(selectedDocuments, 'csv_table')) {
         final info = await store.attachment(fileId);
-        if (_disposed || seq != _buildSeq) return;
+        if (_disposed || _invalidated || seq != _buildSeq) return;
         final bytes = attachments[fileId];
         if (info?.type.toLowerCase() == 'text/csv' && bytes != null) {
           csvTables[fileId] = parseCsvBytes(bytes);
@@ -412,7 +446,7 @@ class ExportHandler extends ChangeNotifier {
         'pdf_preview',
       )) {
         final info = await store.attachment(fileId);
-        if (_disposed || seq != _buildSeq) return;
+        if (_disposed || _invalidated || seq != _buildSeq) return;
         final bytes = attachments[fileId];
         if (info?.type.toLowerCase() != 'application/pdf' || bytes == null) {
           continue;
@@ -420,7 +454,7 @@ class ExportHandler extends ChangeNotifier {
         if (pdfInfo(bytes) == null) continue;
         try {
           final page = await _renderPdfPage(bytes, pdfPagePixels);
-          if (_disposed || seq != _buildSeq) {
+          if (_disposed || _invalidated || seq != _buildSeq) {
             page?.dispose();
             return;
           }
@@ -450,7 +484,7 @@ class ExportHandler extends ChangeNotifier {
         for (final taskId in _taskIds(selectedDocuments)) {
           try {
             final summary = await taskLoader(taskId);
-            if (_disposed || seq != _buildSeq) return;
+            if (_disposed || _invalidated || seq != _buildSeq) return;
             if (summary != null &&
                 summary.taskId == taskId &&
                 summary.title.trim().isNotEmpty) {
@@ -477,13 +511,13 @@ class ExportHandler extends ChangeNotifier {
               continue;
             }
             final data = await load(item);
-            if (_disposed || seq != _buildSeq) return;
+            if (_disposed || _invalidated || seq != _buildSeq) return;
             if (!data.canRender) {
               failedChartIds.add(imageKey);
               continue;
             }
             final image = await render(data, partial: !data.complete);
-            if (_disposed || seq != _buildSeq) return;
+            if (_disposed || _invalidated || seq != _buildSeq) return;
             if (image.lengthInBytes > 4 * 1024 * 1024 ||
                 reportImageBytes + image.lengthInBytes > 16 * 1024 * 1024) {
               failedChartIds.add(imageKey);
@@ -521,7 +555,7 @@ class ExportHandler extends ChangeNotifier {
         baseFont: _bundledLatin,
         thaiFont: _bundledThai,
       );
-      if (_disposed || seq != _buildSeq) return;
+      if (_disposed || _invalidated || seq != _buildSeq) return;
 
       if (out.pdfs.isEmpty) {
         _replacePreview(const []);
@@ -536,7 +570,7 @@ class ExportHandler extends ChangeNotifier {
       try {
         for (final pdf in out.pdfs) {
           final rendered = await _render(pdf.bytes, 900);
-          if (_disposed || seq != _buildSeq) {
+          if (_disposed || _invalidated || seq != _buildSeq) {
             _disposeImages(rendered);
             _disposePreviewGroups(renderedGroups);
             return;
@@ -551,7 +585,7 @@ class ExportHandler extends ChangeNotifier {
         }
       } on Object {
         _disposePreviewGroups(renderedGroups);
-        if (_disposed || seq != _buildSeq) return;
+        if (_disposed || _invalidated || seq != _buildSeq) return;
         _replacePreview(const []);
         output = out;
         preflight = out.preflight;
@@ -566,7 +600,7 @@ class ExportHandler extends ChangeNotifier {
       stage = ExportStage.ready;
       notifyListeners();
     } on Object {
-      if (_disposed || seq != _buildSeq) return;
+      if (_disposed || _invalidated || seq != _buildSeq) return;
       _replacePreview(const []);
       stage = ExportStage.failed;
       notifyListeners();
@@ -604,32 +638,156 @@ class ExportHandler extends ChangeNotifier {
     return Uint8List.fromList(ZipEncoder().encode(zip));
   }
 
+  static String _safeSaveName(String name, {required bool zip}) {
+    final extension = zip ? '.zip' : '.pdf';
+    final cleaned = name
+        .replaceAll(RegExp(r'[/\\\u0000-\u001f\u007f]'), '_')
+        .trim()
+        .replaceFirst(RegExp(r'^\.+'), '');
+    final stem = cleaned.replaceFirst(
+      RegExp(r'\.(pdf|zip)$', caseSensitive: false),
+      '',
+    );
+    return '${stem.isEmpty ? 'export' : stem}$extension';
+  }
+
+  bool _isCurrentSave(_ExportSaveRequest request, int token) =>
+      !_disposed &&
+      !_invalidated &&
+      _saveToken == token &&
+      _activeSaveId == request.id &&
+      _buildSeq == request.generation;
+
+  Future<bool> _writeSaveRequest(
+    _ExportSaveRequest request,
+    bool Function() isCurrent,
+  ) async {
+    if (_useNativeSave) {
+      if (!isCurrent()) return false;
+      final selection = await _exportChannel
+          .invokeMapMethod<String, Object?>('saveExport', {
+            'request_id': request.id,
+            'name': request.name,
+            'mime_type': request.mimeType,
+            'bytes': request.bytes,
+            'generation': request.generation,
+          });
+      if (defaultTargetPlatform == TargetPlatform.iOS) {
+        return selection?['status'] == 'saved';
+      }
+      if (selection?['status'] != 'selected') return false;
+      if (!isCurrent()) {
+        await _cancelNativeSave(request.id);
+        return false;
+      }
+      return await _exportChannel.invokeMethod<bool>('commitExport', {
+            'request_id': request.id,
+          }) ==
+          true;
+    }
+    final path = await _saveLocation(request.name);
+    if (path == null || !isCurrent()) return false;
+    await fs.XFile.fromData(
+      request.bytes,
+      mimeType: request.mimeType,
+      name: request.name,
+    ).saveTo(path);
+    return true;
+  }
+
+  void _cancelActiveSave() {
+    final id = _activeSaveId;
+    if (id == null) return;
+    _saveToken++;
+    _activeSaveId = null;
+    _saving = false;
+    if (_useNativeSave) unawaited(_cancelNativeSave(id));
+  }
+
+  Future<void> _cancelNativeSave(String id) async {
+    try {
+      await _exportChannel.invokeMethod<void>('cancelExport', {
+        'request_id': id,
+      });
+    } on Object {
+      // The request is invalidated locally already. A platform cancellation
+      // error cannot revive it or commit stale bytes.
+    }
+  }
+
   /// Saves the export where the user chooses. False on cancel or write failure.
   Future<bool> save() async {
-    if (_disposed || stage != ExportStage.ready) return false;
-    saveError = false;
+    if (_disposed || _invalidated || _saving || stage != ExportStage.ready) {
+      return false;
+    }
+    final generation = _buildSeq;
+    final isZip = needsZip;
+    late final Uint8List payload;
     try {
-      final path = await _saveLocation(fileName);
-      if (_disposed || path == null) return false;
-      await File(path).writeAsBytes(bytes(), flush: true);
+      payload = Uint8List.fromList(bytes());
     } on Object {
-      if (_disposed) return false;
       saveError = true;
       notifyListeners();
       return false;
     }
-    if (_disposed) return false;
-    stage = ExportStage.saved;
+    final request = _ExportSaveRequest(
+      id: 'annotations-export-${++_saveRequestSerial}',
+      name: _safeSaveName(fileName, zip: isZip),
+      mimeType: isZip ? 'application/zip' : 'application/pdf',
+      bytes: payload,
+      generation: generation,
+    );
+    final token = ++_saveToken;
+    _activeSaveId = request.id;
+    _saving = true;
+    saveError = false;
     notifyListeners();
-    return true;
+    try {
+      final saved = await _writeSaveRequest(
+        request,
+        () => _isCurrentSave(request, token),
+      );
+      if (!_isCurrentSave(request, token) || !saved) return false;
+      stage = ExportStage.saved;
+      notifyListeners();
+      return true;
+    } on Object {
+      if (!_isCurrentSave(request, token)) return false;
+      saveError = true;
+      notifyListeners();
+      return false;
+    } finally {
+      if (_activeSaveId == request.id) {
+        _activeSaveId = null;
+        _saving = false;
+        if (!_disposed && !_invalidated) notifyListeners();
+      }
+    }
   }
 
   @override
   void dispose() {
+    _cancelActiveSave();
     _disposed = true;
+    _invalidated = true;
     _buildSeq++;
     _replacePreview(const []);
     super.dispose();
+  }
+
+  /// Invalidates every pending or ready export after its note owner changes.
+  /// Any still-mounted dialog has no document output and cannot save it.
+  void invalidate() {
+    if (_disposed || _invalidated) return;
+    _cancelActiveSave();
+    _invalidated = true;
+    _buildSeq++;
+    stage = ExportStage.failed;
+    saveError = false;
+    preflight = null;
+    output = null;
+    _replacePreview(const []);
+    notifyListeners();
   }
 }
 

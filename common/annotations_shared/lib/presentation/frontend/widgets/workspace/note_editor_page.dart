@@ -48,6 +48,7 @@ class _NoteEditorPageState extends State<NoteEditorPage>
   bool _missing = false;
   bool _preparingQuiz = false;
   InstalledAccount? _installed;
+  ExportHandler? _activeExport;
   int _openGeneration = 0;
   int _returnCheckSerial = 0;
   _PreparedQuizReturn? _pendingQuizReturn;
@@ -85,6 +86,13 @@ class _NoteEditorPageState extends State<NoteEditorPage>
   Future<void> _open() async {
     final generation = ++_openGeneration;
     _pendingQuizReturn = null;
+    final activeExport = _activeExport;
+    activeExport?.invalidate();
+    _activeExport = null;
+    if (activeExport != null && mounted) {
+      final navigator = Navigator.of(context, rootNavigator: true);
+      if (navigator.canPop()) navigator.pop();
+    }
     final prior = _handler;
     _handler = null;
     _note = null;
@@ -690,6 +698,8 @@ class _NoteEditorPageState extends State<NoteEditorPage>
   void dispose() {
     _openGeneration++;
     _pendingQuizReturn = null;
+    _activeExport?.invalidate();
+    _activeExport = null;
     WidgetsBinding.instance.removeObserver(this);
     _installed?.removeListener(_accountChanged);
     final handler = _handler;
@@ -829,8 +839,16 @@ class _NoteEditorPageState extends State<NoteEditorPage>
                                     return taskCards.card(cardId)?.cached;
                                   },
                           );
-                          await showExportDialog(context, export);
-                          export.dispose();
+                          _activeExport?.invalidate();
+                          _activeExport = export;
+                          try {
+                            await showExportDialog(context, export);
+                          } finally {
+                            if (identical(_activeExport, export)) {
+                              _activeExport = null;
+                            }
+                            export.dispose();
+                          }
                         },
                       ),
                     ),

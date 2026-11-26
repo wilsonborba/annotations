@@ -15,7 +15,6 @@ import 'package:annotations_shared/domain/services/local_note_store.dart';
 import 'package:annotations_shared/domain/services/local_workspace.dart';
 import 'package:annotations_shared/domain/services/note_sync_service.dart';
 import 'package:annotations_shared/domain/services/pdf_export_mapper.dart';
-import 'package:annotations_shared/domain/services/quiz_card_service.dart';
 import 'package:annotations_shared/domain/services/task_card_service.dart';
 import 'package:annotations_shared/domain/services/preferences.dart';
 import 'package:annotations_shared/presentation/frontend/components/controls.dart';
@@ -1337,6 +1336,301 @@ void main() {
         expect(File(validPath).existsSync(), isTrue);
       },
     );
+
+    testWidgets('owner invalidation clears a ready PDF and preview', (
+      tester,
+    ) async {
+      final note = (await tester.runAsync(
+        () => store.save(
+          LocalNoteDraft(
+            id: 'n_invalidate_ready',
+            schema: _origSchema,
+            document: _originalDoc(),
+            title: 'Invalidate Ready Export',
+          ),
+        ),
+      ))!;
+      final handler = ExportHandler(
+        note: note,
+        store: store,
+        renderPages: (_, _) async => [await _solidImage()],
+      );
+      addTearDown(handler.dispose);
+      await tester.runAsync(() => handler.build());
+      expect(handler.stage, ExportStage.ready);
+      expect(handler.output?.pdfs, hasLength(1));
+      expect(handler.pages, hasLength(1));
+
+      handler.invalidate();
+      expect(handler.stage, ExportStage.failed);
+      expect(handler.output, isNull);
+      expect(handler.preflight, isNull);
+      expect(handler.pages, isEmpty);
+      expect(await tester.runAsync(() => handler.save()), isFalse);
+    });
+
+    testWidgets(
+      'native PDF save is single-flight and invalidates before write',
+      (tester) async {
+        final original = (await tester.runAsync(
+          () => store.save(
+            LocalNoteDraft(
+              id: 'n_native_save',
+              schema: _origSchema,
+              document: _originalDoc(),
+              title: 'Native PDF',
+            ),
+          ),
+        ))!;
+        const channel = MethodChannel('com.asodya.annotations/export');
+        final started = Completer<MethodCall>();
+        final pickerResult = Completer<Map<String, Object?>>();
+        final cancelled = Completer<void>();
+        final calls = <String>[];
+        tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          channel,
+          (call) async {
+            calls.add(call.method);
+            if (call.method == 'saveExport') {
+              if (!started.isCompleted) started.complete(call);
+              return pickerResult.future;
+            }
+            if (call.method == 'cancelExport') {
+              if (!pickerResult.isCompleted) {
+                pickerResult.complete({'status': 'cancelled'});
+              }
+              if (!cancelled.isCompleted) cancelled.complete();
+              return true;
+            }
+            if (call.method == 'commitExport') {
+              fail('A cancelled picker must not commit');
+            }
+            fail('Unexpected native export call ${call.method}');
+          },
+        );
+        addTearDown(
+          () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+            channel,
+            null,
+          ),
+        );
+
+        final handler = ExportHandler(
+          note: original,
+          store: store,
+          renderPages: (_, _) async => [await _solidImage()],
+        );
+        addTearDown(handler.dispose);
+        await tester.runAsync(() => handler.build());
+        expect(handler.stage, ExportStage.ready);
+
+        late Future<bool> pendingSave;
+        late MethodCall request;
+        await tester.runAsync(() async {
+          pendingSave = handler.save();
+          request = await started.future.timeout(const Duration(seconds: 5));
+        });
+        final arguments = request.arguments as Map<Object?, Object?>;
+        expect(arguments['mime_type'], 'application/pdf');
+        expect(arguments['name'], 'native-pdf-original.pdf');
+        expect(arguments['bytes'], isA<Uint8List>());
+        expect(
+          utf8.decode((arguments['bytes'] as Uint8List).take(5).toList()),
+          '%PDF-',
+        );
+        expect(await tester.runAsync(() => handler.save()), isFalse);
+        expect(calls.where((method) => method == 'saveExport'), hasLength(1));
+
+        handler.invalidate();
+        await tester.runAsync(() => cancelled.future);
+        expect(calls, containsAll(['saveExport', 'cancelExport']));
+        expect(await tester.runAsync(() => pendingSave), isFalse);
+        expect(handler.stage, ExportStage.failed);
+      },
+      variant: TargetPlatformVariant.only(TargetPlatform.android),
+    );
+
+    testWidgets(
+      'native ZIP save sends the exact PDF and ZIP contract',
+      (tester) async {
+        final original = (await tester.runAsync(
+          () => store.save(
+            LocalNoteDraft(
+              id: 'n_native_zip',
+              schema: _origSchema,
+              document: _originalDoc(),
+              title: 'Native Bundle',
+            ),
+          ),
+        ))!;
+        await tester.runAsync(
+          () => store.save(
+            LocalNoteDraft(
+              id: 'n_native_zip__typed',
+              schema: _typedSchema,
+              document: _typedDoc(),
+              title: 'Native Bundle',
+            ),
+          ),
+        );
+        const channel = MethodChannel('com.asodya.annotations/export');
+        Map<Object?, Object?>? request;
+        tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          channel,
+          (call) async {
+            if (call.method != 'saveExport') {
+              fail('Unexpected native export call ${call.method}');
+            }
+            request = call.arguments as Map<Object?, Object?>;
+            return {'status': 'saved'};
+          },
+        );
+        addTearDown(
+          () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+            channel,
+            null,
+          ),
+        );
+
+        final handler = ExportHandler(
+          note: original,
+          pairedNote: await store.load('n_native_zip__typed'),
+          store: store,
+          renderPages: (_, _) async => [await _solidImage()],
+        )..mode = PdfExportMode.both;
+        addTearDown(handler.dispose);
+        await tester.runAsync(() => handler.build());
+        expect(handler.stage, ExportStage.ready);
+        expect(handler.needsZip, isTrue);
+        expect(await tester.runAsync(() => handler.save()), isTrue);
+        expect(request?['mime_type'], 'application/zip');
+        expect(request?['name'], 'native-bundle.zip');
+        final bytes = request?['bytes'] as Uint8List;
+        expect(bytes.take(2), orderedEquals([0x50, 0x4b]));
+        final entries = ZipDecoder().decodeBytes(bytes).files;
+        expect(entries.map((file) => file.name), [
+          'native-bundle-original.pdf',
+          'native-bundle-typed.pdf',
+        ]);
+      },
+      variant: TargetPlatformVariant.only(TargetPlatform.iOS),
+    );
+
+    testWidgets(
+      'native Android commits a selected PDF destination once',
+      (tester) async {
+        final note = (await tester.runAsync(
+          () => store.save(
+            LocalNoteDraft(
+              id: 'n_native_android_commit',
+              schema: _origSchema,
+              document: _originalDoc(),
+              title: 'Android Commit',
+            ),
+          ),
+        ))!;
+        const channel = MethodChannel('com.asodya.annotations/export');
+        final calls = <String>[];
+        Map<Object?, Object?>? request;
+        tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          channel,
+          (call) async {
+            calls.add(call.method);
+            if (call.method == 'saveExport') {
+              request = call.arguments as Map<Object?, Object?>;
+              return {'status': 'selected'};
+            }
+            if (call.method == 'commitExport') return true;
+            fail('Unexpected native export call ${call.method}');
+          },
+        );
+        addTearDown(
+          () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+            channel,
+            null,
+          ),
+        );
+        final handler = ExportHandler(
+          note: note,
+          store: store,
+          renderPages: (_, _) async => [await _solidImage()],
+        );
+        addTearDown(handler.dispose);
+        await tester.runAsync(() => handler.build());
+        expect(await tester.runAsync(() => handler.save()), isTrue);
+        expect(calls, ['saveExport', 'commitExport']);
+        expect(request?['mime_type'], 'application/pdf');
+        expect(handler.stage, ExportStage.saved);
+      },
+      variant: TargetPlatformVariant.only(TargetPlatform.android),
+    );
+
+    testWidgets(
+      'native write failure stays retryable with a fresh request',
+      (tester) async {
+        final note = (await tester.runAsync(
+          () => store.save(
+            LocalNoteDraft(
+              id: 'n_native_retry',
+              schema: _origSchema,
+              document: _originalDoc(),
+              title: 'Native Retry',
+            ),
+          ),
+        ))!;
+        const channel = MethodChannel('com.asodya.annotations/export');
+        var failFirstCommit = true;
+        final requestIds = <String>[];
+        var commits = 0;
+        tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          channel,
+          (call) async {
+            if (call.method == 'saveExport') {
+              requestIds.add(
+                (call.arguments as Map<Object?, Object?>)['request_id']
+                    as String,
+              );
+              return {'status': 'selected'};
+            }
+            if (call.method == 'commitExport') {
+              commits++;
+              if (failFirstCommit) {
+                failFirstCommit = false;
+                throw PlatformException(
+                  code: 'SAVE_WRITE_FAILED',
+                  message: 'fixture write failure',
+                );
+              }
+              return true;
+            }
+            fail('Unexpected native export call ${call.method}');
+          },
+        );
+        addTearDown(
+          () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+            channel,
+            null,
+          ),
+        );
+        final handler = ExportHandler(
+          note: note,
+          store: store,
+          renderPages: (_, _) async => [await _solidImage()],
+        );
+        addTearDown(handler.dispose);
+        await tester.runAsync(() => handler.build());
+        expect(await tester.runAsync(() => handler.save()), isFalse);
+        expect(handler.stage, ExportStage.ready);
+        expect(handler.saveError, isTrue);
+        expect(await tester.runAsync(() => handler.save()), isTrue);
+        expect(handler.stage, ExportStage.saved);
+        expect(handler.saveError, isFalse);
+        expect(commits, 2);
+        expect(requestIds, hasLength(2));
+        expect(requestIds.toSet(), hasLength(2));
+      },
+      variant: TargetPlatformVariant.only(TargetPlatform.android),
+    );
   });
 
   group('ExportDialog & NoteEditorPage integration', () {
@@ -1673,7 +1967,6 @@ final class _TitleSpy extends PdfExportMapper {
     Map<String, Uint8List> reportImages = const {},
     Map<String, Uint8List> attachments = const {},
     Map<String, TaskSummary> taskSummaries = const {},
-    Map<String, QuizSummary> quizSummaries = const {},
     Map<String, List<List<String>>> csvTables = const {},
     Map<String, Uint8List> pdfPreviews = const {},
     pw.Font? baseFont,
@@ -1695,7 +1988,6 @@ final class _TitleSpy extends PdfExportMapper {
       reportImages: reportImages,
       attachments: attachments,
       taskSummaries: taskSummaries,
-      quizSummaries: quizSummaries,
       csvTables: csvTables,
       pdfPreviews: pdfPreviews,
       baseFont: baseFont,

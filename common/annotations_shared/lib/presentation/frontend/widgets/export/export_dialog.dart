@@ -334,7 +334,8 @@ class _ExportDialogState extends State<ExportDialog> {
                               zip ? 'exportSaveZip' : 'exportSavePdf',
                             ),
                             icon: AppIcons.download,
-                            onPressed: h.stage == ExportStage.ready
+                            onPressed:
+                                h.stage == ExportStage.ready && !h.isSaving
                                 ? () async {
                                     final messenger = ScaffoldMessenger.of(
                                       context,
