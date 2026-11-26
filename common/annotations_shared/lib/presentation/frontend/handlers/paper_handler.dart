@@ -256,7 +256,7 @@ class PaperHandler extends ChangeNotifier {
   /// nothing and keeps its operation in the decision.
   EditDecision apply(HistoryCommand command, EditBuilder edit) {
     if (!editingEnabled) {
-      return session.rules.check(document, const {'op': 'room_read_only'});
+      return session.rules.rejectEditor(document, 'editing_disabled');
     }
     final s = session;
     final decision = switch (s) {
@@ -329,7 +329,7 @@ class PaperHandler extends ChangeNotifier {
   EditDecision setGuides(PaperGuides guides) {
     preview.value = null;
     if (!editingEnabled) {
-      return session.rules.check(document, const {'op': 'room_read_only'});
+      return session.rules.rejectEditor(document, 'editing_disabled');
     }
     if (guides == storedGuides) {
       notifyListeners();

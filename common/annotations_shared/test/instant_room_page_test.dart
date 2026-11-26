@@ -10,6 +10,7 @@ import 'package:annotations_shared/domain/models/note_document.dart';
 import 'package:annotations_shared/domain/services/instant_room_share.dart';
 import 'package:annotations_shared/domain/services/note_autosave.dart';
 import 'package:annotations_shared/domain/services/paper_page.dart';
+import 'package:annotations_shared/domain/services/editor_rules.dart';
 import 'package:annotations_shared/presentation/frontend/components/qr_share.dart';
 import 'package:annotations_shared/presentation/frontend/handlers/instant_room_handler.dart';
 import 'package:annotations_shared/presentation/frontend/widgets/instant/instant_room_page.dart';
@@ -211,12 +212,18 @@ void main() {
     expect(find.byKey(const Key('room-state-connectionLost')), findsOneWidget);
     expect(find.byKey(const Key('paper-grid')), findsNothing);
     expect(paper.storedGuides.pattern.name, 'blank');
-    expect(paper.pickPattern(PaperPattern.grid).accepted, isFalse);
+    final before = paper.document.toJson();
+    final decision = paper.pickPattern(PaperPattern.grid);
+    expect(decision.accepted, isFalse);
+    expect(decision.error?.rule, EditorRule.editor);
+    expect(decision.error?.code, 'editing_disabled');
+    expect(decision.document.toJson(), before);
+    expect(paper.document.toJson(), before);
     expect(paper.storedGuides.pattern.name, 'blank');
     await closeRoom(tester);
   });
 
-  testWidgets('a rejected Instant edit is shown as a failed save', (
+  testWidgets('the Instant failed-save status offers an explicit retry', (
     tester,
   ) async {
     final server = FakeRoomServer();
