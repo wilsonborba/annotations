@@ -261,7 +261,7 @@ void main() {
       'actual Reports VisualChooser capture paints above an opaque dialog',
       (tester) async {
         const thaiCopy =
-            'ภาษาไทย: กิ่งไม้ดูแลต้นไม้ อยู่ใกล้ผู้อื่นและอ่านข้อมูลทุกบรรทัดอย่างละเอียด เพื่อให้แน่ใจว่าเครื่องหมายสระและวรรณยุกต์ยังชัดเจนเมื่อพิมพ์รายงาน';
+            'ภาษาไทย: กิ่งไม้ดูแลต้นไม้ กิ๊ กี๊ กึ๊ กื๊ ปู่ ฟุ้ง อยู่ใกล้ผู้อื่นและอ่านข้อมูลทุกบรรทัดอย่างละเอียด เพื่อให้แน่ใจว่าเครื่องหมายสระและวรรณยุกต์ยังชัดเจนเมื่อพิมพ์รายงาน';
         const hostKey = Key('reports-capture-host');
         await tester.pumpWidget(
           MaterialApp(
@@ -512,6 +512,12 @@ void main() {
           final normalizedText = extracted!.replaceAll(RegExp(r'\s+'), '');
           expect(normalizedText, contains('กิ่งไม้'));
           expect(normalizedText, contains('วรรณยุกต์'));
+          expect(normalizedText, contains('กิ๊'));
+          expect(normalizedText, contains('กี๊'));
+          expect(normalizedText, contains('กึ๊'));
+          expect(normalizedText, contains('กื๊'));
+          expect(normalizedText, contains('ปู่'));
+          expect(normalizedText, contains('ฟุ้ง'));
         }
         expect(await tester.runAsync(handler.save), isTrue);
         final savedZipBytes = File(savePath).readAsBytesSync();
@@ -590,6 +596,85 @@ void main() {
           await writeArtifact('reports-typed.pdf', typedPdf);
           await writeArtifact('reports-preview-typed.pdf', previewInputs[3]);
           await writeArtifact('reports-chart.zip', savedUpdatedZipBytes);
+
+          final nativeControl = await tester.runAsync(() async {
+            final regular = Uint8List.fromList(
+              File(
+                'lib/presentation/frontend/assets/fonts/IBMPlexSansThai-Regular.ttf',
+              ).readAsBytesSync(),
+            );
+            final bold = Uint8List.fromList(
+              File(
+                'lib/presentation/frontend/assets/fonts/IBMPlexSansThai-Bold.ttf',
+              ).readAsBytesSync(),
+            );
+            return PdfExportMapper().export(
+              title: 'Captured chart',
+              slug: 'thai-native-control',
+              original: _originalDoc(
+                items: [
+                  {
+                    'id': 'thai-copy',
+                    'kind': 'text',
+                    'x': 20,
+                    'y': 68,
+                    'width': 720,
+                    'height': 120,
+                    'spans': [
+                      {'text': thaiCopy},
+                    ],
+                  },
+                ],
+              ),
+              typed: _typedDoc(
+                blocks: [
+                  {
+                    'id': 'thai-copy',
+                    'kind': 'paragraph',
+                    'spans': [
+                      {'text': thaiCopy},
+                    ],
+                  },
+                ],
+              ),
+              options: const PdfExportOptions(mode: PdfExportMode.both),
+              regularFontBytes: regular,
+              boldFontBytes: bold,
+            );
+          });
+          expect(nativeControl!.engine, 'krilla');
+          expect(nativeControl.pdfs, hasLength(2));
+          for (final control in nativeControl.pdfs) {
+            final controlPath = '${root.path}/${control.filename}';
+            await tester.runAsync(
+              () => File(controlPath).writeAsBytes(control.bytes, flush: true),
+            );
+            final controlText = await tester.runAsync(() async {
+              final result = await Process.run('pdftotext', [controlPath, '-']);
+              if (result.exitCode != 0) {
+                throw StateError('pdftotext failed: ${result.stderr}');
+              }
+              return result.stdout as String;
+            });
+            final normalizedControl = controlText!.replaceAll(
+              RegExp(r'\s+'),
+              '',
+            );
+            expect(normalizedControl, contains('กิ๊'));
+            expect(normalizedControl, contains('กี๊'));
+            expect(normalizedControl, contains('กึ๊'));
+            expect(normalizedControl, contains('กื๊'));
+            expect(normalizedControl, contains('ปู่'));
+            expect(normalizedControl, contains('ฟุ้ง'));
+          }
+          await writeArtifact(
+            'reports-native-original.pdf',
+            nativeControl.pdfs.first.bytes,
+          );
+          await writeArtifact(
+            'reports-native-typed.pdf',
+            nativeControl.pdfs.last.bytes,
+          );
           final rasterized = await tester.runAsync(
             () => Process.run('pdftoppm', [
               '-png',
@@ -623,6 +708,28 @@ void main() {
           );
           if (typedRasterized == null || typedRasterized.exitCode != 0) {
             throw StateError('pdftoppm could not rasterize typed saved PDF.');
+          }
+          for (final control in nativeControl.pdfs) {
+            final output = control.filename.contains('original')
+                ? 'reports-native-original'
+                : 'reports-native-typed';
+            final result = await tester.runAsync(
+              () => Process.run('pdftoppm', [
+                '-png',
+                '-r',
+                '96',
+                '-f',
+                '1',
+                '-l',
+                '1',
+                '-singlefile',
+                '${evidence.path}/$output.pdf',
+                '${evidence.path}/$output',
+              ]),
+            );
+            if (result == null || result.exitCode != 0) {
+              throw StateError('pdftoppm could not rasterize native control.');
+            }
           }
         }
       },
