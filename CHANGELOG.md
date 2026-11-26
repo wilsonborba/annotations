@@ -2,6 +2,8 @@
 
 ### 🚀 Features
 
+- Add transcription API and model download core
+- Persist mandatory transcription feedback retries (#45)
 - *(telemetry)* Adopt shared tracking with mapped Annotations controls
 - *(core)* Add platform profiles and feature availability
 - *(core)* Share settings, logs, screen_trail tracking and client errors
