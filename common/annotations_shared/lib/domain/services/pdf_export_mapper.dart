@@ -1092,14 +1092,17 @@ class PdfExportMapper {
       if (oversized != null) {
         final item = oversized;
         final id = '${item['id'] ?? 'item'}';
-        final fileId = item['file_id'] as String?;
-        final companionName = 'companion-$id.json';
-        final payloadBytes = fileId != null && attachments.containsKey(fileId)
-            ? attachments[fileId]!
-            : Uint8List.fromList(utf8.encode(jsonEncode(item)));
-        companions.add(
-          PdfCompanionFile(filename: companionName, bytes: payloadBytes),
+        final unitCompanions = _oversizedCompanionFiles(
+          item,
+          document: document,
+          attachments: attachments,
+          options: options,
+          existing: companions,
         );
+        companions.addAll(unitCompanions);
+        final companionName = unitCompanions
+            .firstWhere((file) => file.filename.endsWith('.json'))
+            .filename;
         final publicLink =
             options.publicBaseUrl != null &&
                 options.audience == PdfAudience.public
@@ -1130,6 +1133,21 @@ class PdfExportMapper {
           'font_size': 11.0,
           'line_height': 16.0,
         });
+        for (final (index, member) in _oversizedGroupTextMembers(
+          item,
+          document,
+        ).indexed) {
+          final text = _plainText(member['spans']);
+          if (text.trim().isEmpty) continue;
+          runs.add({
+            'text': text,
+            'x': marginPt + 12.0,
+            'y': contentTop + 108.0 + index * 20.0,
+            'max_width': printableW - 24.0,
+            'font_size': 9.0,
+            'line_height': 12.0,
+          });
+        }
         runs.add({
           'text': publicLink != null
               ? 'Full content link: $publicLink'
@@ -1584,8 +1602,10 @@ class PdfExportMapper {
               if (oversized != null)
                 _buildOversizedPage(
                   oversized,
+                  document: document,
                   options: options,
                   attachments: attachments,
+                  renderableAttachments: renderableAttachments,
                   companions: companions,
                   printableW: printableW,
                   printableH: printableH - 40,
@@ -1626,10 +1646,202 @@ class PdfExportMapper {
     return doc.save();
   }
 
+  List<Map<String, dynamic>> _oversizedGroupTextMembers(
+    Map<String, dynamic> root,
+    NoteDocument document,
+  ) => [
+    for (final member in _oversizedGroupMembers(root, document))
+      if (member['kind'] == 'text') member,
+  ];
+
+  List<Map<String, dynamic>> _oversizedGroupMembers(
+    Map<String, dynamic> root,
+    NoteDocument document,
+  ) {
+    if (root['kind'] != 'group') return const [];
+    final rawItems = ((document.toJson()['items'] as List?) ?? const [])
+        .whereType<Map>()
+        .map((raw) => Map<String, dynamic>.from(raw))
+        .toList(growable: false);
+    final rootId = root['id'];
+    if (rootId is! String) return const [];
+    final layout = DocumentLayout.of(document);
+    final ids = layout?.withDescendants(rootId).toSet() ?? <String>{rootId};
+    if (layout == null) {
+      final byId = {
+        for (final raw in rawItems)
+          if (raw['id'] is String) raw['id'] as String: raw,
+      };
+      void addChildren(String parentId) {
+        final children = byId[parentId]?['members'];
+        if (children is! List) return;
+        for (final child in children.whereType<String>()) {
+          if (ids.add(child)) addChildren(child);
+        }
+      }
+
+      addChildren(rootId);
+    }
+    return [
+      for (final raw in rawItems)
+        if (raw['id'] is String &&
+            ids.contains(raw['id']) &&
+            raw['id'] != rootId)
+          raw,
+    ];
+  }
+
+  String _plainText(Object? rawSpans) => (rawSpans as List? ?? const [])
+      .whereType<Map>()
+      .map((span) => '${span['text'] ?? ''}')
+      .join();
+
+  List<PdfCompanionFile> _oversizedCompanionFiles(
+    Map<String, dynamic> root, {
+    required NoteDocument document,
+    required Map<String, Uint8List> attachments,
+    required PdfExportOptions options,
+    required List<PdfCompanionFile> existing,
+    String? preferredMetadataName,
+  }) {
+    final members = _oversizedGroupMembers(root, document);
+    final rawItems = <Map<String, dynamic>>[root, ...members];
+    final restrictedKinds = const {'task_card', 'quiz_card', 'reports_embed'};
+    final visibleIds = <String>{
+      for (final item in rawItems)
+        if (!(options.audience == PdfAudience.public &&
+            restrictedKinds.contains(item['kind'])))
+          if (item['id'] is String) item['id'] as String,
+    };
+    Map<String, dynamic> safeItem(Map<String, dynamic> item) {
+      final kind = item['kind'];
+      if (options.audience == PdfAudience.public &&
+          restrictedKinds.contains(kind)) {
+        return {
+          for (final key in const ['id', 'kind', 'x', 'y', 'width', 'height'])
+            if (item.containsKey(key)) key: item[key],
+          'restricted': true,
+        };
+      }
+      final copy = Map<String, dynamic>.from(item);
+      if (kind == 'group' && copy['members'] is List) {
+        copy['members'] = (copy['members'] as List)
+            .whereType<String>()
+            .where(visibleIds.contains)
+            .toList(growable: false);
+      }
+      return copy;
+    }
+
+    final usedNames = <String>{for (final file in existing) file.filename};
+    final files = <PdfCompanionFile>[];
+    String addUnique(String preferred) {
+      if (usedNames.add(preferred)) return preferred;
+      final dot = preferred.lastIndexOf('.');
+      final stem = dot < 0 ? preferred : preferred.substring(0, dot);
+      final extension = dot < 0 ? '' : preferred.substring(dot);
+      var suffix = 2;
+      while (!usedNames.add('$stem-$suffix$extension')) {
+        suffix++;
+      }
+      return '$stem-$suffix$extension';
+    }
+
+    final rootId = '${root['id'] ?? 'item'}';
+    final safeRootId = rootId.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
+    final metadataName = addUnique(
+      preferredMetadataName ?? 'companion-$safeRootId.json',
+    );
+    final safeItems = [for (final item in rawItems) safeItem(item)];
+    final payload = members.isEmpty
+        ? safeItems.single
+        : <String, Object?>{
+            'schema': {
+              'name': document.schema.name,
+              'version': document.schema.version,
+            },
+            'root_item_id': rootId,
+            'items': safeItems,
+          };
+    files.add(
+      PdfCompanionFile(
+        filename: metadataName,
+        bytes: Uint8List.fromList(utf8.encode(jsonEncode(payload))),
+      ),
+    );
+
+    final includedFileIds = <String>{};
+    for (final item in rawItems) {
+      final fileId = safeItem(item)['file_id'];
+      if (fileId is! String || fileId.isEmpty || !includedFileIds.add(fileId)) {
+        continue;
+      }
+      final bytes = attachments[fileId];
+      if (bytes == null) continue;
+      final safeId = fileId.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
+      final extension = switch (item['kind']) {
+        'csv_table' => 'csv',
+        'pdf_preview' => 'pdf',
+        _ => _binaryExtension(bytes),
+      };
+      final preferredName = 'source-$safeId.$extension';
+      if (existing.any(
+        (file) =>
+            file.filename == preferredName && _sameBytes(file.bytes, bytes),
+      )) {
+        continue;
+      }
+      files.add(
+        PdfCompanionFile(filename: addUnique(preferredName), bytes: bytes),
+      );
+    }
+    return files;
+  }
+
+  String _binaryExtension(Uint8List bytes) {
+    if (bytes.length >= 8 &&
+        bytes[0] == 0x89 &&
+        bytes[1] == 0x50 &&
+        bytes[2] == 0x4E &&
+        bytes[3] == 0x47) {
+      return 'png';
+    }
+    if (bytes.length >= 3 &&
+        bytes[0] == 0xFF &&
+        bytes[1] == 0xD8 &&
+        bytes[2] == 0xFF) {
+      return 'jpg';
+    }
+    if (bytes.length >= 6 &&
+        (String.fromCharCodes(bytes.take(6)) == 'GIF87a' ||
+            String.fromCharCodes(bytes.take(6)) == 'GIF89a')) {
+      return 'gif';
+    }
+    if (bytes.length >= 12 &&
+        String.fromCharCodes(bytes.sublist(0, 4)) == 'RIFF' &&
+        String.fromCharCodes(bytes.sublist(8, 12)) == 'WEBP') {
+      return 'webp';
+    }
+    if (bytes.length >= 4 && String.fromCharCodes(bytes.take(4)) == '%PDF') {
+      return 'pdf';
+    }
+    return 'bin';
+  }
+
+  bool _sameBytes(Uint8List a, Uint8List b) {
+    if (a.length != b.length) return false;
+    for (var index = 0; index < a.length; index++) {
+      if (a[index] != b[index]) return false;
+    }
+    return true;
+  }
+
   pw.Widget _buildOversizedPage(
     Map<String, dynamic> item, {
+    required NoteDocument document,
     required PdfExportOptions options,
     required Map<String, Uint8List> attachments,
+    Map<String, Uint8List>? renderableAttachments,
     required List<PdfCompanionFile> companions,
     required double printableW,
     required double printableH,
@@ -1637,14 +1849,44 @@ class PdfExportMapper {
     pw.Widget? contentPreview,
   }) {
     final id = '${item['id'] ?? 'item'}';
-    final fileId = item['file_id'] as String?;
-    companionName ??= 'companion-$id.json';
-    final payloadBytes = fileId != null && attachments.containsKey(fileId)
-        ? attachments[fileId]!
-        : Uint8List.fromList(utf8.encode(jsonEncode(item)));
-    companions.add(
-      PdfCompanionFile(filename: companionName, bytes: payloadBytes),
+    final unitCompanions = _oversizedCompanionFiles(
+      item,
+      document: document,
+      attachments: attachments,
+      options: options,
+      existing: companions,
+      preferredMetadataName: companionName,
     );
+    companions.addAll(unitCompanions);
+    companionName ??= unitCompanions
+        .firstWhere((file) => file.filename.endsWith('.json'))
+        .filename;
+    final groupText = _oversizedGroupTextMembers(item, document)
+        .map((member) => _plainText(member['spans']).trim())
+        .where((text) => text.isNotEmpty)
+        .toList(growable: false);
+    final fileId = item['file_id'] as String?;
+    final imageBytes = item['kind'] == 'image' && fileId != null
+        ? (renderableAttachments ?? attachments)[fileId]
+        : null;
+    final generatedPreview = imageBytes != null
+        ? pw.Image(pw.MemoryImage(imageBytes), fit: pw.BoxFit.contain)
+        : groupText.isNotEmpty
+        ? pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              for (final text in groupText)
+                pw.Padding(
+                  padding: const pw.EdgeInsets.only(bottom: 4),
+                  child: pw.Text(
+                    text,
+                    maxLines: 2,
+                    style: const pw.TextStyle(fontSize: 9),
+                  ),
+                ),
+            ],
+          )
+        : null;
 
     final publicLink =
         options.publicBaseUrl != null && options.audience == PdfAudience.public
@@ -1666,9 +1908,9 @@ class PdfExportMapper {
             'Preview, see full content',
             style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold),
           ),
-          if (contentPreview != null) ...[
+          if (contentPreview != null || generatedPreview != null) ...[
             pw.SizedBox(height: 8),
-            pw.Expanded(child: contentPreview),
+            pw.Expanded(child: contentPreview ?? generatedPreview!),
             pw.SizedBox(height: 8),
           ],
           pw.Text('Item: $id (${item['kind'] ?? 'object'})'),
@@ -2165,6 +2407,7 @@ class PdfExportMapper {
       final previewHeight = math.max(1.0, printableH - titleHeight);
       final preview = _buildOversizedPage(
         block,
+        document: document,
         options: options,
         attachments: attachments,
         companions: companions,

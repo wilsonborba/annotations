@@ -180,6 +180,150 @@ void main() {
     },
   );
 
+  test(
+    'oversized Original image is previewed and archived with a truthful type',
+    () async {
+      final document = NoteDocument.fromJson({
+        'page': {
+          'width': 1000,
+          'background': {'kind': 'blank'},
+        },
+        'items': [
+          {
+            'id': 'tall-image',
+            'kind': 'image',
+            'file_id': 'image-file',
+            'x': 20,
+            'y': 20,
+            'width': 300,
+            'height': 3000,
+          },
+        ],
+      }, schema: paperSchema);
+      final output = await PdfExportMapper().export(
+        title: 'Synthetic oversized original image',
+        slug: 'original-image',
+        original: document,
+        options: const PdfExportOptions(mode: PdfExportMode.original),
+        attachments: {'image-file': logo},
+        availableFileIds: const {'image-file'},
+        baseFont: baseFont,
+        thaiFont: thaiFont,
+      );
+
+      expect(output.preflight.ok, isTrue);
+      expect(output.engine, 'pdf');
+      final raster = await PdfRaster.page(output.pdfs.single.bytes, page: 2);
+      expect(
+        raster.count((r, g, b) => g > 180 && r < 150 && b < 100),
+        greaterThan(10),
+        reason: 'The oversized-page preview must contain source image pixels.',
+      );
+      final imageCompanion = output.companions.singleWhere(
+        (file) => file.filename == 'source-image-file.png',
+      );
+      expect(imageCompanion.bytes, logo);
+      expect(
+        output.companions.any(
+          (file) =>
+              file.filename == 'companion-tall-image.json' &&
+              utf8.decode(file.bytes).contains('tall-image'),
+        ),
+        isTrue,
+      );
+      expect(
+        output.companions.any(
+          (file) =>
+              file.filename.endsWith('.json') &&
+              file.bytes.length == logo.length,
+        ),
+        isFalse,
+      );
+    },
+  );
+
+  test(
+    'oversized Original group companion preserves children and public redaction',
+    () async {
+      final document = NoteDocument.fromJson({
+        'page': {
+          'width': 1000,
+          'background': {'kind': 'blank'},
+        },
+        'items': [
+          {
+            'id': 'group',
+            'kind': 'group',
+            'members': ['text-a', 'text-b', 'report-private'],
+          },
+          {
+            'id': 'text-a',
+            'kind': 'text',
+            'x': 20,
+            'y': 20,
+            'width': 300,
+            'height': 40,
+            'spans': [
+              {'text': 'ORIGINAL_COMPANION_TEXT_SENTINEL'},
+            ],
+          },
+          {
+            'id': 'text-b',
+            'kind': 'text',
+            'x': 20,
+            'y': 3000,
+            'width': 300,
+            'height': 40,
+            'spans': [
+              {'text': 'Second group member'},
+            ],
+          },
+          {
+            'id': 'report-private',
+            'kind': 'reports_embed',
+            'x': 20,
+            'y': 4000,
+            'width': 300,
+            'height': 200,
+            'report_id': 'private-report-id',
+            'mode': 'snapshot',
+            'source': 'PRIVATE_CHART_SOURCE_SENTINEL',
+            'snapshot_id': 'private-snapshot-id',
+            'captured_at': 1795000000,
+            'dataset_id': 'private-dataset-id',
+          },
+        ],
+      }, schema: paperSchema);
+      final output = await PdfExportMapper().export(
+        title: 'Synthetic oversized original group',
+        slug: 'original-group',
+        original: document,
+        options: const PdfExportOptions(
+          mode: PdfExportMode.original,
+          audience: PdfAudience.public,
+        ),
+        baseFont: baseFont,
+        thaiFont: thaiFont,
+      );
+
+      expect(output.preflight.ok, isTrue);
+      final metadata = output.companions.singleWhere(
+        (file) => file.filename == 'companion-group.json',
+      );
+      final content = utf8.decode(metadata.bytes);
+      expect(content, contains('ORIGINAL_COMPANION_TEXT_SENTINEL'));
+      expect(content, contains('Second group member'));
+      expect(content, contains('"restricted":true'));
+      expect(content, isNot(contains('PRIVATE_CHART_SOURCE_SENTINEL')));
+      expect(content, isNot(contains('private-report-id')));
+      expect(content, isNot(contains('private-snapshot-id')));
+      expect(
+        await _extractPdfText(output.pdfs.single.bytes),
+        contains('ORIGINAL_COMPANION_TEXT_SENTINEL'),
+      );
+    },
+  );
+
   testWidgets('ExportHandler loads CSV rows and renders attached PDF pages', (
     tester,
   ) async {
