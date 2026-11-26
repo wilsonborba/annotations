@@ -151,14 +151,6 @@ class _NoteReaderState extends State<NoteReader> {
     final p = view.toPage(local);
     for (final it in d.itemsJson.reversed) {
       if (!isCardKind(it['kind']) || it['kind'] == 'image') continue;
-      if (widget.publicProjection &&
-          const {
-            'reports_embed',
-            'task_card',
-            'quiz_card',
-          }.contains(it['kind'])) {
-        return;
-      }
       final r = Rect.fromLTWH(
         (it['x'] as num).toDouble(),
         (it['y'] as num).toDouble(),
@@ -166,6 +158,14 @@ class _NoteReaderState extends State<NoteReader> {
         (it['height'] as num).toDouble(),
       );
       if (r.contains(p)) {
+        if (widget.publicProjection &&
+            const {
+              'reports_embed',
+              'task_card',
+              'quiz_card',
+            }.contains(it['kind'])) {
+          return;
+        }
         if (it['restricted'] == true) return;
         cards.open(it['id'] as String);
         return;

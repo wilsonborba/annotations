@@ -455,6 +455,78 @@ void main() {
     expect(find.text('PRIVATE QUIZ TITLE'), findsNothing);
   });
 
+  testWidgets('a restricted public embed does not block a separate link', (
+    tester,
+  ) async {
+    await setWindow(tester, phone);
+    final launcherCalls = <MethodCall>[];
+    const launcherChannel = MethodChannel('plugins.flutter.io/url_launcher');
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      launcherChannel,
+      (call) async {
+        launcherCalls.add(call);
+        return true;
+      },
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        launcherChannel,
+        null,
+      ),
+    );
+    final document = NoteDocument.fromJson({
+      'page': {
+        'width': 1000,
+        'background': {'kind': 'blank'},
+      },
+      'items': [
+        {
+          'id': 'public-link',
+          'kind': 'link_card',
+          'x': 20,
+          'y': 20,
+          'width': 120,
+          'height': 80,
+          'url': 'https://example.org/public-source',
+          'title': 'Public source',
+        },
+        {
+          'id': 'restricted-report',
+          'kind': 'reports_embed',
+          'x': 220,
+          'y': 20,
+          'width': 720,
+          'height': 700,
+          'report_id': 'private-report',
+          'project_slug': 'private-project',
+          'report_slug': 'private-report',
+          'dataset_id': 'private-data',
+          'mode': 'live',
+          'source': 'link',
+          'restricted': true,
+        },
+      ],
+    }, schema: DocumentSchema('note-original', 1));
+    final handler = handlerFor(document, title: 'Public links');
+    addTearDown(handler.dispose);
+    await tester.pumpWidget(
+      host(NoteReader(handler: handler, publicProjection: true)),
+    );
+    await tester.pumpAndSettle();
+    final view = handler.view.value!;
+    await tester.tapAt(view.toScreen(const Offset(60, 60)));
+    await tester.pumpAndSettle();
+    expect(launcherCalls, hasLength(1));
+    expect(
+      launcherCalls.single.arguments['url'],
+      'https://example.org/public-source',
+    );
+
+    await tester.tapAt(view.toScreen(const Offset(260, 60)));
+    await tester.pumpAndSettle();
+    expect(launcherCalls, hasLength(1));
+  });
+
   testWidgets('typed Reports card reloads when its reference changes', (
     tester,
   ) async {

@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../../../domain/models/reports_embed_data.dart';
 import '../../../domain/services/reports_chart_data.dart';
 import '../../../domain/services/reports_embed_source.dart';
+import '../../../dal/remote/api_adapter.dart';
 import 'scope.dart';
 
 typedef NoteReportsChartCreator =
@@ -78,11 +79,13 @@ class _ReportsCreateDialogState extends State<_ReportsCreateDialog> {
   final _title = TextEditingController();
   final _optionValues = <String, TextEditingController>{};
   final _mapping = <String, String>{};
-  late final String _operationKey = _newOperationKey();
+  String _operationKey = _newOperationKey();
+  Map<String, Object?>? _pendingItem;
   String? _templateSelectionId;
   String? _tableId;
   String? _error;
   bool _saving = false;
+  bool _operationConflict = false;
 
   static String _newOperationKey() {
     final random = math.Random.secure();
@@ -107,6 +110,7 @@ class _ReportsCreateDialogState extends State<_ReportsCreateDialog> {
   }
 
   bool get _scopeCurrent => widget.isOwnerScopeCurrent?.call() ?? true;
+  bool get _editingEnabled => !_saving && _pendingItem == null;
 
   @override
   void initState() {
@@ -164,6 +168,8 @@ class _ReportsCreateDialogState extends State<_ReportsCreateDialog> {
   }
 
   bool get _canSubmit {
+    if (_operationConflict) return false;
+    if (_pendingItem != null) return !_saving && _scopeCurrent;
     final template = _template;
     final table = _table;
     if (_saving || !_scopeCurrent || template == null || table == null) {
@@ -216,24 +222,29 @@ class _ReportsCreateDialogState extends State<_ReportsCreateDialog> {
   Future<void> _submit() async {
     final template = _template;
     final table = _table;
-    if (!_canSubmit || template == null || table == null) return;
-    final mapping = Map<String, String>.from(_mapping);
-    final rows = table.rows;
-    final item = <String, Object?>{
-      'title': _title.text.trim(),
-      'source_app': 'annotations',
-      'template_id': template.templateId,
-      'template_version': template.version,
-      'audience': 'personal',
-      'mapping': mapping,
-      'config': _configFor(template),
-      'rows': rows,
-    };
-    try {
-      validateReportsChartPayload(mapping: mapping, rows: rows);
-    } on FormatException catch (error) {
-      setState(() => _error = error.message);
-      return;
+    if (!_canSubmit) return;
+    var item = _pendingItem;
+    if (item == null) {
+      if (template == null || table == null) return;
+      final mapping = Map<String, String>.from(_mapping);
+      final rows = table.rows;
+      item = <String, Object?>{
+        'title': _title.text.trim(),
+        'source_app': 'annotations',
+        'template_id': template.templateId,
+        'template_version': template.version,
+        'audience': 'personal',
+        'mapping': mapping,
+        'config': _configFor(template),
+        'rows': rows,
+      };
+      try {
+        validateReportsChartPayload(mapping: mapping, rows: rows);
+      } on FormatException catch (error) {
+        setState(() => _error = error.message);
+        return;
+      }
+      _pendingItem = item;
     }
 
     setState(() {
@@ -251,6 +262,25 @@ class _ReportsCreateDialogState extends State<_ReportsCreateDialog> {
         return;
       }
       Navigator.of(context).pop(reference);
+    } on ApiError catch (error) {
+      if (!mounted || !_scopeCurrent) return;
+      setState(() {
+        final operationKeyConflict =
+            error.status == 409 &&
+            error.details?['code'] == 'operation_key_conflict';
+        _operationConflict = operationKeyConflict;
+        _error = context.tr(
+          operationKeyConflict
+              ? 'reportsCreateOperationConflict'
+              : 'reportsCreateFailed',
+        );
+        if (error.status == 400 || error.status == 422) {
+          // NotesAPI records these remote validation rejections as terminal
+          // for this digest. A changed intent therefore needs a fresh key.
+          _pendingItem = null;
+          _operationKey = _newOperationKey();
+        }
+      });
     } on Object {
       if (mounted && _scopeCurrent) {
         setState(() => _error = context.tr('reportsCreateFailed'));
@@ -293,7 +323,7 @@ class _ReportsCreateDialogState extends State<_ReportsCreateDialog> {
               TextField(
                 key: const Key('reports-create-title'),
                 controller: _title,
-                enabled: !_saving,
+                enabled: _editingEnabled,
                 decoration: InputDecoration(labelText: context.tr('title')),
                 onChanged: (_) => setState(() {}),
               ),
@@ -314,7 +344,7 @@ class _ReportsCreateDialogState extends State<_ReportsCreateDialog> {
                       ),
                     ),
                 ],
-                onChanged: _saving
+                onChanged: !_editingEnabled
                     ? null
                     : (value) => setState(() {
                         _tableId = value;
@@ -333,13 +363,13 @@ class _ReportsCreateDialogState extends State<_ReportsCreateDialog> {
                     DropdownMenuItem(
                       value: candidate.selectionId,
                       child: Text(
-                        candidate.title,
+                        _templateLabel(candidate),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
                 ],
-                onChanged: _saving
+                onChanged: !_editingEnabled
                     ? null
                     : (value) => setState(() {
                         final oldTemplate = _template;
@@ -387,18 +417,21 @@ class _ReportsCreateDialogState extends State<_ReportsCreateDialog> {
           onPressed: _saving ? null : () => Navigator.of(context).pop(),
           child: Text(context.tr('cancel')),
         ),
-        FilledButton(
-          key: const Key('reports-create-submit'),
-          onPressed:
-              widget.templates.isEmpty || widget.tables.isEmpty || !_canSubmit
-              ? null
-              : _submit,
-          child: Text(
-            _saving
-                ? context.tr('reportsSaving')
-                : context.tr('reportsCreateAction'),
+        if (!_operationConflict)
+          FilledButton(
+            key: const Key('reports-create-submit'),
+            onPressed:
+                widget.templates.isEmpty || widget.tables.isEmpty || !_canSubmit
+                ? null
+                : _submit,
+            child: Text(
+              _saving
+                  ? context.tr('reportsSaving')
+                  : _pendingItem != null
+                  ? context.tr('reportsRetry')
+                  : context.tr('reportsCreateAction'),
+            ),
           ),
-        ),
       ],
     );
   }
@@ -436,7 +469,7 @@ class _ReportsCreateDialogState extends State<_ReportsCreateDialog> {
               child: Text(column.name, overflow: TextOverflow.ellipsis),
             ),
         ],
-        onChanged: _saving
+        onChanged: !_editingEnabled
             ? null
             : (value) => setState(() {
                 if (value == null || value.isEmpty) {
@@ -474,7 +507,7 @@ class _ReportsCreateDialogState extends State<_ReportsCreateDialog> {
                 for (final value in values)
                   DropdownMenuItem(value: value, child: Text(_humanize(value))),
               ],
-              onChanged: _saving
+              onChanged: !_editingEnabled
                   ? null
                   : (value) => setState(() {
                       if (value != null) controller.text = value;
@@ -483,7 +516,7 @@ class _ReportsCreateDialogState extends State<_ReportsCreateDialog> {
           : TextField(
               key: Key('reports-create-option-$name'),
               controller: controller,
-              enabled: !_saving,
+              enabled: _editingEnabled,
               keyboardType: type == 'int' || type == 'float'
                   ? const TextInputType.numberWithOptions(decimal: true)
                   : TextInputType.text,
@@ -498,4 +531,15 @@ class _ReportsCreateDialogState extends State<_ReportsCreateDialog> {
       .where((word) => word.isNotEmpty)
       .map((word) => '${word[0].toUpperCase()}${word.substring(1)}')
       .join(' ');
+
+  String _templateLabel(ReportsTemplateChoice candidate) {
+    final sharesId =
+        widget.templates
+            .where((choice) => choice.templateId == candidate.templateId)
+            .length >
+        1;
+    return sharesId
+        ? '${candidate.title} · v${candidate.version}'
+        : candidate.title;
+  }
 }

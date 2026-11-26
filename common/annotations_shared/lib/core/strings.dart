@@ -525,6 +525,11 @@ const strings = <String, List<String>>{
     'Não foi possível criar o gráfico. Você pode tentar novamente com segurança.',
     'สร้างแผนภูมิไม่ได้ คุณสามารถลองอีกครั้งได้อย่างปลอดภัย',
   ],
+  'reportsCreateOperationConflict': [
+    'This chart request conflicts with an earlier attempt. Check Reports before starting another chart.',
+    'Esta solicitação de gráfico conflita com uma tentativa anterior. Confira o Reports antes de iniciar outro gráfico.',
+    'คำขอสร้างแผนภูมินี้ขัดแย้งกับความพยายามก่อนหน้า โปรดตรวจสอบ Reports ก่อนเริ่มสร้างแผนภูมิใหม่',
+  ],
   'reportsCreateRequiresSavedNote': [
     'Sync this note and sign in before creating a Reports chart.',
     'Sincronize esta anotação e entre antes de criar um gráfico no Reports.',

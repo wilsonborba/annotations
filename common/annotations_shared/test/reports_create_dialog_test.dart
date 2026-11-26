@@ -63,6 +63,7 @@ void main() {
       });
       final preferences = Preferences()..locale = 'en';
       final calls = <({Map<String, Object?> item, String key})>[];
+      final digestByOperationKey = <String, String>{};
       var attempt = 0;
       Future<ReportsEmbedReference?>? result;
 
@@ -81,6 +82,14 @@ void main() {
                       templates: [template],
                       tables: [table],
                       create: ({required item, required operationKey}) async {
+                        final digest = jsonEncode(item);
+                        final previousDigest =
+                            digestByOperationKey[operationKey];
+                        if (previousDigest != null &&
+                            previousDigest != digest) {
+                          throw ApiError(409, 'operation_key_conflict');
+                        }
+                        digestByOperationKey[operationKey] = digest;
                         calls.add((item: item, key: operationKey));
                         if (attempt++ == 0) {
                           throw StateError('retryable request failure');
@@ -136,6 +145,19 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('reports-create-error')), findsOneWidget);
       expect(calls, hasLength(1));
+      expect(
+        tester
+            .widget<TextField>(find.byKey(const Key('reports-create-title')))
+            .enabled,
+        isFalse,
+      );
+      // Simulate an edit attempt even if a caller retains a TextField handle;
+      // an uncertain operation always retries its original payload snapshot.
+      tester
+              .widget<TextField>(find.byKey(const Key('reports-create-title')))
+              .controller!
+              .text =
+          'Edited while outcome is unknown';
 
       await tester.tap(submit);
       await tester.pumpAndSettle();
@@ -326,6 +348,205 @@ void main() {
     expect(requestCount, 1);
   });
 
+  testWidgets('a known validation rejection permits a new keyed intent', (
+    tester,
+  ) async {
+    final table = ReportsChartSourceTable.parse(
+      fileId: 'csv-validation',
+      name: 'monthly.csv',
+      bytes: Uint8List.fromList(utf8.encode('month,sales\nJan,12\n')),
+    );
+    final template = ReportsTemplateChoice.fromJson({
+      'template_id': 'published-bar',
+      'version': 1,
+      'kind': 'chart',
+      'visual': 'bar',
+      'title': 'Published bar',
+      'slots': [
+        {
+          'slot_name': 'category',
+          'role': 'dimension',
+          'is_required': true,
+          'min_count': 1,
+          'max_count': 1,
+          'accepted_types': ['string'],
+        },
+      ],
+      'options': <Map<String, Object?>>[],
+    });
+    final preferences = Preferences()..locale = 'en';
+    final attempts = <({Map<String, Object?> item, String key})>[];
+    var rejectedOnce = false;
+    Future<ReportsEmbedReference?>? result;
+    await tester.pumpWidget(
+      AppScope(
+        preferences: preferences,
+        service: fixtureService(),
+        child: MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => ElevatedButton(
+                onPressed: () {
+                  result = showReportsCreateDialog(
+                    context,
+                    projectName: 'Approved project',
+                    templates: [template],
+                    tables: [table],
+                    create: ({required item, required operationKey}) async {
+                      attempts.add((item: Map.of(item), key: operationKey));
+                      if (!rejectedOnce) {
+                        rejectedOnce = true;
+                        throw ApiError(
+                          422,
+                          'invalid_report_item',
+                          details: const {'code': 'invalid_report_item'},
+                        );
+                      }
+                      return const ReportsEmbedReference(
+                        reportId: '123e4567-e89b-42d3-a456-426614174000',
+                        projectSlug: 'approved-project',
+                        reportSlug: 'created-report',
+                        datasetId: 'primary',
+                        mode: 'live',
+                        source: 'upload',
+                      );
+                    },
+                  );
+                },
+                child: const Text('Open create dialog'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Open create dialog'));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(
+        Key(
+          'reports-create-slot-${template.selectionId}-csv-validation-category',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('month').last);
+    await tester.pumpAndSettle();
+    final submit = find.byKey(const Key('reports-create-submit'));
+    await tester.tap(submit);
+    await tester.pumpAndSettle();
+    expect(attempts, hasLength(1));
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const Key('reports-create-title')))
+          .enabled,
+      isTrue,
+    );
+
+    tester
+            .widget<TextField>(find.byKey(const Key('reports-create-title')))
+            .controller!
+            .text =
+        'Edited after rejection';
+    await tester.pump();
+    await tester.tap(submit);
+    await tester.pumpAndSettle();
+
+    expect(await result, isNotNull);
+    expect(attempts, hasLength(2));
+    expect(attempts[0].item['title'], 'Published bar');
+    expect(attempts[1].item['title'], 'Edited after rejection');
+    expect(attempts[1].key, isNot(attempts[0].key));
+  });
+
+  testWidgets('an operation-key conflict is shown without another create', (
+    tester,
+  ) async {
+    final table = ReportsChartSourceTable.parse(
+      fileId: 'csv-conflict',
+      name: 'monthly.csv',
+      bytes: Uint8List.fromList(utf8.encode('month,sales\nJan,12\n')),
+    );
+    final template = ReportsTemplateChoice.fromJson({
+      'template_id': 'published-bar',
+      'version': 1,
+      'kind': 'chart',
+      'visual': 'bar',
+      'title': 'Published bar',
+      'slots': [
+        {
+          'slot_name': 'category',
+          'role': 'dimension',
+          'is_required': true,
+          'min_count': 1,
+          'max_count': 1,
+          'accepted_types': ['string'],
+        },
+      ],
+      'options': <Map<String, Object?>>[],
+    });
+    final preferences = Preferences()..locale = 'en';
+    var requests = 0;
+    await tester.pumpWidget(
+      AppScope(
+        preferences: preferences,
+        service: fixtureService(),
+        child: MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => ElevatedButton(
+                onPressed: () => showReportsCreateDialog(
+                  context,
+                  projectName: 'Approved project',
+                  templates: [template],
+                  tables: [table],
+                  create: ({required item, required operationKey}) async {
+                    requests++;
+                    throw ApiError(
+                      409,
+                      'operation_key_conflict',
+                      details: const {'code': 'operation_key_conflict'},
+                    );
+                  },
+                ),
+                child: const Text('Open create dialog'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Open create dialog'));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(
+        Key(
+          'reports-create-slot-${template.selectionId}-csv-conflict-category',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('month').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('reports-create-submit')));
+    await tester.pumpAndSettle();
+
+    expect(requests, 1);
+    expect(
+      find.text(
+        'This chart request conflicts with an earlier attempt. Check Reports before starting another chart.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('reports-create-submit')), findsNothing);
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const Key('reports-create-title')))
+          .enabled,
+      isFalse,
+    );
+  });
+
   testWidgets('selects and creates with the chosen published template version', (
     tester,
   ) async {
@@ -367,8 +588,8 @@ void main() {
       ],
     });
 
-    final first = choice(1, 'Published version one', 'vertical');
-    final second = choice(2, 'Published version two', 'horizontal');
+    final first = choice(1, 'Published bar', 'vertical');
+    final second = choice(2, 'Published bar', 'horizontal');
     expect(first.templateId, second.templateId);
     expect(first.selectionId, isNot(second.selectionId));
     final table = ReportsChartSourceTable.parse(
@@ -395,7 +616,7 @@ void main() {
           final item = body['item'] as Map<String, dynamic>;
           expect(item['template_id'], 'shared-template');
           expect(item['template_version'], 2);
-          expect(item['title'], 'Published version two');
+          expect(item['title'], 'Published bar');
           expect(item['config'], {'orientation': 'horizontal'});
           return http.Response(
             jsonEncode({
@@ -464,7 +685,9 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('reports-create-template')));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Published version two').last);
+    expect(find.text('Published bar · v1'), findsWidgets);
+    expect(find.text('Published bar · v2'), findsWidgets);
+    await tester.tap(find.text('Published bar · v2'));
     await tester.pumpAndSettle();
 
     final categoryField = find.byKey(
@@ -489,7 +712,7 @@ void main() {
     expect((await result)?.reportSlug, 'versioned-report');
     expect(postedItem?['template_id'], 'shared-template');
     expect(postedItem?['template_version'], 2);
-    expect(postedItem?['title'], 'Published version two');
+    expect(postedItem?['title'], 'Published bar');
     expect(postedItem?['config'], {'orientation': 'horizontal'});
     expect(requestCount, 1);
   });
