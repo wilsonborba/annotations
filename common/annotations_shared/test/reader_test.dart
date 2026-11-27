@@ -101,6 +101,7 @@ final typedDoc = {
 
 class FakeApi {
   final requests = <Uri>[];
+  final methods = <String>[];
   final failOnceStatus = <String, int>{};
   final failOnceNetwork = <String>{};
   bool stale = false;
@@ -114,6 +115,7 @@ class FakeApi {
   late final service = fixtureService(
     handler: (r) async {
       requests.add(r.url);
+      methods.add(r.method);
       final path = r.url.path;
       if (failOnceNetwork.remove(path)) {
         throw const SocketException('Connection refused');
@@ -359,6 +361,15 @@ void main() {
             '/v1/notes/source-typed?view=typed',
             workspace: workspace,
           );
+          List<int> sourceTypedReads() => [
+            for (var i = 0; i < api.requests.length; i++)
+              if (api.requests[i].path == '/notes/source-typed' &&
+                  api.requests[i].query == 'view=typed')
+                i,
+          ];
+          final initialSourceReads = sourceTypedReads();
+          expect(initialSourceReads, hasLength(1));
+          expect(api.methods[initialSourceReads.single], 'GET');
           expect(
             find.byKey(const Key('reader-start-handwritten-study')),
             findsOneWidget,
@@ -397,9 +408,14 @@ void main() {
             ),
           );
           expect((await store.notes()).map((n) => n.id), [studyId]);
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 100));
+          final sourceReads = sourceTypedReads();
+          expect(sourceReads, hasLength(2));
+          expect(sourceReads.map((i) => api.methods[i]), everyElement('GET'));
           expect(
-            api.requests.where((uri) => uri.path == '/notes/source-typed'),
-            hasLength(1),
+            sourceReads.map((i) => api.requests[i].query),
+            everyElement('view=typed'),
           );
         } finally {
           await tester.pumpWidget(const SizedBox());
