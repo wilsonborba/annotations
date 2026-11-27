@@ -94,7 +94,9 @@ EOF
 
 activate_launcher() {
   local target="$BIN_HOME/annotations"
-  mv -f "$launcher_tmp" "$target"
+  if ! mv -f "$launcher_tmp" "$target"; then
+    return 1
+  fi
   launcher_tmp=""
 }
 
@@ -172,8 +174,9 @@ validate_macos_archive() {
   command -v unzip >/dev/null 2>&1 || fail "unzip is required to validate the macOS app archive"
   zipinfo -l "$archive" | while IFS= read -r entry; do
     case "$entry" in
-      Archive:*|"Zip file size:"*|"[0-9]* files,"*|'') continue ;;
+      Archive:*|"Zip file size:"*|'') continue ;;
     esac
+    if [[ "$entry" =~ ^[0-9]+[[:space:]]files?, ]]; then continue; fi
     local kind="${entry:0:1}" member size
     [[ "$kind" == "-" || "$kind" == "d" || "$kind" == "l" ]] || fail "special or unknown file type in macOS release archive"
     read -r _ _ _ size _ _ _ _ _ member <<< "$entry"
@@ -246,6 +249,10 @@ install_macos() {
   rm -rf "$previous"
   install_stage=""
 }
+
+if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then
+  return 0
+fi
 
 [[ $# -le 1 ]] || { usage >&2; exit 2; }
 case "${1:-}" in
