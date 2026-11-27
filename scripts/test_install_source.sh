@@ -271,13 +271,23 @@ env HOME="$work/home" XDG_DATA_HOME="$conflict_data" XDG_BIN_HOME="$conflict_bin
 grep -q 'foreign desktop entry' "$conflict_data/applications/com.asodya.annotations.desktop"
 [[ ! -e "$conflict_bin/annotations" ]]
 
-# The packager also rejects symlinks in a Linux source bundle.
-ln -s "$work/outside" "$work/package-tree/escape"
-if env TMPDIR="$work/tmp" ANNOTATIONS_LINUX_BUNDLE="$work/package-tree" ANNOTATIONS_DIST_DIR="$work/package-rejected" \
-  bash "$ROOT_DIR/scripts/package_installed_apps.sh" linux >/dev/null 2>&1; then
+# The packager accepts this valid bundle before the symlink is added.
+if ! env TMPDIR="$work/tmp" ANNOTATIONS_LINUX_BUNDLE="$work/package-tree/bundle" ANNOTATIONS_DIST_DIR="$work/package-control" \
+  bash "$ROOT_DIR/scripts/package_installed_apps.sh" linux >"$work/package-control.log" 2>&1; then
+  cat "$work/package-control.log" >&2
+  printf 'packager rejected the valid Linux bundle control\n' >&2
+  exit 1
+fi
+[[ -f "$work/package-control/annotations-linux-x64.tar.gz" ]]
+
+# A link inside that same otherwise-valid bundle must reach the link guard.
+ln -s "$work/outside" "$work/package-tree/bundle/escape"
+if env TMPDIR="$work/tmp" ANNOTATIONS_LINUX_BUNDLE="$work/package-tree/bundle" ANNOTATIONS_DIST_DIR="$work/package-rejected" \
+  bash "$ROOT_DIR/scripts/package_installed_apps.sh" linux >"$work/package-link-failure.log" 2>&1; then
   printf 'packager accepted a Linux bundle symlink\n' >&2
   exit 1
 fi
+grep -Fq 'Linux bundle contains a link or special file' "$work/package-link-failure.log"
 [[ ! -e "$work/package-rejected/annotations-linux-x64.tar.gz" ]]
 
 # A tar symlink is rejected before extraction and cannot escape the app root.
