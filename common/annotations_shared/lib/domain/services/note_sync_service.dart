@@ -4,6 +4,7 @@ import 'dart:io';
 import '../models/local_note.dart';
 import '../models/note_document.dart';
 import '../../dal/remote/api_adapter.dart';
+import 'installed_account.dart';
 import 'local_note_store.dart';
 import 'sync_operation.dart';
 
@@ -420,6 +421,21 @@ class NoteSyncService {
     final usePatch =
         op != null && note.schema.family == DocumentFamily.original;
 
+    final sessionSnapshot = isFirstUpload && api.client is SessionClient
+        ? (api.client as SessionClient).captureSnapshot()
+        : null;
+    if (sessionSnapshot != null &&
+        (!sessionSnapshot.isCurrent ||
+            sessionSnapshot.session?.verifiedUserId != accountId)) {
+      throw AccountOwnershipException(
+        'The installed account changed before the note upload started.',
+      );
+    }
+    final requestApi = sessionSnapshot == null
+        ? api
+        : (ApiAdapter(client: sessionSnapshot.client, base: api.base)
+            ..onError = api.onError);
+
     if (isFirstUpload) {
       path = '/me/notes';
       method = 'POST';
@@ -470,7 +486,7 @@ class NoteSyncService {
     try {
       Map<String, dynamic> resp;
       try {
-        resp = await api.request(
+        resp = await requestApi.request(
           path,
           method: method,
           body: payload,
@@ -487,14 +503,22 @@ class NoteSyncService {
             err.details?['code'] != 'study_source_unavailable') {
           rethrow;
         }
+        if (sessionSnapshot != null && !sessionSnapshot.isCurrent) {
+          rethrow;
+        }
         final contentOnly = Map<String, dynamic>.of(payload)
           ..remove('study_source_note_id');
-        resp = await api.request(
+        resp = await requestApi.request(
           path,
           method: method,
           body: contentOnly,
           headers: headers,
           compress: true,
+        );
+      }
+      if (sessionSnapshot != null && !sessionSnapshot.isCurrent) {
+        throw AccountOwnershipException(
+          'The installed account changed during the note upload.',
         );
       }
       final serverNoteId = knownServerNoteId ?? _requireServerNoteId(resp);

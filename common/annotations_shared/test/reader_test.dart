@@ -363,6 +363,16 @@ void main() {
             find.byKey(const Key('reader-start-handwritten-study')),
             findsOneWidget,
           );
+          expect(
+            find.text(translate('startHandwrittenStudy', 'en')),
+            findsOneWidget,
+          );
+          for (final locale in ['pt-BR', 'th']) {
+            expect(
+              translate('startHandwrittenStudy', locale),
+              isNot('startHandwrittenStudy'),
+            );
+          }
           await tester.tap(
             find.byKey(const Key('reader-start-handwritten-study')),
           );
@@ -398,6 +408,54 @@ void main() {
         }
       },
     );
+
+    testWidgets('handwritten-study failure uses a localized visible message', (
+      tester,
+    ) async {
+      final storage = await tester.runAsync(() async {
+        final root = await Directory.systemTemp.createTemp(
+          'reader_study_error_',
+        );
+        return (root: root, store: await SqliteNoteStore.open(root.path));
+      });
+      final root = storage!.root;
+      final store = storage.store;
+      final workspace = LocalWorkspace(
+        store: store,
+        catalog: ProjectTagCatalog(),
+        profile: PlatformProfile.fullWriter,
+      );
+      try {
+        final api = FakeApi()..views = const ['typed'];
+        await store.close();
+        await open(
+          tester,
+          api,
+          '/v1/notes/source-typed?view=typed',
+          workspace: workspace,
+        );
+        await tester.tap(
+          find.byKey(const Key('reader-start-handwritten-study')),
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+        expect(
+          find.text(translate('studySourceCreateFailed', 'en')),
+          findsOneWidget,
+        );
+        expect(
+          translate('studySourceCreateFailed', 'pt-BR'),
+          isNot('studySourceCreateFailed'),
+        );
+        expect(
+          translate('studySourceCreateFailed', 'th'),
+          isNot('studySourceCreateFailed'),
+        );
+      } finally {
+        await tester.pumpWidget(const SizedBox());
+        await tester.runAsync(() => root.delete(recursive: true));
+      }
+    });
 
     testWidgets('phone does not expose the handwritten study action', (
       tester,

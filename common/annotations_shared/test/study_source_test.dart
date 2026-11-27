@@ -1,12 +1,16 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:annotations_shared/core/platform_profile.dart';
 import 'package:annotations_shared/dal/local/sqlite_note_store.dart';
+import 'package:annotations_shared/dal/remote/aes_cbc.dart';
 import 'package:annotations_shared/dal/remote/api_adapter.dart';
 import 'package:annotations_shared/domain/models/local_note.dart';
 import 'package:annotations_shared/domain/models/note_document.dart';
+import 'package:annotations_shared/domain/services/installed_account.dart';
 import 'package:annotations_shared/domain/services/local_workspace.dart';
+import 'package:annotations_shared/domain/services/native_auth_service.dart';
 import 'package:annotations_shared/domain/services/note_sync_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -137,6 +141,91 @@ void main() {
       expect(synced.studySource, source);
       expect(synced.studySource!.relationAttached, isFalse);
       expect(synced.serverNoteId, 'server-study-1');
+    },
+  );
+
+  test(
+    'source-unavailable response cannot retry through a replacement account',
+    () async {
+      final ws = workspace(store, PlatformProfile.fullWriter);
+      final id = await ws.createHandwrittenStudy(source);
+      final original = (await store.load(id))!;
+      final postEntered = Completer<void>();
+      final releasePost = Completer<http.Response>();
+      var postCount = 0;
+      Map<String, dynamic>? firstBody;
+      final transport = MockClient((request) async {
+        if (request.url.path == '/user/info/v1/') {
+          final cookie = request.headers['cookie'] ?? '';
+          final user = cookie.contains('sid-a') ? 'owner-a' : 'owner-b';
+          return http.Response(
+            jsonEncode({
+              'data': {'id': user, 'email': '$user@test'},
+            }),
+            200,
+          );
+        }
+        if (request.url.path == '/me/notes' && request.method == 'POST') {
+          postCount++;
+          expect(request.headers['cookie'], 'sid=sid-a; csrf=csrf-a');
+          firstBody = requestBody(request);
+          postEntered.complete();
+          return releasePost.future;
+        }
+        return http.Response('unexpected request', 404);
+      });
+      final storage = InMemorySecureSessionStorage();
+      final auth = NativeAuthService(
+        client: transport,
+        storage: storage,
+        gatewayBaseUrl: 'https://auth.test',
+      );
+      final account = InstalledAccount(
+        auth: auth,
+        client: transport,
+        platform: 'linux',
+        open: (_) async {},
+        aes: aesCbcEncrypt,
+        appContextKey: 'test',
+      );
+      await auth.writeSession(
+        const NativeSession(sessionId: 'sid-a', csrfToken: 'csrf-a'),
+      );
+      await account.check();
+
+      final sync = NoteSyncService(
+        store: store,
+        api: ApiAdapter(
+          client: SessionClient(account, transport),
+          base: 'https://api.test',
+        ),
+      ).syncNote(original, accountId: 'owner-a');
+      await postEntered.future;
+
+      await auth.writeSession(
+        const NativeSession(sessionId: 'sid-b', csrfToken: 'csrf-b'),
+      );
+      await account.check();
+      releasePost.complete(
+        http.Response(
+          jsonEncode({
+            'error': 'The study source must be a published typed post',
+            'code': 'study_source_unavailable',
+          }),
+          400,
+        ),
+      );
+
+      await expectLater(sync, throwsA(isA<ApiError>()));
+      expect(account.userId, 'owner-b');
+      expect(postCount, 1, reason: 'fallback must not use replacement B');
+      expect(firstBody?['client_note_id'], id);
+      expect(firstBody?['study_source_note_id'], source.noteId);
+      final unchanged = (await store.load(id))!;
+      expect(unchanged.accountId, isNull);
+      expect(unchanged.serverNoteId, isNull);
+      expect(unchanged.studySource, source);
+      expect(unchanged.document.toJson(), original.document.toJson());
     },
   );
 

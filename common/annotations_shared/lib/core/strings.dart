@@ -4,6 +4,16 @@ const strings = <String, List<String>>{
   // Account (annotations#38, H6 section 3 point 2).
   'signIn': ['Sign in', 'Entrar', 'เข้าสู่ระบบ'],
   'myNotes': ['My notes', 'Minhas anotações', 'บันทึกของฉัน'],
+  'startHandwrittenStudy': [
+    'Start a handwritten study',
+    'Começar um estudo manuscrito',
+    'เริ่มการศึกษาแบบเขียนด้วยมือ',
+  ],
+  'studySourceCreateFailed': [
+    'Could not start the study. Try again.',
+    'Não foi possível iniciar o estudo. Tente novamente.',
+    'เริ่มการศึกษาไม่ได้ ลองอีกครั้ง',
+  ],
   'logOut': ['Log out', 'Sair', 'ออกจากระบบ'],
   'account': ['Account', 'Conta', 'บัญชี'],
   // Export and print preview (annotations#42).
