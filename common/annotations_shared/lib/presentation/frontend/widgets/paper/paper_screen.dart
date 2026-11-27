@@ -9,6 +9,9 @@ import '../../components/scope.dart';
 import '../../components/theme.dart';
 import '../../components/tokens.dart';
 import '../../../../domain/models/toolbar_placement.dart';
+import '../../../../domain/services/reports_embed_source.dart';
+import '../../../../domain/services/quiz_card_service.dart';
+import '../../../../domain/services/task_card_service.dart';
 import '../../../../dal/local/dropped_files.dart';
 import '../../handlers/attachment_handler.dart';
 import '../../handlers/draw_handler.dart';
@@ -23,6 +26,7 @@ import 'paper_toolbar.dart';
 import 'point_edit_layer.dart';
 import 'selection_layer.dart';
 import 'text_block_editor.dart';
+import 'note_embedded_cards_layer.dart';
 
 /// The writing surface of one note: the paper canvas with its status panel
 /// (save state, paper background and zoom). The same screen serves phones
@@ -66,6 +70,34 @@ class PaperScreen extends StatefulWidget {
   /// Link previews from the server for cloud notes; local notes have none.
   final LinkPreviewSource? linkPreview;
 
+  /// Auth-scoped Reports source for live/snapshot note cards.
+  final ReportsEmbedSource? reportsSource;
+  final String? trustedReportsAccountId;
+  final bool publicProjection;
+  final String reportsLanguage;
+  final Future<void> Function(
+    BuildContext context,
+    PaperHandler handler,
+    AttachmentHandler attachments,
+  )?
+  onAddReport;
+  final Future<void> Function(
+    BuildContext context,
+    PaperHandler handler,
+    AttachmentHandler attachments,
+  )?
+  onAddTaskCard;
+  final Future<void> Function(
+    BuildContext context,
+    PaperHandler handler,
+    AttachmentHandler attachments,
+  )?
+  onCreateReport;
+
+  /// Loads one account-authorized task by its saved reference.
+  final Future<TaskSummary?> Function(String taskId)? loadTaskCard;
+  final Future<QuizSummary?> Function(String quizId)? loadQuizCard;
+
   /// Replaces the save state in the status panel: an Instant room shows its
   /// sharing state there (annotations#44).
   final Widget? status;
@@ -89,6 +121,15 @@ class PaperScreen extends StatefulWidget {
     this.onFocusChanged,
     this.attachments,
     this.linkPreview,
+    this.reportsSource,
+    this.trustedReportsAccountId,
+    this.publicProjection = false,
+    this.reportsLanguage = 'en',
+    this.onAddReport,
+    this.onAddTaskCard,
+    this.onCreateReport,
+    this.loadTaskCard,
+    this.loadQuizCard,
     this.status,
     this.typedOnly = false,
     this.readOnly = false,
@@ -213,6 +254,15 @@ class _PaperScreenState extends State<PaperScreen> {
       points: points,
       selection: widget.typedOnly ? null : selection,
       attachments: widget.typedOnly ? null : attachments,
+      onAddReport: widget.onAddReport == null
+          ? null
+          : () => widget.onAddReport!(context, widget.handler, attachments),
+      onAddTaskCard: widget.onAddTaskCard == null
+          ? null
+          : () => widget.onAddTaskCard!(context, widget.handler, attachments),
+      onCreateReport: widget.onCreateReport == null
+          ? null
+          : () => widget.onCreateReport!(context, widget.handler, attachments),
       typedOnly: widget.typedOnly,
       placement: p,
       onPlacement: _place,
@@ -350,6 +400,20 @@ class _PaperScreenState extends State<PaperScreen> {
                   SelectionLayer(selection: selection, view: view),
                   AttachmentJobsLayer(attachments: attachments, view: view),
                 ],
+                if (widget.reportsSource != null ||
+                    widget.loadTaskCard != null ||
+                    widget.loadQuizCard != null ||
+                    widget.publicProjection)
+                  NoteEmbeddedCardsLayer(
+                    document: widget.handler.document,
+                    view: view,
+                    reportsSource: widget.reportsSource,
+                    trustedAccountId: widget.trustedReportsAccountId,
+                    publicProjection: widget.publicProjection,
+                    language: widget.reportsLanguage,
+                    loadTask: widget.loadTaskCard,
+                    loadQuiz: widget.loadQuizCard,
+                  ),
                 if (widget.foreground != null)
                   widget.foreground!(context, view),
               ],

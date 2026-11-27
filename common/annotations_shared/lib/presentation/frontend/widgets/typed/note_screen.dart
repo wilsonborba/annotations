@@ -6,18 +6,27 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_quill/flutter_quill.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../../core/platform_profile.dart';
+import '../../../../core/landing_settings.dart';
 import '../../../../domain/models/note_document.dart';
+import '../../../../domain/models/reports_embed_data.dart';
+import '../../../../domain/services/reports_embed_source.dart';
 import '../../../../domain/services/ink_outline.dart';
+import '../../../../domain/services/quiz_card_service.dart';
+import '../../../../domain/services/task_card_service.dart';
 import '../../../../domain/services/note_views.dart';
 import '../../../../dal/local/quill_text_engine.dart';
 import '../../components/card_layout.dart';
 import '../../components/controls.dart';
 import '../../components/icons.dart';
 import '../../components/paper_controls.dart';
+import '../../components/quiz_card_view.dart';
+import '../../components/reports_embed_card.dart';
 import '../../components/save_state.dart';
 import '../../components/scope.dart';
+import '../../components/task_card_view.dart';
 import '../../components/text_tools.dart';
 import '../../components/theme.dart';
 import '../../components/tokens.dart';
@@ -26,19 +35,76 @@ import '../../handlers/attachment_handler.dart';
 import '../../handlers/paper_handler.dart';
 import '../../handlers/typed_note_handler.dart';
 import '../paper/paper_canvas.dart';
+import '../paper/note_embedded_cards_layer.dart';
 import '../paper/paper_screen.dart';
 
 class NoteScreen extends StatelessWidget {
   final PaperHandler handler;
   final PlatformProfile profile;
-  const NoteScreen({super.key, required this.handler, required this.profile});
+  final bool publicProjection;
+  final Future<QuizSummary?> Function(String quizId)? loadQuizCard;
+  final Future<TaskSummary?> Function(String taskId)? loadTaskCard;
+  final ReportsEmbedSource? reportsSource;
+  final String? trustedReportsAccountId;
+  final String reportsLanguage;
+  final Future<void> Function(
+    BuildContext context,
+    PaperHandler handler,
+    AttachmentHandler attachments,
+  )?
+  onAddReport;
+  final Future<void> Function(
+    BuildContext context,
+    PaperHandler handler,
+    AttachmentHandler attachments,
+  )?
+  onAddTaskCard;
+  final Future<void> Function(
+    BuildContext context,
+    PaperHandler handler,
+    AttachmentHandler attachments,
+  )?
+  onCreateReport;
+  const NoteScreen({
+    super.key,
+    required this.handler,
+    required this.profile,
+    this.publicProjection = false,
+    this.loadQuizCard,
+    this.loadTaskCard,
+    this.reportsSource,
+    this.trustedReportsAccountId,
+    this.reportsLanguage = 'en',
+    this.onAddReport,
+    this.onAddTaskCard,
+    this.onCreateReport,
+  });
 
   @override
   Widget build(BuildContext context) =>
       switch (noteViewFor(profile, handler.document)) {
-        NoteView.paper => PaperScreen(handler: handler),
+        NoteView.paper => PaperScreen(
+          handler: handler,
+          publicProjection: publicProjection,
+          reportsSource: reportsSource,
+          trustedReportsAccountId: trustedReportsAccountId,
+          reportsLanguage: reportsLanguage,
+          onAddReport: onAddReport,
+          onAddTaskCard: onAddTaskCard,
+          onCreateReport: onCreateReport,
+          loadQuizCard: loadQuizCard,
+          loadTaskCard: loadTaskCard,
+        ),
         NoteView.typed => TypedNoteEditor(paper: handler),
-        NoteView.readOnly => NoteReader(handler: handler),
+        NoteView.readOnly => NoteReader(
+          handler: handler,
+          publicProjection: publicProjection,
+          reportsSource: reportsSource,
+          trustedReportsAccountId: trustedReportsAccountId,
+          reportsLanguage: reportsLanguage,
+          loadTaskCard: loadTaskCard,
+          loadQuizCard: loadQuizCard,
+        ),
       };
 }
 
@@ -47,7 +113,22 @@ class NoteScreen extends StatelessWidget {
 /// edited or saved.
 class NoteReader extends StatefulWidget {
   final PaperHandler handler;
-  const NoteReader({super.key, required this.handler});
+  final bool publicProjection;
+  final ReportsEmbedSource? reportsSource;
+  final String? trustedReportsAccountId;
+  final String reportsLanguage;
+  final Future<TaskSummary?> Function(String taskId)? loadTaskCard;
+  final Future<QuizSummary?> Function(String quizId)? loadQuizCard;
+  const NoteReader({
+    super.key,
+    required this.handler,
+    this.publicProjection = false,
+    this.reportsSource,
+    this.trustedReportsAccountId,
+    this.reportsLanguage = 'en',
+    this.loadTaskCard,
+    this.loadQuizCard,
+  });
 
   @override
   State<NoteReader> createState() => _NoteReaderState();
@@ -77,6 +158,14 @@ class _NoteReaderState extends State<NoteReader> {
         (it['height'] as num).toDouble(),
       );
       if (r.contains(p)) {
+        if (widget.publicProjection &&
+            const {
+              'reports_embed',
+              'task_card',
+              'quiz_card',
+            }.contains(it['kind'])) {
+          return;
+        }
         if (it['restricted'] == true) return;
         cards.open(it['id'] as String);
         return;
@@ -93,6 +182,13 @@ class _NoteReaderState extends State<NoteReader> {
         files: widget.handler.files,
         title: widget.handler.title,
         onOpen: (url) => cards.launchLink(url),
+        publicProjection: widget.publicProjection,
+        reportsSource: widget.reportsSource,
+        trustedReportsAccountId: widget.trustedReportsAccountId,
+        reportsLanguage: widget.reportsLanguage,
+        loadTaskCard: widget.loadTaskCard,
+        loadQuizCard: widget.loadQuizCard,
+        onOpenQuiz: _openQuiz,
       );
     }
     final c = context.colors;
@@ -105,6 +201,27 @@ class _NoteReaderState extends State<NoteReader> {
           onTap: _tap,
           onWheel: cards.wheel,
         ),
+        if (document is PaperDocument &&
+            (widget.publicProjection ||
+                widget.reportsSource != null ||
+                widget.loadTaskCard != null ||
+                widget.loadQuizCard != null))
+          ValueListenableBuilder<PaperView?>(
+            valueListenable: widget.handler.view,
+            builder: (context, view, _) => view == null
+                ? const SizedBox.shrink()
+                : NoteEmbeddedCardsLayer(
+                    key: const Key('reader-embedded-cards'),
+                    document: document,
+                    view: view,
+                    publicProjection: widget.publicProjection,
+                    reportsSource: widget.reportsSource,
+                    trustedAccountId: widget.trustedReportsAccountId,
+                    language: widget.reportsLanguage,
+                    loadTask: widget.loadTaskCard,
+                    loadQuiz: widget.loadQuizCard,
+                  ),
+          ),
         Positioned(
           left: 12,
           bottom: 12,
@@ -139,6 +256,15 @@ class _NoteReaderState extends State<NoteReader> {
         ),
       ],
     );
+  }
+
+  void _openQuiz(String quizId) {
+    final normalizedId = quizId.trim();
+    if (normalizedId.isEmpty) return;
+    final uri = Uri.parse(
+      '${LandingSettings.certifications}/v1/quizzes/${Uri.encodeComponent(normalizedId)}',
+    );
+    launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 }
 
@@ -328,6 +454,13 @@ class TypedNoteReader extends StatelessWidget {
   /// The author line under the title on the formal page (annotations#40).
   final String? byline;
   final ValueChanged<String>? onOpen;
+  final bool publicProjection;
+  final ReportsEmbedSource? reportsSource;
+  final String? trustedReportsAccountId;
+  final String reportsLanguage;
+  final Future<TaskSummary?> Function(String taskId)? loadTaskCard;
+  final Future<QuizSummary?> Function(String quizId)? loadQuizCard;
+  final ValueChanged<String>? onOpenQuiz;
   const TypedNoteReader({
     super.key,
     required this.document,
@@ -335,6 +468,13 @@ class TypedNoteReader extends StatelessWidget {
     this.title,
     this.byline,
     this.onOpen,
+    this.publicProjection = false,
+    this.reportsSource,
+    this.trustedReportsAccountId,
+    this.reportsLanguage = 'en',
+    this.loadTaskCard,
+    this.loadQuizCard,
+    this.onOpenQuiz,
   });
 
   @override
@@ -455,7 +595,14 @@ class TypedNoteReader extends StatelessWidget {
             ),
           );
         default:
-          if (j['restricted'] == true) {
+          final kind = j['kind'];
+          if (j['restricted'] == true ||
+              (publicProjection &&
+                  const {
+                    'reports_embed',
+                    'task_card',
+                    'quiz_card',
+                  }.contains(kind))) {
             // Keeps the block's place with a lock (annotations#40).
             children.add(
               Container(
@@ -472,7 +619,38 @@ class TypedNoteReader extends StatelessWidget {
               ),
             );
           } else {
-            children.add(_BlockPicture(json: j, files: files, onOpen: onOpen));
+            if (j['kind'] == 'quiz_card') {
+              children.add(
+                _TypedQuizCard(
+                  key: ValueKey('typed-quiz-${j['id']}'),
+                  item: j,
+                  load: loadQuizCard,
+                  onOpen: onOpenQuiz,
+                ),
+              );
+            } else if (j['kind'] == 'task_card') {
+              children.add(
+                _TypedTaskCard(
+                  key: ValueKey('typed-task-${j['id']}'),
+                  item: j,
+                  load: loadTaskCard,
+                ),
+              );
+            } else if (j['kind'] == 'reports_embed') {
+              children.add(
+                _TypedReportsCard(
+                  key: ValueKey('typed-reports-${j['id']}'),
+                  item: j,
+                  source: reportsSource,
+                  trustedAccountId: trustedReportsAccountId,
+                  language: reportsLanguage,
+                ),
+              );
+            } else {
+              children.add(
+                _BlockPicture(json: j, files: files, onOpen: onOpen),
+              );
+            }
           }
       }
     }
@@ -544,6 +722,320 @@ class _BlockPicture extends StatelessWidget {
       },
     );
   }
+}
+
+class _TypedTaskCard extends StatefulWidget {
+  const _TypedTaskCard({super.key, required this.item, required this.load});
+
+  final Map<String, Object?> item;
+  final Future<TaskSummary?> Function(String taskId)? load;
+
+  @override
+  State<_TypedTaskCard> createState() => _TypedTaskCardState();
+}
+
+class _TypedTaskCardState extends State<_TypedTaskCard> {
+  TaskSummary? _task;
+  bool _loading = false;
+  bool _failed = false;
+  int _generation = 0;
+
+  String? get _taskId {
+    final raw = widget.item['task_id'];
+    return raw is String && raw.trim().isNotEmpty ? raw.trim() : null;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void didUpdateWidget(_TypedTaskCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.item['task_id'] != widget.item['task_id'] ||
+        oldWidget.load != widget.load) {
+      _task = null;
+      _failed = false;
+      _load();
+    }
+  }
+
+  Future<void> _load() async {
+    final id = _taskId;
+    final loader = widget.load;
+    final generation = ++_generation;
+    if (id == null || loader == null) {
+      setState(() {
+        _loading = false;
+        _failed = true;
+      });
+      return;
+    }
+    setState(() {
+      _loading = true;
+      _failed = false;
+    });
+    try {
+      final result = await loader(id);
+      if (!mounted || generation != _generation) return;
+      setState(() {
+        if (result?.taskId == id) {
+          _task = result;
+        } else {
+          _failed = true;
+        }
+        _loading = false;
+      });
+    } on Object {
+      if (!mounted || generation != _generation) return;
+      setState(() {
+        _failed = true;
+        _loading = false;
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _generation++;
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 6),
+    child: TaskCardView(
+      task: _task,
+      loading: _loading,
+      unavailable: _failed,
+      onRetry: _failed ? _load : null,
+    ),
+  );
+}
+
+class _TypedReportsCard extends StatefulWidget {
+  const _TypedReportsCard({
+    super.key,
+    required this.item,
+    required this.source,
+    required this.trustedAccountId,
+    required this.language,
+  });
+
+  final Map<String, Object?> item;
+  final ReportsEmbedSource? source;
+  final String? trustedAccountId;
+  final String language;
+
+  @override
+  State<_TypedReportsCard> createState() => _TypedReportsCardState();
+}
+
+class _TypedReportsCardState extends State<_TypedReportsCard> {
+  ReportsEmbedData? _data;
+  bool _loading = false;
+  int _generation = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void didUpdateWidget(_TypedReportsCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.item['id'] != widget.item['id'] ||
+        !_sameReportsReference(oldWidget.item, widget.item) ||
+        oldWidget.source != widget.source ||
+        oldWidget.trustedAccountId != widget.trustedAccountId ||
+        oldWidget.language != widget.language) {
+      _generation++;
+      _data = null;
+      _loading = false;
+      _load();
+    }
+  }
+
+  bool _sameReportsReference(
+    Map<String, Object?> oldItem,
+    Map<String, Object?> newItem,
+  ) => const [
+    'project_slug',
+    'report_slug',
+    'dataset_id',
+    'report_id',
+    'mode',
+    'snapshot_id',
+    'captured_at',
+    'source',
+    'restricted',
+  ].every((field) => oldItem[field] == newItem[field]);
+
+  Future<void> _load() async {
+    final generation = ++_generation;
+    final source = widget.source;
+    setState(() => _loading = true);
+    try {
+      final result = source == null
+          ? const ReportsEmbedData(
+              state: ReportsEmbedState.signInRequired,
+              reference: null,
+            )
+          : await source.loadDocument(
+              widget.item,
+              trustedAccountId: widget.trustedAccountId,
+              language: widget.language,
+            );
+      if (!mounted || generation != _generation) return;
+      setState(() {
+        _data = result;
+        _loading = false;
+      });
+    } on Object {
+      if (!mounted || generation != _generation) return;
+      setState(() {
+        _data = const ReportsEmbedData(
+          state: ReportsEmbedState.unavailable,
+          reference: null,
+        );
+        _loading = false;
+      });
+    }
+  }
+
+  VoidCallback? get _open {
+    final value = _data?.openInReportsUrl;
+    final uri = value == null ? null : Uri.tryParse(value);
+    if (uri == null ||
+        uri.scheme != 'https' ||
+        uri.host != 'reports.asodya.com') {
+      return null;
+    }
+    return () => launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+
+  @override
+  void dispose() {
+    _generation++;
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 6),
+    child: SizedBox(
+      height: 224,
+      child: ReportsEmbedCard(
+        data: _data,
+        loading: _loading,
+        snapshot: widget.item['mode'] == 'snapshot',
+        onRetry: widget.source == null ? null : _load,
+        onOpen: _open,
+      ),
+    ),
+  );
+}
+
+class _TypedQuizCard extends StatefulWidget {
+  const _TypedQuizCard({
+    super.key,
+    required this.item,
+    required this.load,
+    required this.onOpen,
+  });
+
+  final Map<String, Object?> item;
+  final Future<QuizSummary?> Function(String quizId)? load;
+  final ValueChanged<String>? onOpen;
+
+  @override
+  State<_TypedQuizCard> createState() => _TypedQuizCardState();
+}
+
+class _TypedQuizCardState extends State<_TypedQuizCard> {
+  QuizSummary? _quiz;
+  bool _loading = false;
+  bool _failed = false;
+  int _generation = 0;
+
+  String? get _quizId {
+    final raw = widget.item['quiz_id'];
+    if (raw is! String || raw.trim().isEmpty) return null;
+    return raw.trim();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void didUpdateWidget(_TypedQuizCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.item['quiz_id'] != widget.item['quiz_id'] ||
+        oldWidget.load != widget.load) {
+      _quiz = null;
+      _failed = false;
+      _load();
+    }
+  }
+
+  Future<void> _load() async {
+    final quizId = _quizId;
+    final loader = widget.load;
+    final generation = ++_generation;
+    if (quizId == null || loader == null) {
+      setState(() {
+        _loading = false;
+        _failed = true;
+      });
+      return;
+    }
+    setState(() {
+      _loading = true;
+      _failed = false;
+    });
+    try {
+      final result = await loader(quizId);
+      if (!mounted || generation != _generation) return;
+      setState(() {
+        if (result?.quizId == quizId) {
+          _quiz = result;
+        } else {
+          _failed = true;
+        }
+        _loading = false;
+      });
+    } on Object {
+      if (!mounted || generation != _generation) return;
+      setState(() {
+        _failed = true;
+        _loading = false;
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _generation++;
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 6),
+    child: QuizCardView(
+      quiz: _quiz,
+      loading: _loading,
+      unavailable: _failed,
+      onRetry: _failed ? _load : null,
+      onOpen: _quizId == null ? null : () => widget.onOpen?.call(_quizId!),
+    ),
+  );
 }
 
 class _BlockPainter extends CustomPainter {

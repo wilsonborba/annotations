@@ -2,12 +2,37 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:annotations_shared/domain/models/ink.dart';
 import 'package:annotations_shared/domain/models/note_document.dart';
+import 'package:annotations_shared/domain/services/editor_rules.dart';
 import 'package:annotations_shared/domain/services/pdf_export_mapper.dart';
+import 'package:annotations_shared/domain/services/quiz_card_service.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
 import 'note_capacity_test.dart' show handwriting;
+import 'pdf_raster.dart';
+
+/// A straight red pen line captured with the real editor capture code, as
+/// the app stores it: Bezier nodes in hundredths, no x/y/height.
+Map<String, Object?> redLine(
+  String id,
+  double x0,
+  double y0,
+  double x1,
+  double y1,
+) {
+  final capture = StrokeCapture(
+    const BrushSettings(tool: InkTool.round, width: 3, color: '#DC2626FF'),
+    pageWidth: 1000,
+  );
+  for (var k = 0; k <= 20; k++) {
+    final a = k / 20;
+    capture.add(x0 + (x1 - x0) * a, y0 + (y1 - y0) * a, 1000 + k * 8);
+  }
+  return capture.toItem(id)!;
+}
 
 void main() {
   final origSchema = DocumentSchema(DocumentFamily.original.schemaName, 1);
@@ -35,6 +60,57 @@ void main() {
       dir.deleteSync(recursive: true);
     }
   }
+
+  test(
+    'personal quiz-card preflight requires owner summary while zero and unknown stay distinct',
+    () {
+      final quizDocument = NoteDocument.fromJson({
+        'page': {
+          'width': 1000,
+          'background': {'kind': 'blank'},
+        },
+        'items': [
+          {
+            'id': 'quiz-card-1',
+            'kind': 'quiz_card',
+            'x': 20,
+            'y': 20,
+            'width': 300,
+            'height': 120,
+            'quiz_id': 'quiz-1',
+          },
+        ],
+      }, schema: origSchema);
+      final pending = PdfExportMapper.preflight(
+        original: quizDocument,
+        typed: null,
+        options: const PdfExportOptions(audience: PdfAudience.personal),
+      );
+      expect(pending.issues.map((issue) => issue.refId), ['quiz-1']);
+
+      final withKnownZero = PdfExportMapper.preflight(
+        original: quizDocument,
+        typed: null,
+        options: const PdfExportOptions(audience: PdfAudience.personal),
+        quizSummaries: const {
+          'quiz-1': QuizSummary(
+            quizId: 'quiz-1',
+            title: null,
+            questionCount: 0,
+            subject: null,
+          ),
+        },
+      );
+      expect(withKnownZero.issues, isEmpty);
+
+      final public = PdfExportMapper.preflight(
+        original: quizDocument,
+        typed: null,
+        options: const PdfExportOptions(audience: PdfAudience.public),
+      );
+      expect(public.issues, isEmpty);
+    },
+  );
 
   test(
     'public export redacts private charts (verified via pdftotext and no image XObject)',
@@ -88,19 +164,21 @@ void main() {
           },
           {
             'id': 'chart_priv',
-            'kind': 'report_embed',
+            'kind': 'reports_embed',
             'x': 20,
             'y': 220,
             'width': 300,
             'height': 80,
-            'ref_id': 'secret_chart_99',
-            'title': 'CONFIDENTIAL_METRIC_SHOULD_NOT_APPEAR',
-            'visibility': 'restricted',
+            'report_id': 'secret_chart_99',
+            'mode': 'snapshot',
+            'source': 'upload',
+            'snapshot_id': 'snapshot_99',
+            'captured_at': 1795520000,
           },
         ],
       }, schema: origSchema);
 
-      // Control: personal audience includes the chart title in extracted text.
+      // Personal export reports the unavailable chart as a marked placeholder.
       final personalRes = await mapper.export(
         title: 'Mixed Note',
         slug: 'mixed-note',
@@ -108,7 +186,9 @@ void main() {
         options: const PdfExportOptions(
           mode: PdfExportMode.original,
           audience: PdfAudience.personal,
+          continueWithPlaceholders: true,
         ),
+        failedChartIds: const {'secret_chart_99'},
         baseFont: baseFont,
         thaiFont: thaiFont,
       );
@@ -118,8 +198,10 @@ void main() {
       );
       expect(
         personalText.replaceAll(RegExp(r'\s+'), ''),
-        contains('CONFIDENTIAL_METRIC_SHOULD_NOT_APPEAR'),
+        contains('Reportsnapshotunavailable(markedplaceholder)'),
       );
+      expect(personalRes.preflight.hasPrivateChartWarning, isTrue);
+      expect(personalRes.preflight.issues, hasLength(1));
 
       // Public audience must redact the private chart and contain no raster image XObjects.
       final publicRes = await mapper.export(
@@ -129,25 +211,149 @@ void main() {
         options: const PdfExportOptions(
           mode: PdfExportMode.original,
           audience: PdfAudience.public,
+          continueWithPlaceholders: true,
         ),
+        failedChartIds: const {'secret_chart_99'},
+        reportImages: {
+          'secret_chart_99||||snapshot|snapshot_99': Uint8List.fromList([
+            1,
+            2,
+            3,
+          ]),
+        },
         baseFont: baseFont,
         thaiFont: thaiFont,
       );
-      expect(publicRes.preflight.hasPrivateChartWarning, isTrue);
+      expect(publicRes.preflight.hasPrivateChartWarning, isFalse);
       expect(publicRes.pdfs.length, 1);
       final mixedBytes = publicRes.pdfs.first.bytes;
       expect(utf8.decode(mixedBytes.sublist(0, 5)), '%PDF-');
       expect(
         latin1.decode(mixedBytes, allowInvalid: true),
-        isNot(contains('/Subtype /Image')),
+        isNot(contains('/Subtype/Image')),
       );
 
       final publicText = await extractPdfText(mixedBytes, 'mixed_public');
       expect(publicText, contains('Mixed note heading'));
+      expect(publicText, contains('Restricted content (lock notice)'));
       expect(
         publicText.replaceAll(RegExp(r'\s+'), ''),
         isNot(contains('CONFIDENTIAL_METRIC_SHOULD_NOT_APPEAR')),
       );
+    },
+  );
+
+  test(
+    'personal export freezes a captured Reports visual as a PDF image',
+    () async {
+      final baseFont = loadFont(
+        'lib/presentation/frontend/assets/fonts/UbuntuSans-Variable.ttf',
+      );
+      final thaiFont = loadFont(
+        'lib/presentation/frontend/assets/fonts/IBMPlexSansThai-Regular.ttf',
+      );
+      final png = base64Decode(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAAAAAA6fptVAAAACklEQVR4nGNgAAAAAgABSK+kcQAAAABJRU5ErkJggg==',
+      );
+      final doc = NoteDocument.fromJson({
+        'page': {
+          'width': 1000,
+          'background': {'kind': 'blank'},
+        },
+        'items': [
+          {
+            'id': 'chart_1',
+            'kind': 'reports_embed',
+            'report_id': 'report',
+            'project_slug': 'project',
+            'report_slug': 'report',
+            'dataset_id': 'dataset',
+            'mode': 'snapshot',
+            'source': 'link',
+            'snapshot_id': 'snapshot-1',
+            'captured_at': 1795520000,
+            'x': 20,
+            'y': 20,
+            'width': 500,
+            'height': 300,
+          },
+        ],
+      }, schema: origSchema);
+
+      final out = await PdfExportMapper().export(
+        title: 'Frozen report',
+        slug: 'frozen-report',
+        original: doc,
+        options: const PdfExportOptions(
+          mode: PdfExportMode.original,
+          audience: PdfAudience.personal,
+          continueWithPlaceholders: true,
+        ),
+        reportImages: {
+          jsonEncode([
+            'report',
+            'project',
+            'report',
+            'dataset',
+            'snapshot',
+            'snapshot-1',
+          ]): png,
+        },
+        partialChartIds: const {'report'},
+        baseFont: baseFont,
+        thaiFont: thaiFont,
+      );
+
+      expect(out.preflight.issues.map((issue) => issue.kind), [
+        'partial_chart',
+      ]);
+      expect(out.engine, 'pdf');
+      expect(out.pdfs, hasLength(1));
+      expect(
+        latin1.decode(out.pdfs.single.bytes, allowInvalid: true),
+        contains('/Subtype/Image'),
+      );
+    },
+  );
+
+  test(
+    'preflight identifies failed Reports snapshots and unavailable fonts',
+    () {
+      final doc = NoteDocument.fromJson({
+        'page': {
+          'width': 1000,
+          'background': {'kind': 'blank'},
+        },
+        'items': [
+          {
+            'id': 'report-card',
+            'kind': 'reports_embed',
+            'report_id': 'report-1',
+            'mode': 'snapshot',
+            'source': 'upload',
+            'snapshot_id': 'snapshot-1',
+            'captured_at': 1795520000,
+            'x': 20,
+            'y': 20,
+            'width': 300,
+            'height': 80,
+          },
+        ],
+      }, schema: origSchema);
+
+      final preflight = PdfExportMapper.preflight(
+        original: doc,
+        typed: null,
+        options: const PdfExportOptions(audience: PdfAudience.personal),
+        failedChartIds: const {'report-1'},
+        fontsAvailable: false,
+      );
+
+      expect(preflight.issues.map((issue) => issue.kind).toSet(), {
+        'failed_chart',
+        'missing_font',
+      });
+      expect(preflight.hasPrivateChartWarning, isTrue);
     },
   );
 
@@ -196,8 +402,22 @@ void main() {
         thaiFont: thaiFont,
       );
       expect(oversizedRes.pdfs.first.bytes.length, greaterThan(500));
-      expect(oversizedRes.companions.length, 1);
-      expect(oversizedRes.companions.first.filename.startsWith('/'), isFalse);
+      expect(oversizedRes.companions.map((file) => file.filename).toSet(), {
+        'companion-huge_diagram.json',
+        'source-f_huge.bin',
+      });
+      final metadata = oversizedRes.companions.singleWhere(
+        (file) => file.filename == 'companion-huge_diagram.json',
+      );
+      expect(utf8.decode(metadata.bytes), contains('huge_diagram'));
+      final source = oversizedRes.companions.singleWhere(
+        (file) => file.filename == 'source-f_huge.bin',
+      );
+      expect(source.bytes, orderedEquals([1, 2, 3]));
+      expect(
+        oversizedRes.companions.every((file) => !file.filename.startsWith('/')),
+        isTrue,
+      );
       final text = await extractPdfText(
         oversizedRes.pdfs.first.bytes,
         'oversized',
@@ -294,9 +514,211 @@ void main() {
       expect(utf8.decode(inkRes.pdfs.first.bytes.sublist(0, 5)), '%PDF-');
       expect(
         latin1.decode(inkRes.pdfs.first.bytes, allowInvalid: true),
-        isNot(contains('/Subtype /Image')),
+        isNot(contains('/Subtype/Image')),
       );
       await extractPdfText(inkRes.pdfs.first.bytes, 'ink_only');
+      // The handwriting itself is on the page: dark pixels below the title,
+      // around the stroke's place (x 63..81, y 50..70 in page units).
+      final raster = await PdfRaster.page(inkRes.pdfs.first.bytes);
+      var ink = 0;
+      for (var y = 80; y < 130; y++) {
+        for (var x = 40; x < 110; x++) {
+          final (r, g, b) = raster.at(x, y);
+          if (r < 120 && g < 120 && b < 120) ink++;
+        }
+      }
+      expect(ink, greaterThan(15), reason: 'no handwriting pixels drawn');
     },
   );
+
+  group('Original ink is drawn from the stored nodes (annotations#42)', () {
+    final format = PdfPageFormat.a4;
+    final scale = (format.width - PdfExportMapper.marginPt * 2) / 1000;
+
+    Future<PdfRaster> render(List<Map<String, Object?>> items) async {
+      final doc = NoteDocument.fromJson({
+        'page': {
+          'width': 1000,
+          'background': {'kind': 'blank'},
+        },
+        'items': items,
+      }, schema: origSchema);
+      final out = await PdfExportMapper().export(
+        title: 'Ink',
+        slug: 'ink',
+        original: doc,
+        options: const PdfExportOptions(mode: PdfExportMode.original),
+        baseFont: loadFont(
+          'lib/presentation/frontend/assets/fonts/UbuntuSans-Variable.ttf',
+        ),
+        thaiFont: loadFont(
+          'lib/presentation/frontend/assets/fonts/IBMPlexSansThai-Regular.ttf',
+        ),
+      );
+      expect(out.pdfs, hasLength(1));
+      return PdfRaster.page(out.pdfs.first.bytes);
+    }
+
+    test('a stroke lands at its own place, length and color', () async {
+      final a = (await render([redLine('s1', 100, 100, 500, 100)])).box(isRed);
+      expect(a, isNotNull, reason: 'the stored stroke is not drawn at all');
+      final (l, t, r, b) = a!;
+      expect(l, closeTo(PdfExportMapper.marginPt + 100 * scale, 3));
+      expect(r - l, closeTo(400 * scale, 4));
+      expect(b - t, lessThan(6));
+
+      // The same line 200 units lower prints 200 scaled units lower.
+      final moved = (await render([
+        redLine('s1', 100, 300, 500, 300),
+      ])).box(isRed)!;
+      expect(moved.$2 - t, closeTo(200 * scale, 2));
+      expect(moved.$1, closeTo(l, 1));
+    });
+
+    test('ink on a later page prints at the top of that page', () async {
+      final doc = NoteDocument.fromJson({
+        'page': {
+          'width': 1000,
+          'background': {'kind': 'blank'},
+        },
+        'items': [
+          {
+            'id': 't1',
+            'kind': 'text',
+            'x': 96,
+            'y': 32,
+            'width': 320,
+            'height': 32,
+            'spans': [
+              {'text': 'Top'},
+            ],
+          },
+          redLine('s2', 100, 2000, 500, 2000),
+        ],
+      }, schema: origSchema);
+      final out = await PdfExportMapper().export(
+        title: 'Ink',
+        slug: 'ink',
+        original: doc,
+        options: const PdfExportOptions(mode: PdfExportMode.original),
+        baseFont: loadFont(
+          'lib/presentation/frontend/assets/fonts/UbuntuSans-Variable.ttf',
+        ),
+        thaiFont: loadFont(
+          'lib/presentation/frontend/assets/fonts/IBMPlexSansThai-Regular.ttf',
+        ),
+      );
+      expect((await PdfRaster.page(out.pdfs.first.bytes)).box(isRed), isNull);
+      final second = (await PdfRaster.page(
+        out.pdfs.first.bytes,
+        page: 2,
+      )).box(isRed);
+      expect(second, isNotNull, reason: 'the stroke is not on page 2');
+      expect(second!.$2, inInclusiveRange(PdfExportMapper.marginPt, 80));
+    });
+
+    test('free text prints at the editor scale, span size and color', () async {
+      Future<(int, int, int, int)> red(num size) async => (await render([
+        {
+          'id': 't1',
+          'kind': 'text',
+          'x': 96,
+          'y': 96,
+          'width': 640,
+          'height': 64,
+          'spans': [
+            {'text': 'HHHH', 'size': size, 'color': '#DC2626FF'},
+          ],
+        },
+      ])).box(isRed)!;
+      final big = await red(48);
+      final small = await red(24);
+      // No inset: the glyphs start at the box corner (H has a small bearing).
+      expect(big.$1, closeTo(PdfExportMapper.marginPt + 96 * scale, 3));
+      // Cap height follows the span size: twice the size, twice the height.
+      final hBig = big.$4 - big.$2, hSmall = small.$4 - small.$2;
+      expect(hBig, closeTo(48 * scale * 0.69, 2.5));
+      expect(hBig / hSmall, closeTo(2, 0.3));
+    });
+
+    test('a shape keeps its fill and its line, not a gray box', () async {
+      final raster = await render([
+        {
+          'id': 'sh1',
+          'kind': 'shape',
+          'shape': 'rectangle',
+          'color': '#DC2626FF',
+          'line_width': 2,
+          'opacity': 1,
+          'x': 100,
+          'y': 100,
+          'width': 200,
+          'height': 80,
+          'fill': '#FEE2E280',
+        },
+      ]);
+      final line = raster.box(isRed);
+      expect(line, isNotNull);
+      final (l, t, r, b) = line!;
+      expect(r - l, closeTo(200 * scale, 3));
+      expect(b - t, closeTo(80 * scale, 3));
+      final cx = (l + r) ~/ 2, cy = (t + b) ~/ 2;
+      final (pr, pg, pb) = raster.at(cx, cy);
+      expect(isPinkFill(pr, pg, pb), isTrue, reason: 'fill is $pr,$pg,$pb');
+    });
+
+    test('pagination uses real ink bounds and keeps groups together', () {
+      final doc = NoteDocument.fromJson({
+        'page': {
+          'width': 1000,
+          'background': {'kind': 'blank'},
+        },
+        'items': [
+          {
+            'id': 't1',
+            'kind': 'text',
+            'x': 96,
+            'y': 32,
+            'width': 320,
+            'height': 32,
+            'spans': [
+              {'text': 'Top'},
+            ],
+          },
+          redLine('low', 100, 2000, 400, 2000),
+          {
+            'id': 't2',
+            'kind': 'text',
+            'x': 96,
+            'y': 864,
+            'width': 320,
+            'height': 32,
+            'spans': [
+              {'text': 'Caption'},
+            ],
+          },
+          redLine('under', 100, 980, 400, 1060),
+          {
+            'id': 'g1',
+            'kind': 'group',
+            'members': ['t2', 'under'],
+          },
+        ],
+      }, schema: origSchema);
+      final pages = PdfExportMapper.planOriginalPages(
+        doc,
+        printableHeight: 1000,
+      );
+      List<String> ids(int p) => [
+        for (final it in pages[p].items) it['id'] as String,
+      ];
+      expect(pages, hasLength(3));
+      expect(ids(0), ['t1']);
+      // The group (caption and the ink under it) moves to the next page
+      // together, because its ink reaches past the first page.
+      expect(ids(1), ['t2', 'under']);
+      expect(ids(2), ['low']);
+      expect(pages[2].top, closeTo(2000 - 1.5, 0.01));
+    });
+  });
 }

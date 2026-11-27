@@ -264,6 +264,22 @@ class AttachmentHandler extends ChangeNotifier {
 
   num _round(num v) => (v * 100).round() / 100;
 
+  /// Places an already-prepared structured card using the same snapping,
+  /// free-space search, overlap validation and history path as imported
+  /// attachments. The caller must have completed any required owner-scoped
+  /// creation before invoking this method.
+  bool addStructuredCard(Map<String, Object?> item, {Offset? at}) {
+    if (!paper.editingEnabled ||
+        item['id'] is! String ||
+        item['kind'] is! String ||
+        item['width'] is! num ||
+        item['height'] is! num) {
+      return false;
+    }
+    final normalized = {...item, 'width': _gridWidth(item['width'] as num)};
+    return _placeNew(normalized, defaultPlace(at));
+  }
+
   num _measure(Map<String, Object?> item) =>
       measureCard(
         item,

@@ -48,8 +48,12 @@ Future<Uint8List?> krillaRenderPdf({
 
   final exports = instance.getProperty<JSObject>('exports'.toJS);
   final memory = exports.getProperty<JSObject>('memory'.toJS);
-  final allocFn = exports.getProperty<JSFunction>('asodya_krilla_wasm_alloc'.toJS);
-  final freeFn = exports.getProperty<JSFunction>('asodya_krilla_wasm_free'.toJS);
+  final allocFn = exports.getProperty<JSFunction>(
+    'asodya_krilla_wasm_alloc'.toJS,
+  );
+  final freeFn = exports.getProperty<JSFunction>(
+    'asodya_krilla_wasm_free'.toJS,
+  );
   final renderFn = exports.getProperty<JSFunction>(
     'asodya_krilla_wasm_render_pdf'.toJS,
   );

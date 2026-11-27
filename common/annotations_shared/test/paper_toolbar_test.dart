@@ -10,6 +10,7 @@ import 'package:annotations_shared/domain/services/preferences.dart';
 import 'package:annotations_shared/presentation/frontend/components/scope.dart';
 import 'package:annotations_shared/presentation/frontend/components/theme.dart';
 import 'package:annotations_shared/presentation/frontend/handlers/draw_handler.dart';
+import 'package:annotations_shared/presentation/frontend/handlers/attachment_handler.dart';
 import 'package:annotations_shared/presentation/frontend/handlers/paper_handler.dart';
 import 'package:annotations_shared/presentation/frontend/handlers/point_edit_handler.dart';
 import 'package:annotations_shared/presentation/frontend/handlers/text_handler.dart';
@@ -40,6 +41,24 @@ void main() {
     NoteDocument? document,
     Size size = const Size(1280, 900),
     Brightness brightness = Brightness.light,
+    Future<void> Function(
+      BuildContext context,
+      PaperHandler handler,
+      AttachmentHandler attachments,
+    )?
+    onAddReport,
+    Future<void> Function(
+      BuildContext context,
+      PaperHandler handler,
+      AttachmentHandler attachments,
+    )?
+    onAddTaskCard,
+    Future<void> Function(
+      BuildContext context,
+      PaperHandler handler,
+      AttachmentHandler attachments,
+    )?
+    onCreateReport,
   }) async {
     await setWindow(tester, size);
     paper = handlerFor(document ?? drawNote());
@@ -70,6 +89,9 @@ void main() {
               text: texts,
               draw: draw,
               points: points,
+              onAddReport: onAddReport,
+              onAddTaskCard: onAddTaskCard,
+              onCreateReport: onCreateReport,
             ),
           ),
         ),
@@ -114,6 +136,61 @@ void main() {
       paper.view.value!.toScreen(Offset.zero).dy,
       greaterThan(toolbar.bottom),
     );
+    await finish(tester);
+  });
+
+  testWidgets('Add menu reaches the owner-scoped Reports action', (
+    tester,
+  ) async {
+    var invoked = false;
+    await pump(
+      tester,
+      onAddReport: (context, handler, attachments) async {
+        invoked = true;
+      },
+    );
+    await tester.tap(byKey('add-menu'));
+    await tester.pumpAndSettle();
+    expect(byKey('add-reports-embed'), findsOneWidget);
+    await tester.tap(byKey('add-reports-embed'));
+    await tester.pumpAndSettle();
+    expect(invoked, isTrue);
+    await finish(tester);
+  });
+
+  testWidgets('Add menu reaches the create-chart action separately', (
+    tester,
+  ) async {
+    var invoked = false;
+    await pump(
+      tester,
+      onCreateReport: (context, handler, attachments) async {
+        invoked = true;
+      },
+    );
+    await tester.tap(byKey('add-menu'));
+    await tester.pumpAndSettle();
+    expect(byKey('create-reports-chart'), findsOneWidget);
+    await tester.tap(byKey('create-reports-chart'));
+    await tester.pumpAndSettle();
+    expect(invoked, isTrue);
+    await finish(tester);
+  });
+
+  testWidgets('Add menu reaches the existing task-card action', (tester) async {
+    var invoked = false;
+    await pump(
+      tester,
+      onAddTaskCard: (context, handler, attachments) async {
+        invoked = true;
+      },
+    );
+    await tester.tap(byKey('add-menu'));
+    await tester.pumpAndSettle();
+    expect(byKey('add-task-card'), findsOneWidget);
+    await tester.tap(byKey('add-task-card'));
+    await tester.pumpAndSettle();
+    expect(invoked, isTrue);
     await finish(tester);
   });
 

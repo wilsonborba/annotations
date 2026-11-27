@@ -6,6 +6,71 @@ const strings = <String, List<String>>{
   'myNotes': ['My notes', 'Minhas anotações', 'บันทึกของฉัน'],
   'logOut': ['Log out', 'Sair', 'ออกจากระบบ'],
   'account': ['Account', 'Conta', 'บัญชี'],
+  // Export and print preview (annotations#42).
+  'exportPdf': ['Export PDF', 'Exportar PDF', 'ส่งออก PDF'],
+  'paperA4': ['A4', 'A4', 'A4'],
+  'paperLetter': ['Letter', 'Carta', 'Letter'],
+  'portrait': ['Portrait', 'Retrato', 'แนวตั้ง'],
+  'landscape': ['Landscape', 'Paisagem', 'แนวนอน'],
+  'previewPage': ['page', 'página', 'หน้า'],
+  'previewPages': ['pages', 'páginas', 'หน้า'],
+  'preflightTitle': [
+    'Some content is not ready',
+    'Algum conteúdo não está pronto',
+    'เนื้อหาบางส่วนยังไม่พร้อม',
+  ],
+  'issueMissingFile': ['Missing file', 'Arquivo ausente', 'ไม่พบไฟล์'],
+  'issueUnsupportedContent': [
+    'Some content needs a marked placeholder',
+    'Alguns conteúdos precisam de um marcador para impressão',
+    'เนื้อหาบางส่วนต้องใช้ข้อความแจ้งเตือนในเอกสาร',
+  ],
+  'issueFailedChart': [
+    'Report snapshot unavailable',
+    'Instantâneo do relatório indisponível',
+    'ไม่มีภาพตัวอย่างรายงาน',
+  ],
+  'issuePartialReport': [
+    'Report has partial data',
+    'O relatório tem dados parciais',
+    'รายงานมีข้อมูลเพียงบางส่วน',
+  ],
+  'partialReportRows': [
+    'Report has partial data: {shown} of {total} rows',
+    'O relatório tem dados parciais: {shown} de {total} linhas',
+    'รายงานมีข้อมูลบางส่วน: {shown} จาก {total} แถว',
+  ],
+  'issueMissingFont': ['Font unavailable', 'Fonte indisponível', 'ไม่มีฟอนต์'],
+  'continuePlaceholders': [
+    'Continue with marked placeholders',
+    'Continuar com marcadores',
+    'ทำต่อโดยใช้ตัวแทนที่ทำเครื่องหมายไว้',
+  ],
+  'privateWarning': [
+    'This export contains private content, such as a private chart. Share the file with care.',
+    'Esta exportação tem conteúdo privado, como um gráfico privado. Compartilhe com cuidado.',
+    'การส่งออกนี้มีเนื้อหาส่วนตัว เช่น แผนภูมิส่วนตัว แชร์ไฟล์อย่างระมัดระวัง',
+  ],
+  'exportSavePdf': ['Save PDF', 'Salvar PDF', 'บันทึก PDF'],
+  'exportSaveZip': [
+    'Save ZIP with files',
+    'Salvar ZIP com arquivos',
+    'บันทึก ZIP พร้อมไฟล์',
+  ],
+  'exportBoth': ['Both', 'Ambos', 'ทั้งสองแบบ'],
+  'exportOriginal': ['Original', 'Original', 'ต้นฉบับ'],
+  'exportTyped': ['Typed', 'Digitado', 'แบบพิมพ์'],
+  'exportSaved': ['Export saved.', 'Exportação salva.', 'บันทึกการส่งออกแล้ว'],
+  'exportFailed': [
+    'The export could not be made.',
+    'Não foi possível exportar.',
+    'ไม่สามารถส่งออกได้',
+  ],
+  'exportSaveFailed': [
+    'Could not save the file. Try again.',
+    'Não foi possível salvar o arquivo. Tente novamente.',
+    'ไม่สามารถบันทึกไฟล์ได้ ลองใหม่อีกครั้ง',
+  ],
   // Installed login messages by FINAL status (annotations#38).
   'loginUnavailable': [
     'The login cannot start on this device. Try again later.',
@@ -354,6 +419,256 @@ const strings = <String, List<String>>{
     'ไม่พบบันทึกนี้หรือบันทึกนี้ไม่ได้เผยแพร่',
   ],
   'retry': ['Try again', 'Tentar novamente', 'ลองอีกครั้ง'],
+  'reportsLive': ['Live', 'Ao vivo', 'สด'],
+  'reportsSnapshot': ['Snapshot', 'Instantâneo', 'ภาพถ่ายข้อมูล'],
+  'reportsCaptured': [
+    'Captured {date}',
+    'Capturado em {date}',
+    'บันทึกเมื่อ {date}',
+  ],
+  'reportsOffline': ['Offline', 'Sem conexão', 'ออฟไลน์'],
+  'reportsLastSaved': [
+    'Last saved {date}',
+    'Salvo em {date}',
+    'บันทึกล่าสุด {date}',
+  ],
+  'reportsRestricted': [
+    'This report is restricted.',
+    'Este relatório tem acesso restrito.',
+    'รายงานนี้จำกัดสิทธิ์การเข้าถึง',
+  ],
+  'reportsSignInRequired': [
+    'Sign in to view this report.',
+    'Entre para ver este relatório.',
+    'เข้าสู่ระบบเพื่อดูรายงานนี้',
+  ],
+  'reportsUnavailable': [
+    'This report is unavailable.',
+    'Este relatório não está disponível.',
+    'รายงานนี้ไม่พร้อมใช้งาน',
+  ],
+  'reportsOfflineUnavailable': [
+    'No saved report is available offline.',
+    'Não há relatório salvo disponível sem conexão.',
+    'ไม่มีรายงานที่บันทึกไว้สำหรับดูออฟไลน์',
+  ],
+  'reportsLoading': [
+    'Loading report…',
+    'Carregando relatório…',
+    'กำลังโหลดรายงาน…',
+  ],
+  'reportsOpen': ['Open in Reports', 'Abrir no Reports', 'เปิดใน Reports'],
+  'reportsRetry': ['Retry', 'Tentar novamente', 'ลองอีกครั้ง'],
+  'reportsSignIn': ['Sign in', 'Entrar', 'เข้าสู่ระบบ'],
+  'reportsSearchTitle': [
+    'Add a Reports chart',
+    'Adicionar um gráfico do Reports',
+    'เพิ่มแผนภูมิ Reports',
+  ],
+  'reportsSearchLabel': [
+    'Search reports',
+    'Pesquisar relatórios',
+    'ค้นหารายงาน',
+  ],
+  'reportsSearchAction': ['Search', 'Pesquisar', 'ค้นหา'],
+  'reportsSearchError': [
+    'Reports could not load this result.',
+    'Não foi possível carregar este resultado do Reports.',
+    'ไม่สามารถโหลดผลลัพธ์จาก Reports ได้',
+  ],
+  'reportsSearchEmpty': [
+    'No reports are available here.',
+    'Nenhum relatório disponível.',
+    'ไม่มีรายงานที่ใช้ได้',
+  ],
+  'reportsNoDatasets': [
+    'No chart data is available.',
+    'Não há dados de gráfico disponíveis.',
+    'ไม่มีข้อมูลแผนภูมิ',
+  ],
+  'reportsSearchBack': [
+    'Back to results',
+    'Voltar aos resultados',
+    'กลับไปที่ผลลัพธ์',
+  ],
+  'reportsAdd': ['Add chart', 'Adicionar gráfico', 'เพิ่มแผนภูมิ'],
+  'reportsCreateFromTable': [
+    'Create chart from table',
+    'Criar gráfico da tabela',
+    'สร้างแผนภูมิจากตาราง',
+  ],
+  'reportsCreateTitle': [
+    'Create a Reports chart',
+    'Criar um gráfico no Reports',
+    'สร้างแผนภูมิใน Reports',
+  ],
+  'reportsCreatePersonalNotice': [
+    'The selected table will be sent to your personal Reports space. The note stays unchanged.',
+    'A tabela selecionada será enviada ao seu espaço pessoal do Reports. A anotação não será alterada.',
+    'ตารางที่เลือกจะถูกส่งไปยังพื้นที่ Reports ส่วนตัวของคุณ โดยบันทึกจะไม่เปลี่ยนแปลง',
+  ],
+  'reportsCreateSourceTable': [
+    'Table in this note',
+    'Tabela nesta anotação',
+    'ตารางในบันทึกนี้',
+  ],
+  'reportsCreateTemplate': ['Chart type', 'Tipo de gráfico', 'ชนิดแผนภูมิ'],
+  'reportsCreateOptional': ['Not used', 'Não usar', 'ไม่ใช้'],
+  'reportsCreateUnavailable': [
+    'Add a CSV table and choose an available chart template to continue.',
+    'Adicione uma tabela CSV e escolha um modelo de gráfico disponível para continuar.',
+    'เพิ่มตาราง CSV และเลือกแม่แบบแผนภูมิที่ใช้ได้เพื่อดำเนินการต่อ',
+  ],
+  'reportsCreateAction': ['Create chart', 'Criar gráfico', 'สร้างแผนภูมิ'],
+  'reportsCreateFailed': [
+    'The chart could not be created. You can retry safely.',
+    'Não foi possível criar o gráfico. Você pode tentar novamente com segurança.',
+    'สร้างแผนภูมิไม่ได้ คุณสามารถลองอีกครั้งได้อย่างปลอดภัย',
+  ],
+  'reportsCreateOperationConflict': [
+    'This chart request conflicts with an earlier attempt. Check Reports before starting another chart.',
+    'Esta solicitação de gráfico conflita com uma tentativa anterior. Confira o Reports antes de iniciar outro gráfico.',
+    'คำขอสร้างแผนภูมินี้ขัดแย้งกับความพยายามก่อนหน้า โปรดตรวจสอบ Reports ก่อนเริ่มสร้างแผนภูมิใหม่',
+  ],
+  'reportsCreateRequiresSavedNote': [
+    'Sync this note and sign in before creating a Reports chart.',
+    'Sincronize esta anotação e entre antes de criar um gráfico no Reports.',
+    'ซิงก์บันทึกนี้และเข้าสู่ระบบก่อนสร้างแผนภูมิใน Reports',
+  ],
+  'reportsProjectsTitle': [
+    'Choose a Reports project',
+    'Escolha um projeto do Reports',
+    'เลือกโปรเจกต์ Reports',
+  ],
+  'reportsProjectsEmpty': [
+    'No active Reports projects are available.',
+    'Não há projetos ativos do Reports disponíveis.',
+    'ไม่มีโปรเจกต์ Reports ที่เปิดใช้งาน',
+  ],
+  'reportsSaving': [
+    'Saving snapshot…',
+    'Salvando instantâneo…',
+    'กำลังบันทึกภาพข้อมูล…',
+  ],
+  'reportsAudiencePublic': ['Public', 'Público', 'สาธารณะ'],
+  'reportsAudienceSignedIn': [
+    'Signed-in',
+    'Com sessão iniciada',
+    'เข้าสู่ระบบแล้ว',
+  ],
+  'reportsAudiencePersonal': ['Personal', 'Pessoal', 'ส่วนตัว'],
+  'reportsAudienceRestricted': ['Restricted', 'Restrito', 'จำกัดสิทธิ์'],
+  'taskDue': ['Due', 'Prazo', 'กำหนดส่ง'],
+  'taskAddToNote': [
+    'Add existing task',
+    'Adicionar tarefa existente',
+    'เพิ่มงานที่มีอยู่',
+  ],
+  'taskCreateAction': ['Create new task', 'Criar nova tarefa', 'สร้างงานใหม่'],
+  'taskCreateTitle': ['Create task', 'Criar tarefa', 'สร้างงาน'],
+  'taskCreateDescription': [
+    'Description (optional)',
+    'Descrição (opcional)',
+    'คำอธิบาย (ไม่บังคับ)',
+  ],
+  'taskCreateDueDate': [
+    'Due date (optional)',
+    'Prazo (opcional)',
+    'วันครบกำหนด (ไม่บังคับ)',
+  ],
+  'taskCreateStatus': ['Status', 'Status', 'สถานะ'],
+  'taskCreateActionSubmit': ['Create task', 'Criar tarefa', 'สร้างงาน'],
+  'taskCreateSaving': ['Creating…', 'Criando…', 'กำลังสร้าง…'],
+  'taskCreateFailed': [
+    'The task was rejected. Review the details and try again.',
+    'A tarefa foi rejeitada. Revise os dados e tente novamente.',
+    'คำขอสร้างงานถูกปฏิเสธ โปรดตรวจรายละเอียดแล้วลองอีกครั้ง',
+  ],
+  'taskCreateInvalidDueDate': [
+    'Use YYYY-MM-DD.',
+    'Use AAAA-MM-DD.',
+    'ใช้รูปแบบ YYYY-MM-DD',
+  ],
+  'taskCreateOutcomeUnknown': [
+    'The task may have been created. Check your task list before trying again.',
+    'A tarefa pode ter sido criada. Confira sua lista antes de tentar novamente.',
+    'งานอาจถูกสร้างแล้ว โปรดตรวจสอบรายการงานก่อนลองอีกครั้ง',
+  ],
+  'taskCreateCheckExisting': [
+    'Check my tasks',
+    'Conferir minhas tarefas',
+    'ตรวจสอบงานของฉัน',
+  ],
+  'taskCreateChecking': [
+    'Checking tasks…',
+    'Verificando tarefas…',
+    'กำลังตรวจสอบงาน…',
+  ],
+  'taskCreateCheckFailed': [
+    'Could not load tasks to verify the result.',
+    'Não foi possível carregar as tarefas para verificar o resultado.',
+    'โหลดรายการงานเพื่อตรวจสอบผลลัพธ์ไม่ได้',
+  ],
+  'taskCreateAgain': [
+    'I checked; create again',
+    'Conferi; criar novamente',
+    'ตรวจแล้ว; สร้างอีกครั้ง',
+  ],
+  'taskLoadMore': ['Load more tasks', 'Carregar mais tarefas', 'โหลดงานเพิ่ม'],
+  'taskLoadingMore': ['Loading tasks…', 'Carregando tarefas…', 'กำลังโหลดงาน…'],
+  'taskLoadMoreFailed': [
+    'Could not load more tasks. Try again.',
+    'Não foi possível carregar mais tarefas. Tente novamente.',
+    'โหลดงานเพิ่มเติมไม่ได้ โปรดลองอีกครั้ง',
+  ],
+  'taskPickerEmpty': [
+    'You have no tasks to add to this note.',
+    'Você não tem tarefas para adicionar a esta nota.',
+    'ไม่มีงานให้เพิ่มในบันทึกนี้',
+  ],
+  'taskCompleted': ['Completed', 'Concluída', 'เสร็จแล้ว'],
+  'taskOpen': ['Open', 'Aberta', 'ยังไม่เสร็จ'],
+  'taskRestricted': [
+    'Task is restricted.',
+    'A tarefa tem acesso restrito.',
+    'งานนี้จำกัดสิทธิ์การเข้าถึง',
+  ],
+  'taskUnavailable': [
+    'Task is unavailable.',
+    'A tarefa não está disponível.',
+    'งานนี้ไม่พร้อมใช้งาน',
+  ],
+  'taskLoading': ['Loading task…', 'Carregando tarefa…', 'กำลังโหลดงาน…'],
+  'taskRetry': ['Retry', 'Tentar novamente', 'ลองอีกครั้ง'],
+  'quizCardTitleUnavailable': [
+    'Quiz title unavailable',
+    'Título do quiz indisponível',
+    'ไม่มีชื่อแบบทดสอบ',
+  ],
+  'quizCardSubjectUnavailable': [
+    'Subject unavailable',
+    'Assunto indisponível',
+    'ไม่มีหัวข้อ',
+  ],
+  'quizCardSubject': ['Subject', 'Assunto', 'หัวข้อ'],
+  'quizCardCountUnknown': [
+    'Question count unavailable',
+    'Número de perguntas indisponível',
+    'ไม่มีจำนวนคำถาม',
+  ],
+  'quizCardQuestions': ['questions', 'perguntas', 'คำถาม'],
+  'quizCardUnavailable': [
+    'Quiz details unavailable',
+    'Detalhes do quiz indisponíveis',
+    'รายละเอียดแบบทดสอบไม่พร้อมใช้งาน',
+  ],
+  'quizCardRestricted': [
+    'Quiz details are private',
+    'Os detalhes do quiz são privados',
+    'รายละเอียดแบบทดสอบเป็นส่วนตัว',
+  ],
+  'quizCardRetry': ['Retry', 'Tentar novamente', 'ลองอีกครั้ง'],
+  'quizCardOpen': ['Open quiz', 'Abrir quiz', 'เปิดแบบทดสอบ'],
   'reference': ['Reference', 'Referência', 'รหัสอ้างอิง'],
   'waitTitle': [
     'A little room for more voices.',
@@ -769,11 +1084,26 @@ const strings = <String, List<String>>{
   'qrRoom': ['Room QR code', 'Código QR da sala', 'คิวอาร์โค้ดห้อง'],
   'openNote': ['Open note', 'Abrir anotação', 'เปิดบันทึก'],
 };
-String translate(String key, String locale) {
+String translate(
+  String key,
+  String locale, [
+  Map<String, String> args = const {},
+]) {
   final index = locale == 'pt-BR'
       ? 1
       : locale == 'th'
       ? 2
       : 0;
-  return (strings[key] ?? landingStrings[key])?[index] ?? key;
+  var value = (strings[key] ?? landingStrings[key])?[index] ?? key;
+  for (final entry in args.entries) {
+    value = value.replaceAll('{${entry.key}}', entry.value);
+  }
+  return value;
+}
+
+String partialReportRowsLabel(int shown, int total, String locale) {
+  return translate(
+    'partialReportRows',
+    locale,
+  ).replaceAll('{shown}', '$shown').replaceAll('{total}', '$total');
 }

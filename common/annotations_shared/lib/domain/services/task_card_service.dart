@@ -29,6 +29,24 @@ final class TaskSummary {
   );
 }
 
+final class TaskSummaryPage {
+  final List<TaskSummary> items;
+  final String? nextCursor;
+
+  const TaskSummaryPage({required this.items, required this.nextCursor});
+
+  factory TaskSummaryPage.fromJson(Map<String, dynamic> json) =>
+      TaskSummaryPage(
+        items: [
+          for (final item in (json['items'] as List?) ?? const [])
+            TaskSummary.fromJson(Map<String, dynamic>.from(item as Map)),
+        ],
+        nextCursor: (json['next_cursor'] as String?)?.trim().isNotEmpty == true
+            ? (json['next_cursor'] as String).trim()
+            : null,
+      );
+}
+
 final class TaskCardRef {
   final String cardId;
   final String taskId;
@@ -213,12 +231,18 @@ class TaskCardService {
   }
 
   Future<List<TaskSummary>> listOwnTasks() async {
-    final resp = await api.request('/me/tasks', method: 'GET');
-    final items = (resp['items'] as List?) ?? const [];
-    return [
-      for (final it in items)
-        TaskSummary.fromJson(Map<String, dynamic>.from(it as Map)),
-    ];
+    return (await listOwnTaskPage()).items;
+  }
+
+  Future<TaskSummaryPage> listOwnTaskPage({String? cursor}) async {
+    final query = <String, String>{'limit': '50'};
+    if (cursor != null && cursor.isNotEmpty) query['cursor'] = cursor;
+    final response = await api.request(
+      '/me/tasks',
+      method: 'GET',
+      query: query,
+    );
+    return TaskSummaryPage.fromJson(response);
   }
 
   /// Refreshes all cards referencing [taskId]. Marks them unavailable on 404/410.

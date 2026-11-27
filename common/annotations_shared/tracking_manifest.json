@@ -667,6 +667,34 @@
       "path": "reader > link > open",
       "description": "Open the canonical public reader link.",
       "source": "lib/presentation/frontend/widgets/discovery/discovery_pages.dart"
+    },
+    {
+      "id": "export.retry",
+      "label": "Export retry",
+      "path": "export > retry",
+      "description": "Retry the export preflight.",
+      "source": "lib/presentation/frontend/widgets/export/export_dialog.dart"
+    },
+    {
+      "id": "export.placeholders",
+      "label": "Export placeholders",
+      "path": "export > placeholders",
+      "description": "Continue the export with marked placeholders.",
+      "source": "lib/presentation/frontend/widgets/export/export_dialog.dart"
+    },
+    {
+      "id": "export.save",
+      "label": "Export save",
+      "path": "export > save",
+      "description": "Save the exported PDF or ZIP.",
+      "source": "lib/presentation/frontend/widgets/export/export_dialog.dart"
+    },
+    {
+      "id": "workspace.note.export",
+      "label": "Workspace note export",
+      "path": "workspace > note > export",
+      "description": "Open the export of the note in the editor.",
+      "source": "lib/presentation/frontend/widgets/workspace/note_editor_page.dart"
     }
   ]
 }

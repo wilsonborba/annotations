@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:qr/qr.dart';
 
@@ -73,31 +75,7 @@ class _QrShareControlState extends State<QrShareControl> {
       context,
       (dialogContext) => AppDialog(
         title: dialogContext.tr(widget.labelKey),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            QrCodeView(
-              data: widget.url.toString(),
-              size: (MediaQuery.sizeOf(dialogContext).width - 104)
-                  .clamp(1.0, 320.0)
-                  .toDouble(),
-            ),
-            const SizedBox(height: 12),
-            SelectableText(
-              widget.caption,
-              textAlign: TextAlign.center,
-              style: Theme.of(dialogContext).textTheme.bodyMedium,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              widget.url.toString(),
-              textAlign: TextAlign.center,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(dialogContext).textTheme.bodySmall,
-            ),
-          ],
-        ),
+        content: _QrDialogContent(url: widget.url, caption: widget.caption),
         actions: [
           AppButton(
             label: dialogContext.tr('close'),
@@ -141,6 +119,46 @@ class _QrShareControlState extends State<QrShareControl> {
       ),
     ),
   );
+}
+
+class _QrDialogContent extends StatelessWidget {
+  const _QrDialogContent({required this.url, required this.caption});
+
+  final Uri url;
+  final String caption;
+
+  @override
+  Widget build(BuildContext context) {
+    final viewport = MediaQuery.sizeOf(context);
+    final widthLimit = math.max(1.0, viewport.width - 104);
+    final heightLimit = math.max(160.0, viewport.height - 220);
+    final qrSize = math.min(320.0, math.min(widthLimit, heightLimit));
+    return SingleChildScrollView(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox.square(
+            dimension: qrSize,
+            child: QrCodeView(data: url.toString(), size: qrSize),
+          ),
+          const SizedBox(height: 12),
+          SelectableText(
+            caption,
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodyMedium,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            url.toString(),
+            textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 /// Paints a QR matrix on a solid white surface with a four-module quiet zone.

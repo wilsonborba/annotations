@@ -11,6 +11,7 @@ import 'package:annotations_shared/domain/models/local_note.dart';
 import 'package:annotations_shared/domain/models/note_document.dart';
 import 'package:annotations_shared/domain/services/annotations_service.dart';
 import 'package:annotations_shared/domain/services/installed_account.dart';
+import 'package:annotations_shared/domain/services/local_note_store.dart';
 import 'package:annotations_shared/domain/services/local_workspace.dart';
 import 'package:annotations_shared/domain/services/native_auth_service.dart';
 import 'package:annotations_shared/domain/services/note_sync_service.dart';
@@ -58,6 +59,9 @@ class SwitchableInstalledAccount extends InstalledAccount {
 
   @override
   String? get localOwnerId => _session?.verifiedUserId;
+
+  @override
+  String get userId => _session?.verifiedUserId ?? '';
 
   void switchTo(NativeSession? session) {
     _session = session;
@@ -224,12 +228,18 @@ class _QuizReturnFixture {
     required this.account,
     required this.apiClient,
     required this.accountClient,
+    required this.accountRequestPaths,
     required this.workspace,
+    required this.workspaceStore,
     required this.preferences,
     required this.studyReads,
     required this.releaseReturnStudy,
     required this.overrides,
     required this.launchCalls,
+    this.exportTaskStarted,
+    this.releaseExportTask,
+    required this.exportLoadStarted,
+    required this.releaseExportLoad,
   });
 
   final SqliteNoteStore store;
@@ -237,12 +247,40 @@ class _QuizReturnFixture {
   final SwitchableInstalledAccount account;
   final MockClient apiClient;
   final MockClient accountClient;
+  final List<String> accountRequestPaths;
   final LocalWorkspace workspace;
+  final _ExportLoadGateStore workspaceStore;
   final Preferences preferences;
   final List<int> studyReads;
   final Completer<http.Response> releaseReturnStudy;
   final _TestHttpOverrides overrides;
   final List<String> launchCalls;
+  final Completer<void>? exportTaskStarted;
+  final Completer<http.Response>? releaseExportTask;
+  final Completer<void> exportLoadStarted;
+  final Completer<LocalNote?> releaseExportLoad;
+}
+
+final class _ExportLoadGateStore implements LocalNoteStore {
+  _ExportLoadGateStore(this.delegate, this.started, this.release);
+
+  final LocalNoteStore delegate;
+  final Completer<void> started;
+  final Completer<LocalNote?> release;
+  bool _gateNextLoad = false;
+
+  void gateNextLoad() => _gateNextLoad = true;
+
+  @override
+  Future<LocalNote?> load(String id) {
+    if (!_gateNextLoad) return delegate.load(id);
+    _gateNextLoad = false;
+    if (!started.isCompleted) started.complete();
+    return release.future;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 Future<_QuizReturnFixture> _makeQuizReturnFixture(
@@ -252,6 +290,8 @@ Future<_QuizReturnFixture> _makeQuizReturnFixture(
   bool existingCard = false,
   bool failReturnStudy = false,
   bool launchAccepted = true,
+  bool includeExportTask = false,
+  bool gateExportTask = false,
 }) async {
   SharedPreferences.setMockInitialValues({});
   late Directory root;
@@ -288,6 +328,16 @@ Future<_QuizReturnFixture> _makeQuizReturnFixture(
         'height': 120,
         'study_id': 'study-existing',
         'quiz_id': 'quiz-old',
+      },
+    if (includeExportTask)
+      {
+        'id': 'export-task-card',
+        'kind': 'task_card',
+        'task_id': 'task-export-pending',
+        'x': 16,
+        'y': 220,
+        'width': 320,
+        'height': 90,
       },
   ];
   final document = NoteDocument.fromJson({
@@ -328,7 +378,21 @@ Future<_QuizReturnFixture> _makeQuizReturnFixture(
     ),
   );
 
-  final accountClient = MockClient((_) async => http.Response('{}', 200));
+  final exportTaskStarted = Completer<void>();
+  final releaseExportTask = Completer<http.Response>();
+  final exportLoadStarted = Completer<void>();
+  final releaseExportLoad = Completer<LocalNote?>();
+  final accountRequestPaths = <String>[];
+  final accountClient = MockClient((request) async {
+    accountRequestPaths.add(request.url.path);
+    if (gateExportTask &&
+        request.method == 'GET' &&
+        request.url.path.endsWith('/me/tasks/task-export-pending')) {
+      if (!exportTaskStarted.isCompleted) exportTaskStarted.complete();
+      return releaseExportTask.future;
+    }
+    return http.Response('{}', 200);
+  });
   addTearDown(accountClient.close);
   final account = SwitchableInstalledAccount(
     const NativeSession(
@@ -387,8 +451,13 @@ Future<_QuizReturnFixture> _makeQuizReturnFixture(
     return http.Response('{}', 404);
   });
   addTearDown(apiClient.close);
+  final workspaceStore = _ExportLoadGateStore(
+    store,
+    exportLoadStarted,
+    releaseExportLoad,
+  );
   final workspace = LocalWorkspace(
-    store: store,
+    store: workspaceStore,
     catalog: ProjectTagCatalog(),
     profile: PlatformProfile.fullWriter,
   );
@@ -439,7 +508,8 @@ Future<_QuizReturnFixture> _makeQuizReturnFixture(
 
   await tester.pumpWidget(
     MaterialApp(
-      home: AppScope(
+      home: const NoteEditorPage(noteId: 'note-return'),
+      builder: (_, child) => AppScope(
         preferences: preferences,
         service: AnnotationsService(
           api: ApiAdapter(
@@ -449,7 +519,7 @@ Future<_QuizReturnFixture> _makeQuizReturnFixture(
         ),
         workspace: workspace,
         installed: account,
-        child: const NoteEditorPage(noteId: 'note-return'),
+        child: child!,
       ),
     ),
   );
@@ -461,12 +531,18 @@ Future<_QuizReturnFixture> _makeQuizReturnFixture(
     account: account,
     apiClient: apiClient,
     accountClient: accountClient,
+    accountRequestPaths: accountRequestPaths,
     workspace: workspace,
+    workspaceStore: workspaceStore,
     preferences: preferences,
     studyReads: studyReads,
     releaseReturnStudy: releaseReturnStudy,
     overrides: overrides,
     launchCalls: launchCalls,
+    exportTaskStarted: gateExportTask ? exportTaskStarted : null,
+    releaseExportTask: gateExportTask ? releaseExportTask : null,
+    exportLoadStarted: exportLoadStarted,
+    releaseExportLoad: releaseExportLoad,
   );
 }
 
@@ -511,6 +587,123 @@ void main() {
       );
     }, createHttpClient: fixture.overrides.createHttpClient);
   });
+
+  testWidgets(
+    'account change while export loads the saved note prevents dialog admission',
+    (tester) async {
+      final fixture = await _makeQuizReturnFixture(tester);
+      await tester.runAsync(
+        () => fixture.account.auth.writeSession(
+          const NativeSession(
+            sessionId: 'session-a',
+            csrfToken: 'csrf-a',
+            verifiedUserId: 'account-a',
+          ),
+        ),
+      );
+
+      await HttpOverrides.runZoned(() async {
+        fixture.workspaceStore.gateNextLoad();
+        await tester.tap(find.byKey(const Key('editor-export')));
+        await tester.pump();
+        await tester.runAsync(
+          () => fixture.exportLoadStarted.future.timeout(
+            const Duration(seconds: 5),
+            onTimeout: () =>
+                throw TimeoutException('export note load did not start'),
+          ),
+        );
+        expect(find.byKey(const Key('export-dialog')), findsNothing);
+
+        fixture.account.switchTo(
+          const NativeSession(
+            sessionId: 'session-b',
+            csrfToken: 'csrf-b',
+            verifiedUserId: 'account-b',
+          ),
+        );
+        await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+        await pumpEditorFrames(tester);
+
+        final oldAccountNote = await tester.runAsync(
+          () => fixture.store.load('note-return'),
+        );
+        fixture.releaseExportLoad.complete(oldAccountNote);
+        await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+        await pumpEditorFrames(tester);
+
+        final dialogAdmitted = find
+            .byKey(const Key('export-dialog'))
+            .evaluate()
+            .isNotEmpty;
+        final ownerCardPaths = fixture.accountRequestPaths.where(
+          (path) =>
+              path.contains('/me/tasks/') || path.contains('/me/quizzes/'),
+        );
+        await tester.pumpWidget(const SizedBox.shrink());
+
+        expect(dialogAdmitted, isFalse);
+        expect(ownerCardPaths, isEmpty);
+      }, createHttpClient: fixture.overrides.createHttpClient);
+    },
+  );
+
+  testWidgets(
+    'account change invalidates an open export with a task lookup pending',
+    (tester) async {
+      final fixture = await _makeQuizReturnFixture(
+        tester,
+        includeExportTask: true,
+        gateExportTask: true,
+      );
+      const sessionA = NativeSession(
+        sessionId: 'session-a',
+        csrfToken: 'csrf-a',
+        verifiedUserId: 'account-a',
+      );
+      await tester.runAsync(() => fixture.account.auth.writeSession(sessionA));
+
+      await HttpOverrides.runZoned(() async {
+        await tester.tap(find.byKey(const Key('editor-export')));
+        await tester.pump();
+        await tester.runAsync(
+          () => fixture.exportTaskStarted!.future.timeout(
+            const Duration(seconds: 5),
+            onTimeout: () =>
+                throw TimeoutException('export task lookup did not start'),
+          ),
+        );
+        expect(find.byKey(const Key('export-preview')), findsNothing);
+
+        fixture.account.switchTo(
+          const NativeSession(
+            sessionId: 'session-b',
+            csrfToken: 'csrf-b',
+            verifiedUserId: 'account-b',
+          ),
+        );
+        await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+        await pumpEditorFrames(tester);
+        expect(find.byKey(const Key('export-save')), findsNothing);
+
+        fixture.releaseExportTask!.complete(
+          http.Response(
+            jsonEncode({
+              'task_id': 'task-export-pending',
+              'title': 'OLD_ACCOUNT_TASK_SENTINEL',
+              'status': 'open',
+            }),
+            200,
+          ),
+        );
+        await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+        await pumpEditorFrames(tester);
+        expect(find.text('OLD_ACCOUNT_TASK_SENTINEL'), findsNothing);
+        expect(find.byKey(const Key('export-save')), findsNothing);
+        await tester.pumpWidget(const SizedBox.shrink());
+      }, createHttpClient: fixture.overrides.createHttpClient);
+    },
+  );
 
   testWidgets('no quiz card is added until the study has a saved quiz id', (
     tester,

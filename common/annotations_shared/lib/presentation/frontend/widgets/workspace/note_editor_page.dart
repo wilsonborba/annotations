@@ -9,19 +9,35 @@ import '../../../../core/features.dart';
 import '../../../../core/note_limits.dart';
 import '../../../../core/tracking_manifest.dart';
 import '../../../../dal/remote/api_adapter.dart';
+import '../../../../dal/remote/reports_api_adapter.dart';
 import '../../../../domain/models/local_note.dart';
 import '../../../../domain/models/note_document.dart';
+import '../../../../domain/models/reports_embed_data.dart';
 import '../../../../domain/services/certifications_browser_handoff.dart';
 import '../../../../domain/services/installed_account.dart';
 import '../../../../domain/services/local_note_store.dart';
 import '../../../../domain/services/note_autosave.dart';
-import '../../../../domain/services/note_history.dart';
+import '../../../../domain/services/note_history.dart'
+    show CommandKind, HistoryCommand;
+import '../../../../domain/services/note_reports_service.dart';
 import '../../../../domain/services/native_auth_service.dart';
 import '../../../../domain/services/prepared_certification_service.dart';
+import '../../../../domain/services/quiz_card_service.dart';
+import '../../../../domain/services/reports_embed_source.dart';
+import '../../../../domain/services/reports_chart_data.dart';
+import '../../../../domain/services/reports_xlsx_data.dart';
+import '../../../../domain/services/task_card_service.dart';
 import '../../components/controls.dart';
 import '../../components/icons.dart';
 import '../../components/scope.dart';
+import '../../handlers/attachment_handler.dart';
 import '../../handlers/paper_handler.dart';
+import '../../handlers/export_handler.dart';
+import '../../handlers/reports_pdf_capture.dart';
+import '../export/export_dialog.dart';
+import '../../components/reports_search_dialog.dart';
+import '../../components/reports_create_dialog.dart';
+import '../../components/task_card_picker.dart';
 import '../typed/note_screen.dart';
 
 /// `/v1/write/<id>`: one local note in the editor of this platform.
@@ -41,10 +57,340 @@ class _NoteEditorPageState extends State<NoteEditorPage>
   bool _missing = false;
   bool _preparingQuiz = false;
   InstalledAccount? _installed;
+  ReportsEmbedSource? _reportsSource;
+  InstalledAccount? _reportsSourceInstalled;
+  NativeSession? _reportsSourceSession;
+  String? _reportsSourceAccountId;
+  ExportHandler? _activeExport;
   int _openGeneration = 0;
+  final ValueNotifier<int> _reportsOwnerScopeRevision = ValueNotifier(0);
   int _returnCheckSerial = 0;
   _PreparedQuizReturn? _pendingQuizReturn;
   bool _hasOpened = false;
+
+  String _newCardId() {
+    final random = math.Random.secure();
+    return List.generate(
+      16,
+      (_) => random.nextInt(256).toRadixString(16).padLeft(2, '0'),
+    ).join();
+  }
+
+  bool _reportsOwnerIsCurrent({
+    required int generation,
+    required PaperHandler handler,
+    required LocalNote note,
+    required InstalledAccount installed,
+    required NativeSession session,
+  }) =>
+      mounted &&
+      generation == _openGeneration &&
+      identical(handler, _handler) &&
+      identical(note, _note) &&
+      identical(installed, _installed) &&
+      identical(session, installed.activeSession) &&
+      installed.signedIn &&
+      note.accountId != null &&
+      note.accountId == installed.userId &&
+      session.verifiedUserId == note.accountId;
+
+  Future<void> _addReportsCard(
+    BuildContext dialogContext,
+    PaperHandler handler,
+    AttachmentHandler attachments,
+  ) async {
+    final note = _note;
+    final installed = _installed;
+    final source = _reportsSource;
+    final session = installed?.activeSession;
+    if (note == null ||
+        installed == null ||
+        source == null ||
+        session == null) {
+      return;
+    }
+    final generation = _openGeneration;
+    bool current() => _reportsOwnerIsCurrent(
+      generation: generation,
+      handler: handler,
+      note: note,
+      installed: installed,
+      session: session,
+    );
+    if (!current()) return;
+    try {
+      final language = AppScope.of(dialogContext).preferences.locale;
+      final project = await showReportsProjectPicker(
+        dialogContext,
+        source: source,
+        language: language,
+        isOwnerScopeCurrent: current,
+        ownerScopeRevision: _reportsOwnerScopeRevision,
+        expectedOwnerScopeRevision: generation,
+      );
+      if (!current() || project == null || !dialogContext.mounted) return;
+      final reference = await showReportsSearchDialog(
+        dialogContext,
+        source: source,
+        project: project.slug,
+        language: language,
+        isOwnerScopeCurrent: current,
+        ownerScopeRevision: _reportsOwnerScopeRevision,
+        expectedOwnerScopeRevision: generation,
+      );
+      if (!current() || reference == null) return;
+
+      final width = math.min(360.0, math.max(1.0, handler.pageWidth - 48));
+      final item = <String, Object?>{
+        'id': _newCardId(),
+        'kind': 'reports_embed',
+        'width': width,
+        'height': 224,
+        ...reference.toDocumentFields(),
+      };
+      if (!attachments.addStructuredCard(item)) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(context.tr('reportsSearchError'))),
+          );
+        }
+        return;
+      }
+      await handler.autosave.flush();
+    } on Object {
+      if (mounted && current()) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(context.tr('reportsSearchError'))),
+        );
+      }
+    }
+  }
+
+  Future<void> _addTaskCard(
+    BuildContext dialogContext,
+    PaperHandler handler,
+    AttachmentHandler attachments,
+  ) async {
+    final note = _note;
+    final installed = _installed;
+    final session = installed?.activeSession;
+    if (note == null || installed == null || session == null) return;
+
+    final generation = _openGeneration;
+    bool current() =>
+        mounted &&
+        generation == _openGeneration &&
+        identical(handler, _handler) &&
+        identical(note, _note) &&
+        identical(installed, _installed) &&
+        identical(session, installed.activeSession) &&
+        installed.signedIn &&
+        note.accountId != null &&
+        note.accountId == installed.userId &&
+        note.accountId == installed.localOwnerId &&
+        session.verifiedUserId == note.accountId;
+
+    if (!current()) return;
+    final service = TaskCardService(
+      ApiAdapter(client: SessionClient(installed, installed.client)),
+    );
+    try {
+      final firstPage = await service.listOwnTaskPage();
+      if (!current() || !dialogContext.mounted) return;
+      final task = await showTaskCardPicker(
+        dialogContext,
+        tasks: firstPage.items,
+        nextCursor: firstPage.nextCursor,
+        createTask:
+            ({required title, description, dueDate, required completed}) async {
+              if (!current()) throw StateError('The active note changed.');
+              final created = await service.createTask(
+                title: title,
+                description: description,
+                dueDate: dueDate,
+                completed: completed,
+                isInstant: false,
+              );
+              if (!current()) throw StateError('The active note changed.');
+              return created;
+            },
+        loadTaskPage: ({String? cursor}) async {
+          if (!current()) throw StateError('The active note changed.');
+          final refreshed = await service.listOwnTaskPage(cursor: cursor);
+          if (!current()) throw StateError('The active note changed.');
+          return refreshed;
+        },
+        isOwnerScopeCurrent: current,
+        ownerScopeRevision: _reportsOwnerScopeRevision,
+        expectedOwnerScopeRevision: generation,
+      );
+      if (!current() || task == null) return;
+
+      final item = <String, Object?>{
+        'id': _newCardId(),
+        'kind': 'task_card',
+        'width': math.min(360.0, math.max(1.0, handler.pageWidth - 48)),
+        'height': 160,
+        'task_id': task.taskId,
+      };
+      if (!attachments.addStructuredCard(item)) {
+        if (mounted && current()) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(context.tr('taskUnavailable'))),
+          );
+        }
+      }
+    } on Object {
+      if (mounted && current()) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(context.tr('taskUnavailable'))));
+      }
+    }
+  }
+
+  Future<void> _createReportsChart(
+    BuildContext dialogContext,
+    PaperHandler handler,
+    AttachmentHandler attachments,
+  ) async {
+    final note = _note;
+    final installed = _installed;
+    final source = _reportsSource;
+    final session = installed?.activeSession;
+    final serverNoteId = note?.serverNoteId;
+    if (note == null ||
+        installed == null ||
+        source == null ||
+        session == null ||
+        serverNoteId == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(context.tr('reportsCreateRequiresSavedNote'))),
+        );
+      }
+      return;
+    }
+    final generation = _openGeneration;
+    bool current() => _reportsOwnerIsCurrent(
+      generation: generation,
+      handler: handler,
+      note: note,
+      installed: installed,
+      session: session,
+    );
+    if (!current()) return;
+    try {
+      final language = AppScope.of(dialogContext).preferences.locale;
+      final project = await showReportsProjectPicker(
+        dialogContext,
+        source: source,
+        language: language,
+        isOwnerScopeCurrent: current,
+        ownerScopeRevision: _reportsOwnerScopeRevision,
+        expectedOwnerScopeRevision: generation,
+      );
+      if (!current() || project == null || !dialogContext.mounted) return;
+      final templates = await source.templatesForProject(
+        project.slug,
+        language: language,
+      );
+      if (!current()) return;
+      final tables = await _reportsChartTables(handler);
+      if (!current() || !dialogContext.mounted) return;
+
+      Future<ReportsEmbedReference> create({
+        required Map<String, Object?> item,
+        required String operationKey,
+      }) async {
+        if (!current()) throw StateError('The active note changed.');
+        final service = NoteReportsService(
+          api: ApiAdapter(client: SessionClient(installed, installed.client)),
+          session: session,
+        );
+        return service.createChart(
+          serverNoteId: serverNoteId,
+          project: project.slug,
+          operationKey: operationKey,
+          item: item,
+        );
+      }
+
+      final reference = await showReportsCreateDialog(
+        dialogContext,
+        projectName: project.name,
+        templates: templates,
+        tables: tables,
+        create: create,
+        isOwnerScopeCurrent: current,
+        ownerScopeRevision: _reportsOwnerScopeRevision,
+        expectedOwnerScopeRevision: generation,
+      );
+      if (!current() || reference == null) return;
+      final item = <String, Object?>{
+        'id': _newCardId(),
+        'kind': 'reports_embed',
+        'width': math.min(360.0, math.max(1.0, handler.pageWidth - 48)),
+        'height': 224,
+        ...reference.toDocumentFields(),
+      };
+      if (!attachments.addStructuredCard(item)) {
+        throw StateError(
+          'The report was created but the note card could not be placed.',
+        );
+      }
+      await handler.autosave.flush();
+    } on Object {
+      if (mounted && current()) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(context.tr('reportsCreateFailed'))),
+        );
+      }
+    }
+  }
+
+  Future<List<ReportsChartSourceTable>> _reportsChartTables(
+    PaperHandler handler,
+  ) async {
+    final document = handler.document;
+    if (document is! PaperDocument) return const [];
+    final tables = <ReportsChartSourceTable>[];
+    final seen = <String>{};
+    for (final item in document.itemsJson) {
+      final kind = item['kind'];
+      if (kind != 'csv_table' && kind != 'file_card') continue;
+      final fileId = item['file_id'];
+      if (fileId is! String || !seen.add(fileId)) continue;
+      final file = await handler.autosave.files.attachment(fileId);
+      if (file == null) {
+        if (kind == 'csv_table') {
+          throw const FormatException('The selected table file is missing.');
+        }
+        continue;
+      }
+      if (kind == 'file_card' && !file.name.toLowerCase().endsWith('.xlsx')) {
+        continue;
+      }
+      final bytes = await handler.autosave.files.readAttachment(fileId);
+      if (bytes == null) {
+        throw const FormatException('The selected table file cannot be read.');
+      }
+      if (kind == 'csv_table') {
+        tables.add(
+          ReportsChartSourceTable.parse(
+            fileId: fileId,
+            name: file.name,
+            bytes: bytes,
+          ),
+        );
+      } else {
+        tables.addAll(
+          ReportsXlsxData.parse(fileId: fileId, name: file.name, bytes: bytes),
+        );
+      }
+    }
+    return List.unmodifiable(tables);
+  }
 
   @override
   void initState() {
@@ -77,12 +423,35 @@ class _NoteEditorPageState extends State<NoteEditorPage>
 
   Future<void> _open() async {
     final generation = ++_openGeneration;
+    _reportsOwnerScopeRevision.value = generation;
     _pendingQuizReturn = null;
+    final reportsSource = _reportsSource;
+    final clearReportsSource =
+        reportsSource != null &&
+        (!identical(_reportsSourceInstalled, _installed) ||
+            !identical(_reportsSourceSession, _installed?.activeSession));
+    final reportsSourceToClear = clearReportsSource ? reportsSource : null;
+    if (clearReportsSource) {
+      _reportsSource = null;
+      _reportsSourceInstalled = null;
+      _reportsSourceSession = null;
+      _reportsSourceAccountId = null;
+    }
+    final activeExport = _activeExport;
+    activeExport?.invalidate();
+    _activeExport = null;
+    if (activeExport != null && mounted) {
+      final navigator = Navigator.of(context, rootNavigator: true);
+      if (navigator.canPop()) navigator.pop();
+    }
     final prior = _handler;
     _handler = null;
     _note = null;
     _missing = false;
     if (mounted) setState(() {});
+    if (reportsSourceToClear != null) {
+      await reportsSourceToClear.clearRestrictedCache();
+    }
     if (prior != null) {
       await prior.autosave.flush();
       prior.autosave.dispose();
@@ -507,6 +876,99 @@ class _NoteEditorPageState extends State<NoteEditorPage>
     }
   }
 
+  Future<QuizSummary?> _loadQuizCard(String quizId) async {
+    final note = _note;
+    final installed = _installed;
+    final session = installed?.activeSession;
+    if (!mounted ||
+        note == null ||
+        installed == null ||
+        !installed.signedIn ||
+        note.accountId == null ||
+        note.accountId != installed.userId ||
+        note.accountId != installed.localOwnerId ||
+        session == null ||
+        session.verifiedUserId != note.accountId) {
+      return null;
+    }
+    return QuizCardService(
+      ApiAdapter(client: SessionClient(installed, installed.client)),
+    ).readOwnerSummary(quizId);
+  }
+
+  bool _hasTrustedOwnerSession() {
+    final note = _note;
+    final installed = _installed;
+    final session = installed?.activeSession;
+    return mounted &&
+        note?.accountId != null &&
+        installed != null &&
+        installed.signedIn &&
+        note!.accountId == installed.userId &&
+        note.accountId == installed.localOwnerId &&
+        session != null &&
+        session.verifiedUserId == note.accountId;
+  }
+
+  ReportsEmbedSource? _reportsSourceFor(
+    LocalNote note,
+    InstalledAccount? installed,
+  ) {
+    final session = installed?.activeSession;
+    final accountId = note.accountId;
+    if (installed == null ||
+        accountId == null ||
+        accountId != installed.localOwnerId ||
+        session?.verifiedUserId != accountId) {
+      return null;
+    }
+    if (_reportsSource == null ||
+        !identical(_reportsSourceInstalled, installed) ||
+        !identical(_reportsSourceSession, session) ||
+        _reportsSourceAccountId != accountId) {
+      _reportsSource = ReportsEmbedSource(
+        api: ReportsApiAdapter(
+          headersProvider: ReportsApiAdapter.nativeSessionHeaders(
+            installed.auth,
+          ),
+          client: installed.client,
+        ),
+        hasStoredViewerSession: () async {
+          final stored = await installed.auth.storage.readSession();
+          return stored?.verifiedUserId == accountId;
+        },
+      );
+      _reportsSourceInstalled = installed;
+      _reportsSourceSession = session;
+      _reportsSourceAccountId = accountId;
+    }
+    return _reportsSource;
+  }
+
+  Future<TaskSummary?> _loadTaskCard(String taskId) async {
+    final note = _note;
+    final installed = _installed;
+    final session = installed?.activeSession;
+    if (!mounted ||
+        note == null ||
+        installed == null ||
+        !installed.signedIn ||
+        note.accountId == null ||
+        note.accountId != installed.userId ||
+        note.accountId != installed.localOwnerId ||
+        session == null ||
+        session.verifiedUserId != note.accountId) {
+      return null;
+    }
+    final service = TaskCardService(
+      ApiAdapter(client: SessionClient(installed, installed.client)),
+    );
+    const cardId = 'note-live-task-card';
+    service.attachCard(cardId, taskId, isInstant: false);
+    await service.refreshTask(taskId);
+    return service.card(cardId)?.cached;
+  }
+
   Future<List<_QuizSourceOption>> _quizSources(
     PreparedCertificationNoteSourceCatalog catalog,
     LocalNoteStore store,
@@ -683,7 +1145,10 @@ class _NoteEditorPageState extends State<NoteEditorPage>
   void dispose() {
     _openGeneration++;
     _pendingQuizReturn = null;
+    _activeExport?.invalidate();
+    _activeExport = null;
     WidgetsBinding.instance.removeObserver(this);
+    _reportsOwnerScopeRevision.dispose();
     _installed?.removeListener(_accountChanged);
     final handler = _handler;
     // Keep the last edit, then release the editor.
@@ -694,8 +1159,13 @@ class _NoteEditorPageState extends State<NoteEditorPage>
 
   @override
   Widget build(BuildContext context) {
-    final workspace = AppScope.of(context).workspace;
+    final scope = AppScope.of(context);
+    final workspace = scope.workspace;
     final handler = _handler;
+    final note = _note;
+    final reportsSource = note == null
+        ? null
+        : _reportsSourceFor(note, _installed);
     return Scaffold(
       body: SafeArea(
         child: Column(
@@ -732,6 +1202,190 @@ class _NoteEditorPageState extends State<NoteEditorPage>
                         onPressed: _preparingQuiz ? null : _prepareQuiz,
                       ),
                     ),
+                  if (handler != null && workspace != null)
+                    track(
+                      'workspace.note.export',
+                      AppButton(
+                        key: const Key('editor-export'),
+                        label: context.tr('exportPdf'),
+                        icon: AppIcons.download,
+                        onPressed: () async {
+                          final exportGeneration = _openGeneration;
+                          final exportHandler = handler;
+                          final exportNoteBeforeLoad = _note;
+                          final exportNoteId = widget.noteId;
+                          final exportWorkspace = workspace;
+                          final exportScope = AppScope.of(context);
+                          final exportInstalled = exportScope.installed;
+                          final exportSession = exportInstalled?.activeSession;
+                          bool exportEntryIsCurrent() {
+                            if (!mounted ||
+                                !context.mounted ||
+                                _openGeneration != exportGeneration ||
+                                !identical(_handler, exportHandler) ||
+                                _note?.id != exportNoteBeforeLoad?.id ||
+                                widget.noteId != exportNoteId ||
+                                !identical(_installed, exportInstalled)) {
+                              return false;
+                            }
+                            final currentScope = AppScope.of(context);
+                            return identical(
+                                  currentScope.workspace,
+                                  exportWorkspace,
+                                ) &&
+                                identical(
+                                  currentScope.installed,
+                                  exportInstalled,
+                                ) &&
+                                (exportInstalled == null ||
+                                    identical(
+                                      exportInstalled.activeSession,
+                                      exportSession,
+                                    ));
+                          }
+
+                          if (!exportEntryIsCurrent()) return;
+                          await handler.autosave.flush();
+                          if (!exportEntryIsCurrent()) return;
+                          final note = await workspace.store.load(exportNoteId);
+                          if (!exportEntryIsCurrent()) return;
+                          if (note == null ||
+                              note.id != exportNoteId ||
+                              note.accountId !=
+                                  exportNoteBeforeLoad?.accountId) {
+                            return;
+                          }
+                          if (!context.mounted) return;
+                          final scope = AppScope.of(context);
+                          final installed = exportInstalled;
+                          final reportsSource = _reportsSourceFor(
+                            note,
+                            installed,
+                          );
+                          final taskCards =
+                              installed != null &&
+                                  installed.signedIn &&
+                                  note.accountId == installed.userId
+                              ? TaskCardService(
+                                  ApiAdapter(
+                                    client: SessionClient(
+                                      installed,
+                                      installed.client,
+                                    ),
+                                  ),
+                                )
+                              : null;
+                          final quizCards =
+                              installed != null &&
+                                  installed.signedIn &&
+                                  note.accountId != null &&
+                                  note.accountId == installed.localOwnerId &&
+                                  installed.activeSession?.verifiedUserId ==
+                                      note.accountId &&
+                                  note.accountId == installed.userId
+                              ? QuizCardService(
+                                  ApiAdapter(
+                                    client: SessionClient(
+                                      installed,
+                                      installed.client,
+                                    ),
+                                  ),
+                                )
+                              : null;
+                          bool exportQuizScopeIsCurrent() =>
+                              mounted &&
+                              _openGeneration == exportGeneration &&
+                              identical(_installed, installed) &&
+                              _note?.id == note.id &&
+                              installed != null &&
+                              installed.signedIn &&
+                              note.accountId != null &&
+                              note.accountId == installed.userId &&
+                              note.accountId == installed.localOwnerId &&
+                              identical(
+                                installed.activeSession,
+                                exportSession,
+                              ) &&
+                              exportSession?.verifiedUserId == note.accountId;
+                          final language = scope.preferences.locale;
+                          final export = ExportHandler(
+                            note: note,
+                            store: workspace.store,
+                            untitledTitle: context.tr('untitledNote'),
+                            loadReportsEmbed: reportsSource == null
+                                ? null
+                                : (item) async {
+                                    if (installed == null ||
+                                        note.accountId == null ||
+                                        note.accountId !=
+                                            installed.localOwnerId ||
+                                        installed
+                                                .activeSession
+                                                ?.verifiedUserId !=
+                                            note.accountId) {
+                                      return const ReportsEmbedData(
+                                        state: ReportsEmbedState.signInRequired,
+                                        reference: null,
+                                      );
+                                    }
+                                    return reportsSource.loadDocument(
+                                      item,
+                                      trustedAccountId: installed.userId,
+                                      language: language,
+                                    );
+                                  },
+                            renderReportsChart: (data, {required partial}) =>
+                                captureReportsPdfChart(
+                                  context,
+                                  data,
+                                  language: language,
+                                ),
+                            loadTaskSummary: taskCards == null
+                                ? null
+                                : (taskId) async {
+                                    final cardId = 'pdf-export-$taskId';
+                                    taskCards.attachCard(
+                                      cardId,
+                                      taskId,
+                                      isInstant: false,
+                                    );
+                                    await taskCards.refreshTask(taskId);
+                                    return taskCards.card(cardId)?.cached;
+                                  },
+                            loadQuizSummary: quizCards == null
+                                ? null
+                                : (quizId) async {
+                                    if (!exportQuizScopeIsCurrent()) {
+                                      return null;
+                                    }
+                                    final summary = await quizCards
+                                        .readOwnerSummary(quizId);
+                                    return exportQuizScopeIsCurrent()
+                                        ? summary
+                                        : null;
+                                  },
+                          );
+                          if (!exportEntryIsCurrent()) {
+                            export.dispose();
+                            return;
+                          }
+                          if (!context.mounted) {
+                            export.dispose();
+                            return;
+                          }
+                          _activeExport?.invalidate();
+                          _activeExport = export;
+                          try {
+                            await showExportDialog(context, export);
+                          } finally {
+                            if (identical(_activeExport, export)) {
+                              _activeExport = null;
+                            }
+                            export.dispose();
+                          }
+                        },
+                      ),
+                    ),
                 ],
               ),
             ),
@@ -741,9 +1395,36 @@ class _NoteEditorPageState extends State<NoteEditorPage>
                       key: const Key('editor-missing'),
                       child: Text(context.tr('notFound')),
                     )
-                  : handler == null || workspace == null
+                  : handler == null || workspace == null || note == null
                   ? const Center(child: CircularProgressIndicator())
-                  : NoteScreen(handler: handler, profile: workspace.profile),
+                  : NoteScreen(
+                      handler: handler,
+                      profile: workspace.profile,
+                      reportsSource: reportsSource,
+                      trustedReportsAccountId: reportsSource == null
+                          ? null
+                          : note.accountId,
+                      reportsLanguage: scope.preferences.locale,
+                      onAddReport:
+                          reportsSource != null &&
+                              _installed?.signedIn == true &&
+                              note.accountId == _installed?.userId
+                          ? _addReportsCard
+                          : null,
+                      onAddTaskCard: _hasTrustedOwnerSession()
+                          ? _addTaskCard
+                          : null,
+                      onCreateReport:
+                          reportsSource != null && _hasTrustedOwnerSession()
+                          ? _createReportsChart
+                          : null,
+                      loadQuizCard: _hasTrustedOwnerSession()
+                          ? _loadQuizCard
+                          : null,
+                      loadTaskCard: _hasTrustedOwnerSession()
+                          ? _loadTaskCard
+                          : null,
+                    ),
             ),
           ],
         ),
