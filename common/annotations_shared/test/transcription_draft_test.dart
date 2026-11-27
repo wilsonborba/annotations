@@ -582,4 +582,101 @@ void main() {
       }
     },
   );
+
+  test(
+    'concurrent first accepts cannot claim one unbound Typed pair for two owners',
+    () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'annotations_46_typed_race_',
+      );
+      final store = await SqliteNoteStore.open('${tempDir.path}/notes');
+      try {
+        final source = await store.save(
+          LocalNoteDraft(
+            id: 'racing-original',
+            schema: origSchema,
+            document:
+                NoteDocument.fromJson({
+                      'page': {
+                        'width': 1000,
+                        'background': {'kind': 'blank'},
+                      },
+                      'items': [handwriting(92)],
+                    }, schema: origSchema)
+                    as OriginalDocument,
+            title: 'Original',
+          ),
+        );
+        final sourceBytes = jsonEncode(source.document.toJson());
+        final drafts = TranscriptionDraftService(
+          persistenceFile: File('${tempDir.path}/drafts.json'),
+        );
+        for (final (owner, text) in [
+          ('owner-a', 'Owner A result'),
+          ('owner-b', 'Owner B result'),
+        ]) {
+          drafts.saveDraft(
+            noteId: source.id,
+            accountId: owner,
+            runId: 'run-$owner',
+            sourceRevision: source.revision,
+            passages: [
+              TranscriptionPassage(
+                partId: 'source-part',
+                sourceHash: 'source-hash',
+                y: 1,
+                x: 1,
+                kind: TranscriptionPassageKind.text,
+                text: text,
+              ),
+            ],
+          );
+        }
+
+        Future<(String, LocalNote?, Object?)> accept(String owner) async {
+          try {
+            return (
+              owner,
+              await drafts.acceptToTypedNote(
+                source.id,
+                store: store,
+                accountId: owner,
+              ),
+              null,
+            );
+          } on Object catch (error) {
+            return (owner, null, error);
+          }
+        }
+
+        final outcomes = await Future.wait([
+          accept('owner-a'),
+          accept('owner-b'),
+        ]);
+        final succeeded = outcomes.where((outcome) => outcome.$2 != null);
+        final rejected = outcomes.where((outcome) => outcome.$3 != null);
+        expect(succeeded, hasLength(1));
+        expect(rejected, hasLength(1));
+        expect(rejected.single.$3, isA<StateError>());
+
+        final winner = succeeded.single;
+        final typed = (await store.load('racing-original__typed'))!;
+        expect(typed.accountId, winner.$1);
+        expect(typed.transcriptionSourceNoteId, source.id);
+        final typedJson = typed.document.toJson();
+        expect(
+          jsonEncode(typedJson),
+          contains(
+            winner.$1 == 'owner-a' ? 'Owner A result' : 'Owner B result',
+          ),
+        );
+        final originalAfter = (await store.load(source.id))!;
+        expect(originalAfter.accountId, isNull);
+        expect(jsonEncode(originalAfter.document.toJson()), sourceBytes);
+      } finally {
+        await store.close();
+        if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
+      }
+    },
+  );
 }

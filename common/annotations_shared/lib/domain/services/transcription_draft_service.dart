@@ -816,17 +816,12 @@ class TranscriptionDraftService {
       throw StateError('Original note is unavailable for this owner.');
     }
     final typedId = typedNoteId ?? '${noteId}__typed';
-    final existingTyped = await store.load(typedId);
-    if (existingTyped != null &&
-        existingTyped.transcriptionSourceNoteId != noteId) {
-      throw StateError('The Typed note id is already used by another note.');
-    }
     final targetOwnerId = orig.accountId ?? draft.accountId ?? accountId;
-    final existingTypedOwnerId = existingTyped?.accountId;
-    if (existingTypedOwnerId != null && existingTypedOwnerId != targetOwnerId) {
-      throw StateError('The Typed note belongs to another owner.');
+    final typedStore = store;
+    if (typedStore is! AtomicTypedNoteStore) {
+      throw StateError('The local store cannot safely accept a Typed note.');
     }
-    return store.save(
+    return (typedStore as AtomicTypedNoteStore).saveTypedForSource(
       LocalNoteDraft(
         id: typedId,
         schema: typedDoc.schema,
@@ -840,6 +835,8 @@ class TranscriptionDraftService {
         transcriptionSourceHash: draft.baseSourceHash,
         transcriptionSourceLocalRevision: orig.revision,
       ),
+      sourceNoteId: noteId,
+      targetOwnerId: targetOwnerId,
     );
   }
 }
