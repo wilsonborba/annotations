@@ -4,7 +4,6 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../../../core/landing_settings.dart';
 import '../../components/interactive_card.dart';
-import '../../components/landing_image.dart';
 import '../../components/sketch_art.dart';
 import '../../components/scope.dart';
 import '../../components/shell.dart';
@@ -155,28 +154,6 @@ class VisualRow extends StatelessWidget {
           : [side, const SizedBox(width: 56), text],
     );
   }
-}
-
-/// A row with one of the allowed photos (H6 slot id).
-class ImageRow extends StatelessWidget {
-  const ImageRow({
-    super.key,
-    required this.image,
-    required this.imageRight,
-    required this.child,
-  });
-
-  final String image;
-  final bool imageRight;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) => VisualRow(
-    rowKey: Key('row-$image-${imageRight ? 'right' : 'left'}'),
-    visual: LandingPicture(image),
-    visualRight: imageRight,
-    child: child,
-  );
 }
 
 /// A link in running text: purple in light mode, green in dark mode, with

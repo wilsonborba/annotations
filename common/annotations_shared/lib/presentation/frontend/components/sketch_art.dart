@@ -17,6 +17,7 @@ enum SketchScene {
   emptyDesk,
   hourglass,
   emptyShelf,
+  openSource,
 }
 
 /// The colours of one drawing, from the theme: ink, paper and the H7
@@ -100,6 +101,8 @@ class SketchScenePainter extends CustomPainter {
         _hourglass(pen, const Offset(200, 130), 1);
       case SketchScene.emptyShelf:
         _emptyShelf(pen);
+      case SketchScene.openSource:
+        _openSource(pen);
     }
     pen.done();
   }
@@ -220,6 +223,66 @@ class SketchScenePainter extends CustomPainter {
     for (var i = 0; i < 3; i++) {
       p.dot(r.topLeft + Offset(14.0 + i * 12, 11), 3, c.faint);
     }
+  }
+
+  /// Open source (Engineering): a code window, the branches that merge
+  /// back into the main line, and a small heart for the community.
+  void _openSource(Pen p) {
+    const code = Rect.fromLTWH(30, 34, 210, 176);
+    _window(p, code);
+    // Code lines with their indentation; one line marked as changed.
+    const indents = <double>[0, 18, 36, 36, 18, 0, 18];
+    for (var i = 0; i < indents.length; i++) {
+      p.writing(
+        code.topLeft + Offset(18 + indents[i], 46 + i * 20),
+        120 - indents[i] - (i % 3) * 14,
+        i == 3 ? c.ink : c.faint,
+      );
+    }
+    p.highlight(
+      code.topLeft + const Offset(50, 106),
+      code.topLeft + const Offset(150, 106),
+      c.greenFill,
+      width: 10,
+    );
+    // The branch graph: the main line, a branch that leaves and merges.
+    const x = 300.0;
+    final main = [for (var i = 0; i < 5; i++) Offset(x, 48.0 + i * 42)];
+    p.line([main.first, main.last], c.ink, width: 2.4);
+    final branch = [
+      main[1],
+      const Offset(x + 50, 112),
+      const Offset(x + 50, 152),
+      main[3],
+    ];
+    p.line(branch, c.purple, width: 2.4);
+    for (final at in main) {
+      p.dot(at, 8, c.ink);
+      p.dot(at, 5, c.paper);
+    }
+    for (final at in branch.sublist(1, 3)) {
+      p.dot(at, 8, c.purple);
+    }
+    p.loop(Rect.fromCenter(center: main[3], width: 34, height: 30), c.green);
+    p.arrow(const Offset(246, 120), const Offset(286, 140), c.purple);
+    // A small heart, drawn with one stroke.
+    p.line(
+      [
+        const Offset(360, 222),
+        const Offset(342, 204),
+        const Offset(340, 194),
+        const Offset(348, 188),
+        const Offset(360, 196),
+        const Offset(372, 188),
+        const Offset(380, 194),
+        const Offset(378, 204),
+        const Offset(360, 222),
+      ],
+      c.purple,
+      width: 2.6,
+    );
+    _sparkle(p, const Offset(60, 232), c.green, 6);
+    _sparkle(p, const Offset(380, 30), c.purple, 7);
   }
 
   void _instant(Pen p) {
