@@ -80,6 +80,8 @@ case "$platform" in
     bundle="${ANNOTATIONS_LINUX_BUNDLE:-$APP_DIR/build/linux/x64/release/bundle}"
     [[ -x "$bundle/annotations_local" ]] || fail "release bundle is missing annotations_local"
     [[ -d "$bundle/data/flutter_assets" ]] || fail "release bundle is missing Flutter assets"
+    [[ -f "$bundle/data/native/annotations.png" ]] || fail "release bundle is missing the Linux app icon"
+    [[ -f "$bundle/data/native/annotations.desktop.in" ]] || fail "release bundle is missing the Linux desktop entry template"
     if find -P "$bundle" ! -type f ! -type d -print -quit | grep -q .; then
       fail "Linux bundle contains a link or special file"
     fi

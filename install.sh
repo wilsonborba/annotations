@@ -3,6 +3,8 @@ set -euo pipefail
 
 APP_HOME="${XDG_DATA_HOME:-$HOME/.local/share}/annotations"
 BIN_HOME="${XDG_BIN_HOME:-$HOME/.local/bin}"
+DESKTOP_HOME="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+DESKTOP_FILE="$DESKTOP_HOME/com.asodya.annotations.desktop"
 MAC_APP_HOME="$HOME/Applications"
 RELEASE_BASE="${ANNOTATIONS_RELEASE_BASE_URL:-https://github.com/wilsonborba/annotations/releases/latest/download}"
 PLATFORM=""
@@ -10,10 +12,12 @@ ASSET=""
 tmp=""
 install_stage=""
 launcher_tmp=""
+desktop_tmp=""
 
 cleanup() {
   [[ -z "$install_stage" ]] || rm -rf "$install_stage"
   [[ -z "$launcher_tmp" ]] || rm -f "$launcher_tmp"
+  [[ -z "$desktop_tmp" ]] || rm -f "$desktop_tmp"
   [[ -z "$tmp" ]] || rm -rf "$tmp"
 }
 trap cleanup EXIT
@@ -79,6 +83,7 @@ prepare_launcher() {
 #!/usr/bin/env bash
 # ASODYA_ANNOTATIONS_USER_LAUNCHER
 set -euo pipefail
+export ASODYA_ANNOTATIONS_ICON="${XDG_DATA_HOME:-$HOME/.local/share}/annotations/current/bundle/data/native/annotations.png"
 exec "${XDG_DATA_HOME:-$HOME/.local/share}/annotations/current/bundle/annotations_local" "$@"
 EOF
   else
@@ -92,12 +97,72 @@ EOF
   chmod 0755 "$launcher_tmp"
 }
 
+desktop_exec_arg() {
+  local value="$1" char escaped='"' index
+  [[ "$value" != *$'\n'* && "$value" != *$'\r'* && "$value" != *=* ]] || return 1
+  for ((index = 0; index < ${#value}; index++)); do
+    char="${value:index:1}"
+    case "$char" in
+      \\) escaped+='\\\\' ;;
+      '"'|'$'|'`') escaped+="\\$char" ;;
+      '%') escaped+='%%' ;;
+      *) escaped+="$char" ;;
+    esac
+  done
+  escaped+='"'
+  printf '%s' "$escaped"
+}
+
+desktop_icon_value() {
+  local value="$1" char escaped='' index
+  [[ "$value" != *$'\n'* && "$value" != *$'\r'* ]] || return 1
+  for ((index = 0; index < ${#value}; index++)); do
+    char="${value:index:1}"
+    case "$char" in
+      ' ') escaped+='\s' ;;
+      \\) escaped+='\\' ;;
+      *) escaped+="$char" ;;
+    esac
+  done
+  printf '%s' "$escaped"
+}
+
+prepare_desktop_entry() {
+  local template="$1" launcher_exec icon_path icon_value line
+  if [[ -e "$DESKTOP_FILE" || -L "$DESKTOP_FILE" ]] && {
+    [[ -L "$DESKTOP_FILE" ]] || ! grep -q 'ASODYA_ANNOTATIONS_USER_DESKTOP' "$DESKTOP_FILE"
+  }; then
+    fail "$DESKTOP_FILE exists and is not owned by this installer"
+  fi
+  [[ -f "$template" && ! -L "$template" ]] || fail "release bundle is missing the Linux desktop entry template"
+  launcher_exec="$(desktop_exec_arg "$BIN_HOME/annotations")" || fail "desktop launcher path contains an unsupported line break"
+  icon_path="$APP_HOME/current/bundle/data/native/annotations.png"
+  icon_value="$(desktop_icon_value "$icon_path")" || fail "desktop icon path contains an unsupported line break"
+  mkdir -p "$DESKTOP_HOME"
+  desktop_tmp="$(mktemp "$DESKTOP_HOME/.com.asodya.annotations.desktop.XXXXXX")"
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line="${line//@ANNOTATIONS_LAUNCHER_EXEC@/$launcher_exec}"
+    line="${line//@ANNOTATIONS_ICON@/$icon_value}"
+    printf '%s\n' "$line"
+  done < "$template" > "$desktop_tmp"
+  if grep -q '@ANNOTATIONS_' "$desktop_tmp"; then
+    fail "release bundle has an unresolved Linux desktop entry placeholder"
+  fi
+}
+
 activate_launcher() {
   local target="$BIN_HOME/annotations"
   if ! mv -f "$launcher_tmp" "$target"; then
     return 1
   fi
   launcher_tmp=""
+}
+
+activate_desktop_entry() {
+  if ! mv -f "$desktop_tmp" "$DESKTOP_FILE"; then
+    return 1
+  fi
+  desktop_tmp=""
 }
 
 uninstall() {
@@ -109,6 +174,9 @@ uninstall() {
         fail "refusing to remove an unmarked application directory"
       fi
       rm -rf "$APP_HOME/current"
+      if [[ -f "$DESKTOP_FILE" && ! -L "$DESKTOP_FILE" ]] && grep -q 'ASODYA_ANNOTATIONS_USER_DESKTOP' "$DESKTOP_FILE"; then
+        rm -f "$DESKTOP_FILE"
+      fi
       ;;
     Darwin)
       local app="$MAC_APP_HOME/Annotations.app" bundle_id
@@ -153,6 +221,8 @@ install_linux() {
   prepare_launcher
   tar --no-same-owner --no-same-permissions -xzf "$archive" -C "$stage"
   [[ -x "$stage/bundle/annotations_local" && -d "$stage/bundle/data/flutter_assets" ]] || fail "release archive is incomplete"
+  [[ -f "$stage/bundle/data/native/annotations.png" ]] || fail "release archive is missing the Linux app icon"
+  prepare_desktop_entry "$stage/bundle/data/native/annotations.desktop.in"
   : > "$stage/.asodya-installed"
   if [[ -e "$root/current" ]]; then mv "$root/current" "$previous"; fi
   if ! mv "$stage" "$root/current"; then
@@ -164,6 +234,15 @@ install_linux() {
     rm -rf "$root/current"
     [[ ! -e "$previous" ]] || mv "$previous" "$root/current"
     fail "could not activate the user launcher"
+  fi
+  if ! activate_desktop_entry; then
+    rm -rf "$root/current"
+    if [[ -e "$previous" ]]; then
+      mv "$previous" "$root/current"
+    elif [[ -f "$BIN_HOME/annotations" ]] && grep -q 'ASODYA_ANNOTATIONS_USER_LAUNCHER' "$BIN_HOME/annotations"; then
+      rm -f "$BIN_HOME/annotations"
+    fi
+    fail "could not activate the user desktop entry"
   fi
   rm -rf "$previous"
   install_stage=""

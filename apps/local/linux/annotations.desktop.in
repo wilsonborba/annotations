@@ -1,0 +1,14 @@
+[Desktop Entry]
+# ASODYA_ANNOTATIONS_USER_DESKTOP
+Version=1.0
+Type=Application
+Name=Annotations
+GenericName=Handwritten Notes
+Comment=Create and organize handwritten notes
+Exec=@ANNOTATIONS_LAUNCHER_EXEC@
+TryExec=@ANNOTATIONS_LAUNCHER_EXEC@
+Icon=@ANNOTATIONS_ICON@
+Terminal=false
+Categories=Education;
+StartupNotify=true
+StartupWMClass=com.asodya.annotations
