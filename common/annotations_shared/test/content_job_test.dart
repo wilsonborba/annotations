@@ -166,6 +166,82 @@ void main() {
     }
   });
 
+  test('late terminal detail cannot undo an already handled result', () async {
+    final tempDir = await Directory.systemTemp.createTemp(
+      'content_job_handled_projection_race_',
+    );
+    final persistence = FileContentJobPersistence(
+      File('${tempDir.path}/jobs.json'),
+    );
+    await persistence.saveRef(
+      'owner-a',
+      const ContentJobRef(
+        noteId: 'n1',
+        clientJobId: 'client-a',
+        jobId: 'job-a',
+        status: 'failed',
+        uploadedFileIds: ['file-a'],
+      ),
+    );
+    final detailStarted = Completer<void>();
+    final oldDetail = Completer<http.Response>();
+    final client = MockClient((request) async {
+      if (request.method == 'GET' &&
+          request.url.path == '/me/content_jobs/job-a') {
+        if (!detailStarted.isCompleted) detailStarted.complete();
+        return oldDetail.future;
+      }
+      return http.Response('unexpected route', 404);
+    });
+    final serviceA = ContentJobService(
+      api: ApiAdapter(client: client, base: 'https://api.test'),
+      persistence: persistence,
+      enabled: true,
+      sessionProvider: _provider(() => true),
+    );
+    final clientB = MockClient((_) async => http.Response('{}', 404));
+    final serviceB = ContentJobService(
+      api: ApiAdapter(client: clientB, base: 'https://api.test'),
+      persistence: persistence,
+      enabled: true,
+      sessionProvider: _provider(() => true),
+    );
+
+    try {
+      final staleResume = serviceA.resumeJob('n1');
+      await detailStarted.future;
+      await persistence.saveDraft(
+        'owner-a',
+        const ContentJobDraft(
+          noteId: 'n1',
+          jobId: 'job-a',
+          extractedText: 'saved result',
+        ),
+      );
+      await serviceB.markDraftInserted('n1', 'job-a');
+      oldDetail.complete(
+        http.Response(
+          jsonEncode({
+            'job_id': 'job-a',
+            'status': 'completed',
+            'draft': {'format': 'markdown', 'text': 'saved result'},
+          }),
+          200,
+        ),
+      );
+      await staleResume;
+
+      final state = await serviceB.loadReviewState('n1');
+      expect(state.ref?.status, 'result_inserted');
+      expect(state.draft?.accepted, isTrue);
+      expect(state.draft?.extractedText, 'saved result');
+    } finally {
+      client.close();
+      clientB.close();
+      await tempDir.delete(recursive: true);
+    }
+  });
+
   test(
     'cancel uses owner mutation route and preserves returned partial draft',
     () async {

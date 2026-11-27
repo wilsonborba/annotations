@@ -283,6 +283,8 @@ final class FileContentJobPersistence implements ContentJobPersistence {
     final current = ContentJobRef.fromJson(Map<String, dynamic>.from(rawRef));
     if (current.jobId != expectedRef.jobId ||
         current.clientJobId != expectedRef.clientJobId ||
+        current.status == 'result_inserted' ||
+        current.status == 'result_discarded' ||
         terminalRef.jobId != expectedRef.jobId ||
         terminalRef.clientJobId != expectedRef.clientJobId) {
       return false;
@@ -392,6 +394,8 @@ final class InMemoryContentJobPersistence implements ContentJobPersistence {
     final current = _refs[key];
     if (current?.jobId != expectedRef.jobId ||
         current?.clientJobId != expectedRef.clientJobId ||
+        current?.status == 'result_inserted' ||
+        current?.status == 'result_discarded' ||
         terminalRef.jobId != expectedRef.jobId ||
         terminalRef.clientJobId != expectedRef.clientJobId) {
       return false;
