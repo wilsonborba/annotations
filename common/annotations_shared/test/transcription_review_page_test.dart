@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:annotations_shared/dal/remote/api_adapter.dart';
@@ -22,9 +23,11 @@ import 'package:annotations_shared/domain/services/transcription_run_service.dar
 import 'package:annotations_shared/domain/services/transcription_workflow_service.dart';
 import 'package:annotations_shared/presentation/frontend/components/scope.dart';
 import 'package:annotations_shared/presentation/frontend/components/theme.dart';
+import 'package:annotations_shared/presentation/frontend/components/controls.dart';
 import 'package:annotations_shared/presentation/frontend/widgets/workspace/transcription_review_page.dart';
 import 'package:annotations_shared/presentation/frontend/widgets/workspace/note_editor_page.dart';
 import 'package:annotations_shared/presentation/frontend/widgets/paper/paper_screen.dart';
+import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -244,6 +247,199 @@ void main() {
     expect(item['id'], 's2');
   });
 
+  testWidgets('failed correction stays visible and retries the same event', (
+    tester,
+  ) async {
+    final directory = Directory(
+      '/home/main-server/.cache/codex-impl-3/tmp/'
+      'annotations48-transcription-review/widget-files/'
+      '${DateTime.now().microsecondsSinceEpoch}',
+    )..createSync(recursive: true);
+    addTearDown(() {
+      if (directory.existsSync()) directory.deleteSync(recursive: true);
+    });
+    final original = NoteDocument.fromJson({
+      'page': {
+        'width': 1000,
+        'background': {'kind': 'blank'},
+      },
+      'items': [handwriting(4)],
+    }, schema: DocumentSchema(DocumentFamily.original.schemaName, 1));
+    final note = LocalNote(
+      id: 'note-feedback-retry',
+      schema: original.schema,
+      document: original,
+      title: 'Feedback retry fixture',
+      revision: 1,
+      createdAt: DateTime.utc(2026),
+      updatedAt: DateTime.utc(2026),
+      syncState: LocalSyncState.local,
+      accountId: 'owner-a',
+    );
+    final store = _ReadOnlyStore(note)..failSaves = false;
+    final drafts = TranscriptionDraftService(
+      persistenceFile: File('${directory.path}/drafts.json'),
+    );
+    drafts.saveDraft(
+      noteId: note.id,
+      accountId: 'owner-a',
+      runId: 'run-feedback-retry',
+      downloadId: 'download-1',
+      modelVersion: 'model-v1',
+      platform: 'linux',
+      language: 'en',
+      schemaVersion: 1,
+      selectedSourceItemIds: const ['s4'],
+      selectedInkDocument: original.toJson(),
+      sourceRevision: note.revision,
+      sourceHash: sha256
+          .convert(utf8.encode(jsonEncode(original.toJson())))
+          .toString(),
+      passages: [
+        TranscriptionPassage(
+          partId: 's4',
+          sourceItemIds: const ['s4'],
+          sourceHash: 'source-hash-s4',
+          y: 1,
+          x: 1,
+          kind: TranscriptionPassageKind.text,
+          text: 'model suggestion',
+        ),
+      ],
+    );
+    final eventIds = <String>[];
+    var feedbackAttempts = 0;
+    final client = MockClient((request) async {
+      if (request.url.path !=
+          '/me/transcriptions/run-feedback-retry/feedback') {
+        return http.Response('unexpected route', 404);
+      }
+      final body = jsonDecode(request.body) as Map<String, dynamic>;
+      final event = (body['events'] as List).single as Map<String, dynamic>;
+      eventIds.add(event['event_id'] as String);
+      feedbackAttempts++;
+      if (feedbackAttempts == 1) return http.Response('offline', 503);
+      return http.Response(
+        jsonEncode({
+          'run_id': 'run-feedback-retry',
+          'events': [
+            {'event_id': event['event_id']},
+          ],
+        }),
+        200,
+      );
+    });
+    addTearDown(client.close);
+    Future<TranscriptionSession?> sessionProvider() async =>
+        const TranscriptionSession(
+          accountId: 'owner-a',
+          readHeaders: {},
+          mutationHeaders: {},
+          isCurrent: _current,
+        );
+    final workflow = _workflow(
+      directory,
+      client,
+      drafts,
+      sessionProvider,
+      feedbackStore: _SynchronousFeedbackQueue(),
+      enabled: true,
+    );
+    final preferences = Preferences();
+    addTearDown(preferences.dispose);
+
+    await tester.pumpWidget(
+      AppScope(
+        preferences: preferences,
+        service: AnnotationsService(api: ApiAdapter(client: client)),
+        child: MaterialApp(
+          debugShowCheckedModeBanner: false,
+          theme: appTheme(Brightness.light),
+          home: TranscriptionReviewPage(
+            note: note,
+            access: TranscriptionReviewAccess(
+              workflow: workflow,
+              runtime: _UnusedRuntime(),
+              platform: 'linux',
+            ),
+            store: store,
+            ownerAccountId: 'owner-a',
+            isOwnerScopeCurrent: () => true,
+          ),
+        ),
+      ),
+    );
+    for (var frame = 0; frame < 10; frame++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    final textField = find.byKey(const Key('transcription-text-s4'));
+    expect(textField, findsOneWidget);
+    await tester.enterText(textField, 'corrected text kept for retry');
+    await tester.pump();
+    final accept = find.byKey(const Key('transcription-accept-text-s4'));
+    final acceptButton = find.descendant(
+      of: accept,
+      matching: find.byType(TextButton),
+    );
+    expect(accept, findsOneWidget);
+    expect(acceptButton, findsOneWidget);
+    expect(tester.widget<AppButton>(accept).onPressed, isNotNull);
+    final button = tester.widget<TextButton>(acceptButton);
+    expect(button.onPressed, isNotNull);
+    await tester.runAsync(() async {
+      button.onPressed!.call();
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    });
+    for (var frame = 0; frame < 10; frame++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+
+    expect(feedbackAttempts, 1);
+    expect(find.byKey(const Key('transcription-error')), findsOneWidget);
+    expect(
+      tester.widget<TextField>(textField).controller!.text,
+      'corrected text kept for retry',
+    );
+    expect(
+      find.byKey(const Key('transcription-retry-feedback')),
+      findsOneWidget,
+    );
+    final savedAfterFailure = drafts.reopenDraft(
+      note.id,
+      accountId: 'owner-a',
+    )!;
+    expect(
+      savedAfterFailure.passages.single.text,
+      'corrected text kept for retry',
+    );
+    expect(savedAfterFailure.passages.single.feedbackAccepted, isFalse);
+    expect(savedAfterFailure.pendingFeedbackEvents, hasLength(1));
+    final frozenEventId =
+        savedAfterFailure.pendingFeedbackEvents.single['event_id'];
+
+    final retry = find.byKey(const Key('transcription-retry-feedback'));
+    final retryButton = tester.widget<AppButton>(retry);
+    expect(retryButton.onPressed, isNotNull);
+    await tester.runAsync(() async {
+      retryButton.onPressed!.call();
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    });
+    for (var frame = 0; frame < 10; frame++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+
+    final savedAfterRetry = drafts.reopenDraft(note.id, accountId: 'owner-a')!;
+    expect(
+      savedAfterRetry.passages.single.text,
+      'corrected text kept for retry',
+    );
+    expect(savedAfterRetry.passages.single.feedbackAccepted, isFalse);
+    expect(savedAfterRetry.pendingFeedbackEvents, isEmpty);
+    expect(eventIds, isNotEmpty);
+    expect(eventIds.toSet(), {frozenEventId});
+    expect(find.byKey(const Key('transcription-retry-feedback')), findsNothing);
+  });
+
   testWidgets('the editor opens review for its selected Original unit', (
     tester,
   ) async {
@@ -395,8 +591,10 @@ TranscriptionWorkflowService _workflow(
   Directory directory,
   http.Client client,
   TranscriptionDraftService drafts,
-  TranscriptionSessionProvider sessionProvider,
-) {
+  TranscriptionSessionProvider sessionProvider, {
+  bool enabled = false,
+  PendingTranscriptionFeedbackStore? feedbackStore,
+}) {
   final api = TranscriptionApiAdapter(
     ApiAdapter(client: client, base: 'https://api.test'),
   );
@@ -405,7 +603,7 @@ TranscriptionWorkflowService _workflow(
       api: api,
       store: DirectoryModelArtifactStore(directory),
       sessionProvider: sessionProvider,
-      enabled: false,
+      enabled: enabled,
     ),
     runs: TranscriptionRunService(
       api: api,
@@ -413,15 +611,46 @@ TranscriptionWorkflowService _workflow(
       pendingResults: FilePendingTranscriptionResults(
         File('${directory.path}/results.json'),
       ),
-      pendingFeedback: FilePendingTranscriptionFeedbackStore(
-        File('${directory.path}/feedback.json'),
-      ),
-      enabled: false,
+      pendingFeedback:
+          feedbackStore ??
+          FilePendingTranscriptionFeedbackStore(
+            File('${directory.path}/feedback.json'),
+          ),
+      enabled: enabled,
     ),
     drafts: drafts,
     sessionProvider: sessionProvider,
     decodePassages: (_, _) => const [],
   );
+}
+
+final class _SynchronousFeedbackQueue
+    implements PendingTranscriptionFeedbackStore {
+  final List<PendingTranscriptionFeedback> _events = [];
+
+  @override
+  Future<List<PendingTranscriptionFeedback>> loadAll() async => [..._events];
+
+  @override
+  Future<void> save(PendingTranscriptionFeedback event) async {
+    final existing = _events.where(
+      (candidate) =>
+          candidate.accountId == event.accountId &&
+          candidate.runId == event.runId &&
+          candidate.eventId == event.eventId,
+    );
+    if (existing.isEmpty) _events.add(event);
+  }
+
+  @override
+  Future<void> remove(String accountId, String runId, String eventId) async {
+    _events.removeWhere(
+      (event) =>
+          event.accountId == accountId &&
+          event.runId == runId &&
+          event.eventId == eventId,
+    );
+  }
 }
 
 final class _ReadOnlyStore implements LocalNoteStore {

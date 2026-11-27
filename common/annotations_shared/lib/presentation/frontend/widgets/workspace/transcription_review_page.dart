@@ -335,6 +335,7 @@ class _TranscriptionReviewPageState extends State<TranscriptionReviewPage> {
     } on Object {
       if (mounted && widget.isOwnerScopeCurrent()) {
         setState(() {
+          _reloadDurableDraft(preservePartId: passage.partId);
           _busy = false;
           _error = context.tr('transcriptionFeedbackFailed');
         });
@@ -376,6 +377,7 @@ class _TranscriptionReviewPageState extends State<TranscriptionReviewPage> {
     } on Object {
       if (mounted && widget.isOwnerScopeCurrent()) {
         setState(() {
+          _reloadDurableDraft();
           _busy = false;
           _error = context.tr('transcriptionFeedbackFailed');
         });
@@ -402,6 +404,7 @@ class _TranscriptionReviewPageState extends State<TranscriptionReviewPage> {
     } on Object {
       if (mounted && widget.isOwnerScopeCurrent()) {
         setState(() {
+          _reloadDurableDraft();
           _busy = false;
           _error = context.tr('transcriptionFeedbackFailed');
         });
@@ -480,6 +483,7 @@ class _TranscriptionReviewPageState extends State<TranscriptionReviewPage> {
     } on Object {
       if (mounted && widget.isOwnerScopeCurrent()) {
         setState(() {
+          _reloadDurableDraft();
           _busy = false;
           _error = context.tr('transcriptionFeedbackFailed');
         });
@@ -494,6 +498,23 @@ class _TranscriptionReviewPageState extends State<TranscriptionReviewPage> {
       final controller = _controllers.putIfAbsent(
         passage.partId,
         TextEditingController.new,
+      );
+      if (controller.text != passage.text) controller.text = passage.text;
+    }
+  }
+
+  void _reloadDurableDraft({String? preservePartId}) {
+    final saved = _workflow.drafts.reopenDraft(
+      widget.note.id,
+      accountId: widget.ownerAccountId,
+    );
+    if (saved == null) return;
+    _draft = saved;
+    for (final passage in saved.passages) {
+      if (passage.partId == preservePartId) continue;
+      final controller = _controllers.putIfAbsent(
+        passage.partId,
+        () => TextEditingController(text: passage.text),
       );
       if (controller.text != passage.text) controller.text = passage.text;
     }
