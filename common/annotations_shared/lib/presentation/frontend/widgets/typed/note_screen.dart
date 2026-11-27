@@ -116,7 +116,6 @@ class NoteScreen extends StatelessWidget {
     };
     final source = studySource;
     if (source == null ||
-        profile != PlatformProfile.fullWriter ||
         handler.document.schema.family != DocumentFamily.original) {
       return view;
     }
