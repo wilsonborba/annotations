@@ -5,7 +5,9 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:annotations_shared/core/platform_profile.dart';
+import 'package:annotations_shared/domain/models/local_note.dart';
 import 'package:annotations_shared/domain/models/note_document.dart';
+import 'package:annotations_shared/domain/services/preferences.dart';
 import 'package:annotations_shared/domain/services/note_views.dart';
 import 'package:annotations_shared/domain/services/quiz_card_service.dart';
 import 'package:annotations_shared/domain/services/reports_embed_source.dart';
@@ -16,6 +18,8 @@ import 'package:annotations_shared/presentation/frontend/handlers/typed_note_han
 import 'package:flutter_quill/flutter_quill.dart'
     show ChangeSource, QuillEditor;
 import 'package:annotations_shared/presentation/frontend/widgets/typed/note_screen.dart';
+import 'package:annotations_shared/presentation/frontend/components/scope.dart';
+import 'package:annotations_shared/presentation/frontend/components/theme.dart';
 import 'package:flutter/foundation.dart'
     show debugDefaultTargetPlatformOverride;
 import 'package:flutter/gestures.dart';
@@ -24,11 +28,13 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'attachment_fixtures.dart';
 import 'design_goldens_test.dart' show loadAppFonts;
-import 'paper_canvas_test.dart' show host, phone, setWindow, studyNote;
+import 'paper_canvas_test.dart' show desktop, host, phone, setWindow, studyNote;
+import 'fixtures.dart' show fixtureService;
 import 'package:annotations_shared/domain/services/note_autosave.dart';
 import 'package:annotations_shared/core/local_store_settings.dart';
 
@@ -681,6 +687,274 @@ void main() {
     expect(store.saved.last.document is TypedDocument, isTrue);
     await tester.pump(const Duration(seconds: 3));
   });
+
+  testWidgets('a handwritten study opens its verified public typed source', (
+    tester,
+  ) async {
+    await setWindow(tester, phone);
+    final h = handlerFor(studyNote(), title: 'Study');
+    addTearDown(h.dispose);
+    final requests = <http.Request>[];
+    final service = fixtureService(
+      handler: (request) async {
+        requests.add(request);
+        return http.Response(
+          jsonEncode({
+            'note_id': 'public-source',
+            'title': 'Current source title',
+            'author_name': 'Source author',
+            'views': ['typed'],
+            'representations': [
+              {
+                'representation': 'typed',
+                'document': {'blocks': []},
+              },
+            ],
+          }),
+          200,
+        );
+      },
+    );
+    final router = GoRouter(
+      initialLocation: '/editor',
+      routes: [
+        GoRoute(
+          path: '/editor',
+          builder: (context, state) => Scaffold(
+            body: NoteScreen(
+              handler: h,
+              profile: PlatformProfile.fullWriter,
+              studySource: const StudySourceReference(
+                noteId: 'public-source',
+                title: 'Saved source title',
+                authorName: 'Saved author',
+                relationAttached: false,
+              ),
+            ),
+          ),
+        ),
+        GoRoute(
+          path: '/v1/notes/:id',
+          builder: (context, state) =>
+              Text('Opened typed source: ${state.pathParameters['id']}'),
+        ),
+      ],
+    );
+    addTearDown(router.dispose);
+    await tester.pumpWidget(
+      AppScope(
+        preferences: Preferences(),
+        service: service,
+        child: MaterialApp.router(
+          theme: appTheme(Brightness.light),
+          routerConfig: router,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(requests, hasLength(1));
+    expect(requests.single.url.path, '/notes/public-source');
+    expect(requests.single.url.queryParameters['view'], 'typed');
+    expect(find.textContaining('Current source title'), findsOneWidget);
+    await tester.tap(find.textContaining('Current source title'));
+    await tester.pumpAndSettle();
+    expect(find.text('Opened typed source: public-source'), findsOneWidget);
+  });
+
+  testWidgets(
+    'a missing study source reports unavailable and keeps its snapshot offline',
+    (tester) async {
+      await setWindow(tester, phone);
+      final missing = handlerFor(studyNote(), title: 'Study');
+      addTearDown(missing.dispose);
+      final missingService = fixtureService(
+        handler: (_) async => http.Response('{"error":"missing"}', 404),
+      );
+      await tester.pumpWidget(
+        AppScope(
+          preferences: Preferences(),
+          service: missingService,
+          child: MaterialApp(
+            theme: appTheme(Brightness.light),
+            home: Material(
+              child: NoteScreen(
+                handler: missing,
+                profile: PlatformProfile.fullWriter,
+                studySource: const StudySourceReference(
+                  noteId: 'missing-source',
+                  title: 'Saved source snapshot',
+                  authorName: 'Saved author',
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Source unavailable'), findsOneWidget);
+      expect(find.textContaining('Saved source snapshot'), findsOneWidget);
+      expect(find.textContaining('Saved author'), findsOneWidget);
+
+      final offline = handlerFor(studyNote(), title: 'Study');
+      addTearDown(offline.dispose);
+      final offlineService = fixtureService(
+        handler: (_) async => throw const SocketException('offline'),
+      );
+      await tester.pumpWidget(
+        AppScope(
+          preferences: Preferences(),
+          service: offlineService,
+          child: MaterialApp(
+            theme: appTheme(Brightness.light),
+            home: Material(
+              child: NoteScreen(
+                handler: offline,
+                profile: PlatformProfile.fullWriter,
+                studySource: const StudySourceReference(
+                  noteId: 'offline-source',
+                  title: 'Saved offline title',
+                  authorName: 'Saved offline author',
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Saved offline title'), findsOneWidget);
+      expect(find.textContaining('Saved offline author'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'read-only Original studies keep the source link without autosaving',
+    (tester) async {
+      for (final (profile, size) in [
+        (PlatformProfile.phone, phone),
+        (PlatformProfile.browser, desktop),
+      ]) {
+        await setWindow(tester, size);
+        final h = handlerFor(studyNote(), title: 'Handwritten study');
+        final before = jsonEncode(h.document.toJson());
+        addTearDown(h.dispose);
+        final requests = <http.Request>[];
+        final service = fixtureService(
+          handler: (request) async {
+            requests.add(request);
+            return http.Response(
+              jsonEncode({
+                'note_id': 'public-source',
+                'title': 'Verified source title',
+                'author_name': 'Verified author',
+                'views': ['typed'],
+                'representations': [
+                  {
+                    'representation': 'typed',
+                    'document': {'blocks': []},
+                  },
+                ],
+              }),
+              200,
+            );
+          },
+        );
+        final router = GoRouter(
+          initialLocation: '/editor',
+          routes: [
+            GoRoute(
+              path: '/editor',
+              builder: (context, state) => Scaffold(
+                body: NoteScreen(
+                  handler: h,
+                  profile: profile,
+                  studySource: const StudySourceReference(
+                    noteId: 'public-source',
+                    title: 'Saved source snapshot',
+                    authorName: 'Saved author',
+                  ),
+                ),
+              ),
+            ),
+            GoRoute(
+              path: '/v1/notes/:id',
+              builder: (context, state) =>
+                  Text('Opened typed source: ${state.pathParameters['id']}'),
+            ),
+          ],
+        );
+        await tester.pumpWidget(
+          AppScope(
+            preferences: Preferences(),
+            service: service,
+            child: MaterialApp.router(
+              theme: appTheme(Brightness.light),
+              routerConfig: router,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.textContaining('Verified source title'), findsOneWidget);
+        expect(find.textContaining('Verified author'), findsOneWidget);
+        expect(requests, hasLength(1));
+        expect(requests.single.url.path, '/notes/public-source');
+        await tester.tap(find.textContaining('Verified source title'));
+        await tester.pumpAndSettle();
+        expect(find.text('Opened typed source: public-source'), findsOneWidget);
+        await h.close();
+        expect(store.saved, isEmpty);
+        expect(jsonEncode(h.document.toJson()), before);
+        router.dispose();
+      }
+    },
+  );
+
+  testWidgets(
+    'read-only Original studies keep source metadata when unavailable',
+    (tester) async {
+      for (final (profile, size) in [
+        (PlatformProfile.phone, phone),
+        (PlatformProfile.browser, desktop),
+      ]) {
+        await setWindow(tester, size);
+        final h = handlerFor(studyNote(), title: 'Handwritten study');
+        final before = jsonEncode(h.document.toJson());
+        addTearDown(h.dispose);
+        final service = fixtureService(
+          handler: (_) async => http.Response('{"error":"missing"}', 404),
+        );
+        await tester.pumpWidget(
+          AppScope(
+            preferences: Preferences(),
+            service: service,
+            child: MaterialApp(
+              theme: appTheme(Brightness.light),
+              home: Scaffold(
+                body: NoteScreen(
+                  handler: h,
+                  profile: profile,
+                  studySource: const StudySourceReference(
+                    noteId: 'missing-source',
+                    title: 'Saved source snapshot',
+                    authorName: 'Saved author',
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.textContaining('Source unavailable'), findsOneWidget);
+        expect(find.textContaining('Saved source snapshot'), findsOneWidget);
+        expect(find.textContaining('Saved author'), findsOneWidget);
+        await h.close();
+        expect(store.saved, isEmpty);
+        expect(jsonEncode(h.document.toJson()), before);
+      }
+    },
+  );
 
   testWidgets('title then body input keeps body focus through editor rebuild', (
     tester,
