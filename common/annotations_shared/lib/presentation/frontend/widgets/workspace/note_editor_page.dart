@@ -960,8 +960,12 @@ class _NoteEditorPageState extends State<NoteEditorPage>
         noteBefore.accountId == installed.localOwnerId;
 
     if (!isCurrent()) return;
-    await handler.autosave.flush();
-    if (!isCurrent()) return;
+    if (handler.autosave.state.value == SaveState.failed) {
+      await handler.autosave.retry();
+    } else {
+      await handler.autosave.flush();
+    }
+    if (!isCurrent() || handler.autosave.state.value != SaveState.saved) return;
     final currentNote = await workspace.loadNoteForAccount(
       noteBefore.id,
       installed.localOwnerId,

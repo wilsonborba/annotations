@@ -282,6 +282,11 @@ const strings = <String, List<String>>{
     'Escolha as partes da anotação para converter',
     'เลือกส่วนของบันทึกที่จะแปลง',
   ],
+  'transcriptionSelectionInvalid': [
+    'The selected note parts changed. Choose the parts again before converting.',
+    'As partes selecionadas mudaram. Escolha as partes novamente antes de converter.',
+    'ส่วนที่เลือกของบันทึกเปลี่ยนไป โปรดเลือกส่วนอีกครั้งก่อนแปลง',
+  ],
   'transcriptionChooseModel': [
     'Choose a model',
     'Escolher modelo',

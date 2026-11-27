@@ -72,6 +72,7 @@ class _TranscriptionReviewPageState extends State<TranscriptionReviewPage> {
   bool _busy = false;
   bool _checkingSavedDraft = true;
   bool _sourceChanged = false;
+  bool _invalidInitialSelection = false;
 
   TranscriptionWorkflowService get _workflow => widget.access.workflow;
 
@@ -86,10 +87,16 @@ class _TranscriptionReviewPageState extends State<TranscriptionReviewPage> {
     final layout = DocumentLayout.of(document)!;
     _units = layout.units;
     _itemsById = {for (final item in document.itemsJson) '${item['id']}': item};
-    final selectedInEditor = widget.initialSelectedItemIds
-        .where(_units.contains)
-        .toSet();
-    _selected.addAll(selectedInEditor.isEmpty ? _units : selectedInEditor);
+    final selectedInEditor = widget.initialSelectedItemIds.toSet();
+    if (selectedInEditor.isEmpty) {
+      _selected.addAll(_units);
+    } else if (selectedInEditor.every(_units.contains)) {
+      _selected.addAll(selectedInEditor);
+    } else {
+      // A stale, nonempty editor selection is not permission to widen the
+      // conversion to every source unit. Require a fresh explicit choice.
+      _invalidInitialSelection = true;
+    }
     _documentHash = sha256
         .convert(utf8.encode(jsonEncode(document.toJson())))
         .toString();
@@ -559,6 +566,14 @@ class _TranscriptionReviewPageState extends State<TranscriptionReviewPage> {
                       child: Text(context.tr('transcriptionSourceChanged')),
                     ),
                   ),
+                if (_invalidInitialSelection)
+                  Semantics(
+                    liveRegion: true,
+                    child: Text(
+                      context.tr('transcriptionSelectionInvalid'),
+                      key: const Key('transcription-selection-invalid'),
+                    ),
+                  ),
                 if (draft == null) ...[
                   if (_checkingSavedDraft)
                     const Center(child: CircularProgressIndicator())
@@ -572,6 +587,7 @@ class _TranscriptionReviewPageState extends State<TranscriptionReviewPage> {
                         onChanged: _busy
                             ? null
                             : (selected) => setState(() {
+                                _invalidInitialSelection = false;
                                 if (selected == true) {
                                   _selected.add(id);
                                 } else {
