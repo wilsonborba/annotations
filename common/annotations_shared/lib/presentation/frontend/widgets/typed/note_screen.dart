@@ -496,7 +496,10 @@ class _StudySourceLineState extends State<_StudySourceLine> {
         AppScope.of(context).service.api,
       ).getPublicNote(source.noteId, view: NoteViewMode.typed);
       if (!mounted || generation != _requestGeneration) return;
-      if (note.noteId != source.noteId || !note.hasTyped) {
+      if (note.noteId != source.noteId ||
+          !note.hasTyped ||
+          note.activeView != NoteViewMode.typed ||
+          note.activeDocument == null) {
         setState(() => _unavailable = true);
         return;
       }
