@@ -76,6 +76,8 @@ final class PreparedCertificationStudy {
     required this.title,
     required this.status,
     required this.config,
+    this.sourceOrigin,
+    this.sources,
     this.quizId,
   });
 
@@ -83,9 +85,28 @@ final class PreparedCertificationStudy {
   final String title;
   final String status;
   final String? quizId;
+  final String? sourceOrigin;
+  final List<PreparedCertificationSourceReceipt>? sources;
+
+  /// Certifications marks a study active when its generated quiz is durably
+  /// saved. Draft/expired studies do not qualify even if a stale id is present.
+  bool get hasSavedQuiz => status == 'active' && quizId != null;
 
   /// A null value means the server has not returned durable setup yet.
   final PreparedCertificationConfig? config;
+}
+
+/// The durable provenance returned by Certifications for one saved source.
+final class PreparedCertificationSourceReceipt {
+  const PreparedCertificationSourceReceipt({
+    required this.sourceKind,
+    required this.status,
+    required this.externalRef,
+  });
+
+  final String sourceKind;
+  final String status;
+  final String externalRef;
 }
 
 final class PreparedCertificationPersistenceException implements Exception {
@@ -230,7 +251,110 @@ final class PreparedCertificationService {
       '$certificationsPath/${Uri.encodeComponent(studyId)}',
       headers: session.authHeaders(),
     );
-    return _studyDetail(response, label: 'study');
+    final study = _studyDetail(response, label: 'study');
+    if (study.id != studyId) {
+      throw ApiError(502, 'The service returned a different study.');
+    }
+    return study;
+  }
+
+  /// Checks the one-shot result of an explicit return to the same saved note.
+  /// This does one owner-scoped Certifications GET and never starts generation.
+  /// A null result means the note, session, status, quiz or source provenance
+  /// no longer matches the prepared operation.
+  Future<PreparedCertificationStudy?> readSavedQuizForReturn({
+    required LocalNote note,
+    required String ownerId,
+    required String serverNoteId,
+    required int serverRevision,
+    required int localRevision,
+    required String studyId,
+    required bool Function() isCurrent,
+  }) async {
+    if (!_matchesReturnContext(
+          note: note,
+          ownerId: ownerId,
+          serverNoteId: serverNoteId,
+          serverRevision: serverRevision,
+          localRevision: localRevision,
+          studyId: studyId,
+        ) ||
+        !isCurrent()) {
+      return null;
+    }
+
+    final study = await read(studyId);
+    if (!isCurrent() ||
+        !_matchesReturnContext(
+          note: note,
+          ownerId: ownerId,
+          serverNoteId: serverNoteId,
+          serverRevision: serverRevision,
+          localRevision: localRevision,
+          studyId: studyId,
+        ) ||
+        !study.hasSavedQuiz ||
+        study.sourceOrigin != 'annotations' ||
+        !_sourcesBelongToNote(study.sources, note, serverNoteId)) {
+      return null;
+    }
+    return study;
+  }
+
+  bool _matchesReturnContext({
+    required LocalNote note,
+    required String ownerId,
+    required String serverNoteId,
+    required int serverRevision,
+    required int localRevision,
+    required String studyId,
+  }) =>
+      ownerId.trim().isNotEmpty &&
+      session.verifiedUserId == ownerId &&
+      note.accountId == ownerId &&
+      serverNoteId.trim().isNotEmpty &&
+      note.serverNoteId == serverNoteId &&
+      note.serverRevision == serverRevision &&
+      note.revision == localRevision &&
+      studyId.trim().isNotEmpty &&
+      note.preparedStudyId == studyId;
+
+  bool _sourcesBelongToNote(
+    List<PreparedCertificationSourceReceipt>? sources,
+    LocalNote note,
+    String serverNoteId,
+  ) {
+    if (sources == null || sources.isEmpty) return false;
+
+    final allowedReferences = <String>{};
+    final originalRevision = note.serverOriginalRevisionId;
+    if (originalRevision != null && originalRevision.trim().isNotEmpty) {
+      allowedReferences.add(
+        'annotations:note:$serverNoteId:original:$originalRevision',
+      );
+    }
+    final typedRevision = note.serverTypedRevisionId;
+    if (typedRevision != null && typedRevision.trim().isNotEmpty) {
+      allowedReferences.add(
+        'annotations:note:$serverNoteId:typed:$typedRevision',
+      );
+    }
+    final fileIds = <String>{};
+    _collectFileIds(note.document.toJson(), fileIds);
+    allowedReferences.addAll(fileIds.map((id) => 'annotations:file:$id'));
+    if (allowedReferences.isEmpty) return false;
+
+    final seen = <String>{};
+    for (final source in sources) {
+      if (source.sourceKind != 'fsm_ref' ||
+          source.status != 'ready' ||
+          source.externalRef.isEmpty ||
+          !allowedReferences.contains(source.externalRef) ||
+          !seen.add(source.externalRef)) {
+        return false;
+      }
+    }
+    return true;
   }
 
   /// Reuses a ready owner file or uploads its local bytes after explicit
@@ -396,25 +520,54 @@ final class PreparedCertificationService {
     if (config != null && config is! Map) {
       throw ApiError(502, 'The service returned an invalid study config.');
     }
+    List<PreparedCertificationSourceReceipt>? sources;
+    if (detail.containsKey('sources')) {
+      final rawSources = detail['sources'];
+      if (rawSources is! List || rawSources.any((entry) => entry is! Map)) {
+        throw ApiError(502, 'The service returned invalid study sources.');
+      }
+      sources = rawSources
+          .map((raw) {
+            final source = Map<String, dynamic>.from(raw as Map);
+            final sourceKind = source['source_kind'];
+            final status = source['status'];
+            final externalRef = source['external_ref'];
+            if (sourceKind is! String ||
+                status is! String ||
+                externalRef is! String) {
+              throw ApiError(502, 'The service returned invalid study source.');
+            }
+            return PreparedCertificationSourceReceipt(
+              sourceKind: sourceKind,
+              status: status,
+              externalRef: externalRef,
+            );
+          })
+          .toList(growable: false);
+    }
     return _study(
       Map<String, dynamic>.from(study),
       config: config == null ? null : Map<String, dynamic>.from(config),
+      sources: sources,
     );
   }
 
   PreparedCertificationStudy _study(
     Map<String, dynamic> json, {
     required Map<String, dynamic>? config,
+    required List<PreparedCertificationSourceReceipt>? sources,
   }) {
     final id = json['id'];
     final title = json['title'];
     final status = json['status'];
     final rawQuizId = json['quiz_id'];
+    final rawSourceOrigin = json['source_origin'];
     if (id is! String ||
         id.trim().isEmpty ||
         title is! String ||
         status is! String ||
-        (rawQuizId != null && rawQuizId is! String)) {
+        (rawQuizId != null && rawQuizId is! String) ||
+        (rawSourceOrigin != null && rawSourceOrigin is! String)) {
       throw ApiError(502, 'The service returned an invalid study summary.');
     }
     final quizId = (rawQuizId as String?)?.trim();
@@ -423,6 +576,8 @@ final class PreparedCertificationService {
       title: title,
       status: status,
       quizId: quizId == null || quizId.isEmpty ? null : quizId,
+      sourceOrigin: rawSourceOrigin as String?,
+      sources: sources == null ? null : List.unmodifiable(sources),
       config: config != null
           ? PreparedCertificationConfig.fromJson(config)
           : null,

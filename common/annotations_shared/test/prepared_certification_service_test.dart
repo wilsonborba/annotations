@@ -3,11 +3,76 @@ import 'dart:convert';
 
 import 'package:annotations_shared/dal/remote/api_adapter.dart';
 import 'package:annotations_shared/domain/models/local_note.dart';
+import 'package:annotations_shared/domain/models/note_document.dart';
 import 'package:annotations_shared/domain/services/native_auth_service.dart';
 import 'package:annotations_shared/domain/services/prepared_certification_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/testing.dart';
 import 'package:http/http.dart' as http;
+
+LocalNote _returnNote({
+  String ownerId = 'owner-1',
+  String preparedStudyId = 'study-1',
+  int revision = 4,
+  int serverRevision = 9,
+  String? serverNoteId = 'server-note-1',
+  String? originalRevisionId = 'original-r4',
+  String? typedRevisionId,
+  bool hasFile = true,
+}) {
+  final schema = DocumentSchema('unknown-note-document', 1);
+  return LocalNote(
+    id: 'local-note-1',
+    schema: schema,
+    document: NoteDocument.fromJson({
+      'file_id': hasFile ? 'file-1' : null,
+      'content': 'unchanged note body',
+    }, schema: schema),
+    title: 'Study note',
+    revision: revision,
+    createdAt: DateTime.utc(2026, 11, 27),
+    updatedAt: DateTime.utc(2026, 11, 27),
+    syncState: LocalSyncState.synced,
+    accountId: ownerId,
+    serverNoteId: serverNoteId,
+    serverRevision: serverRevision,
+    serverOriginalRevisionId: originalRevisionId,
+    serverTypedRevisionId: typedRevisionId,
+    preparedStudyId: preparedStudyId,
+  );
+}
+
+Map<String, Object?> _studyDetail({
+  String id = 'study-1',
+  String status = 'active',
+  String? quizId = 'quiz-1',
+  String sourceOrigin = 'annotations',
+  List<Map<String, Object?>>? sources,
+}) => {
+  'study': {
+    'id': id,
+    'title': 'Saved study',
+    'status': status,
+    'quiz_id': quizId,
+    'source_origin': sourceOrigin,
+  },
+  'sources':
+      sources ??
+      [
+        {
+          'source_kind': 'fsm_ref',
+          'status': 'ready',
+          'external_ref': 'annotations:note:server-note-1:original:original-r4',
+        },
+        {
+          'source_kind': 'fsm_ref',
+          'status': 'ready',
+          'external_ref': 'annotations:file:file-1',
+        },
+      ],
+  'quota': {'used_bytes': 0, 'max_bytes': 100},
+  'config': {'language': 'en', 'count': 10},
+};
 
 void main() {
   const session = NativeSession(sessionId: 'sid-test', csrfToken: 'csrf-test');
@@ -140,7 +205,7 @@ void main() {
                 'study': {
                   'id': 'study-3',
                   'title': 'Study',
-                  'status': 'ready',
+                  'status': 'active',
                   'quiz_id': quizId,
                 },
                 'sources': [],
@@ -156,10 +221,321 @@ void main() {
       return service.read('study-3');
     }
 
-    expect((await read('quiz-9')).quizId, 'quiz-9');
-    expect((await read('   ')).quizId, isNull);
-    expect((await read(null)).quizId, isNull);
+    final saved = await read('quiz-9');
+    expect(saved.quizId, 'quiz-9');
+    expect(saved.hasSavedQuiz, isTrue);
+    final blankId = await read('   ');
+    expect(blankId.quizId, isNull);
+    expect(blankId.hasSavedQuiz, isFalse);
+    final absentId = await read(null);
+    expect(absentId.quizId, isNull);
+    expect(absentId.hasSavedQuiz, isFalse);
   });
+
+  test(
+    'return accepts one saved owner quiz tied to this note and sources',
+    () async {
+      final requests = <http.Request>[];
+      final session = NativeSession(
+        sessionId: 'sid-test',
+        csrfToken: 'csrf-test',
+        verifiedUserId: 'owner-1',
+      );
+      final service = PreparedCertificationService(
+        api: ApiAdapter(
+          base: 'https://api.test/apps/annotations/v1',
+          client: MockClient((request) async {
+            requests.add(request);
+            return http.Response(
+              jsonEncode(
+                _studyDetail(
+                  sources: [
+                    {
+                      'source_kind': 'fsm_ref',
+                      'status': 'ready',
+                      'external_ref':
+                          'annotations:note:server-note-1:original:original-r4',
+                    },
+                    {
+                      'source_kind': 'fsm_ref',
+                      'status': 'ready',
+                      'external_ref':
+                          'annotations:note:server-note-1:typed:typed-r4',
+                    },
+                    {
+                      'source_kind': 'fsm_ref',
+                      'status': 'ready',
+                      'external_ref': 'annotations:file:file-1',
+                    },
+                  ],
+                ),
+              ),
+              200,
+            );
+          }),
+        ),
+        session: session,
+      );
+
+      final saved = await service.readSavedQuizForReturn(
+        note: _returnNote(typedRevisionId: 'typed-r4'),
+        ownerId: 'owner-1',
+        serverNoteId: 'server-note-1',
+        serverRevision: 9,
+        localRevision: 4,
+        studyId: 'study-1',
+        isCurrent: () => true,
+      );
+
+      expect(saved?.hasSavedQuiz, isTrue);
+      expect(saved?.quizId, 'quiz-1');
+      expect(requests, hasLength(1));
+      expect(requests.single.method, 'GET');
+      expect(
+        requests.single.url.path,
+        '/apps/certifications/v1/studies/study-1',
+      );
+      expect(requests.single.headers['cookie'], 'sid=sid-test; csrf=csrf-test');
+    },
+  );
+
+  test(
+    'return rejects draft, no-quiz, foreign-source and wrong-origin studies',
+    () async {
+      final cases = [
+        _studyDetail(status: 'draft'),
+        _studyDetail(quizId: '  '),
+        _studyDetail(
+          sources: [
+            {
+              'source_kind': 'fsm_ref',
+              'status': 'ready',
+              'external_ref':
+                  'annotations:note:other-note:original:original-r4',
+            },
+          ],
+        ),
+        _studyDetail(sourceOrigin: 'direct'),
+        _studyDetail(
+          sources: [
+            {
+              'source_kind': 'fsm_ref',
+              'status': 'failed',
+              'external_ref':
+                  'annotations:note:server-note-1:original:original-r4',
+            },
+          ],
+        ),
+      ];
+
+      for (final detail in cases) {
+        final service = PreparedCertificationService(
+          api: ApiAdapter(
+            base: 'https://api.test/apps/annotations/v1',
+            client: MockClient(
+              (_) async => http.Response(jsonEncode(detail), 200),
+            ),
+          ),
+          session: const NativeSession(
+            sessionId: 'sid-test',
+            csrfToken: 'csrf-test',
+            verifiedUserId: 'owner-1',
+          ),
+        );
+
+        final saved = await service.readSavedQuizForReturn(
+          note: _returnNote(),
+          ownerId: 'owner-1',
+          serverNoteId: 'server-note-1',
+          serverRevision: 9,
+          localRevision: 4,
+          studyId: 'study-1',
+          isCurrent: () => true,
+        );
+        expect(saved, isNull);
+      }
+    },
+  );
+
+  test('return rejects a StudyDetail for a different study id', () async {
+    final service = PreparedCertificationService(
+      api: ApiAdapter(
+        base: 'https://api.test/apps/annotations/v1',
+        client: MockClient(
+          (_) async =>
+              http.Response(jsonEncode(_studyDetail(id: 'other-study')), 200),
+        ),
+      ),
+      session: const NativeSession(
+        sessionId: 'sid-test',
+        csrfToken: 'csrf-test',
+        verifiedUserId: 'owner-1',
+      ),
+    );
+
+    await expectLater(
+      service.readSavedQuizForReturn(
+        note: _returnNote(),
+        ownerId: 'owner-1',
+        serverNoteId: 'server-note-1',
+        serverRevision: 9,
+        localRevision: 4,
+        studyId: 'study-1',
+        isCurrent: () => true,
+      ),
+      throwsA(isA<ApiError>().having((error) => error.status, 'status', 502)),
+    );
+  });
+
+  test(
+    'return rejects stale owner, note revision, or prepared id before GET',
+    () async {
+      var calls = 0;
+      final service = PreparedCertificationService(
+        api: ApiAdapter(
+          base: 'https://api.test/apps/annotations/v1',
+          client: MockClient((_) async {
+            calls++;
+            return http.Response(jsonEncode(_studyDetail()), 200);
+          }),
+        ),
+        session: const NativeSession(
+          sessionId: 'sid-test',
+          csrfToken: 'csrf-test',
+          verifiedUserId: 'owner-1',
+        ),
+      );
+
+      final staleContexts = [
+        (
+          note: _returnNote(revision: 5),
+          owner: 'owner-1',
+          serverId: 'server-note-1',
+          serverRevision: 9,
+          localRevision: 4,
+          study: 'study-1',
+        ),
+        (
+          note: _returnNote(serverRevision: 10),
+          owner: 'owner-1',
+          serverId: 'server-note-1',
+          serverRevision: 9,
+          localRevision: 4,
+          study: 'study-1',
+        ),
+        (
+          note: _returnNote(serverNoteId: 'other-note'),
+          owner: 'owner-1',
+          serverId: 'server-note-1',
+          serverRevision: 9,
+          localRevision: 4,
+          study: 'study-1',
+        ),
+        (
+          note: _returnNote(preparedStudyId: 'another-study'),
+          owner: 'owner-1',
+          serverId: 'server-note-1',
+          serverRevision: 9,
+          localRevision: 4,
+          study: 'study-1',
+        ),
+        (
+          note: _returnNote(),
+          owner: 'owner-2',
+          serverId: 'server-note-1',
+          serverRevision: 9,
+          localRevision: 4,
+          study: 'study-1',
+        ),
+      ];
+      for (final context in staleContexts) {
+        expect(
+          await service.readSavedQuizForReturn(
+            note: context.note,
+            ownerId: context.owner,
+            serverNoteId: context.serverId,
+            serverRevision: context.serverRevision,
+            localRevision: context.localRevision,
+            studyId: context.study,
+            isCurrent: () => true,
+          ),
+          isNull,
+        );
+      }
+      expect(calls, 0);
+    },
+  );
+
+  test('return rejects provenance from a different source revision', () async {
+    var calls = 0;
+    final service = PreparedCertificationService(
+      api: ApiAdapter(
+        base: 'https://api.test/apps/annotations/v1',
+        client: MockClient((_) async {
+          calls++;
+          return http.Response(jsonEncode(_studyDetail()), 200);
+        }),
+      ),
+      session: const NativeSession(
+        sessionId: 'sid-test',
+        csrfToken: 'csrf-test',
+        verifiedUserId: 'owner-1',
+      ),
+    );
+
+    final result = await service.readSavedQuizForReturn(
+      note: _returnNote(originalRevisionId: 'original-r5'),
+      ownerId: 'owner-1',
+      serverNoteId: 'server-note-1',
+      serverRevision: 9,
+      localRevision: 4,
+      studyId: 'study-1',
+      isCurrent: () => true,
+    );
+    expect(result, isNull);
+    expect(calls, 1);
+  });
+
+  test(
+    'late return response is discarded after the owner context changes',
+    () async {
+      final started = Completer<void>();
+      final release = Completer<http.Response>();
+      var current = true;
+      var calls = 0;
+      final service = PreparedCertificationService(
+        api: ApiAdapter(
+          base: 'https://api.test/apps/annotations/v1',
+          client: MockClient((request) {
+            calls++;
+            started.complete();
+            return release.future;
+          }),
+        ),
+        session: const NativeSession(
+          sessionId: 'sid-test',
+          csrfToken: 'csrf-test',
+          verifiedUserId: 'owner-1',
+        ),
+      );
+
+      final pending = service.readSavedQuizForReturn(
+        note: _returnNote(),
+        ownerId: 'owner-1',
+        serverNoteId: 'server-note-1',
+        serverRevision: 9,
+        localRevision: 4,
+        studyId: 'study-1',
+        isCurrent: () => current,
+      );
+      await started.future;
+      current = false;
+      release.complete(http.Response(jsonEncode(_studyDetail()), 200));
+
+      expect(await pending, isNull);
+      expect(calls, 1);
+    },
+  );
 
   test('does not continue when the server has not saved the config', () async {
     var calls = 0;
