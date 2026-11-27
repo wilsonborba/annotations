@@ -50,6 +50,7 @@ class InstalledAccount extends ChangeNotifier {
   /// never makes the account signed in or authorizes cloud operations.
   String? get localOwnerId => _session?.verifiedUserId;
   NativeSession? get activeSession => _session;
+  bool hasSession(NativeSession session) => _sameSession(_session, session);
 
   /// The match code while a login waits for Finish, else null.
   String? get matchCode => auth.pendingHandoff?.matchCode;
@@ -251,15 +252,38 @@ String handoffPlatform(TargetPlatform platform, {required bool fullWriter}) =>
 /// the session cookie always, the CSRF header on writes. A refused answer
 /// (401 or 403) ends the session once.
 class SessionClient extends http.BaseClient {
-  SessionClient(this.account, this.inner);
+  SessionClient(this.account, this.inner)
+    : _pinnedSession = null,
+      _isPinned = false;
+
+  SessionClient._pinned(this.account, this.inner, this._pinnedSession)
+    : _isPinned = true;
 
   final InstalledAccount account;
   final http.Client inner;
+  final NativeSession? _pinnedSession;
+  final bool _isPinned;
+
+  SessionRequestSnapshot captureSnapshot() {
+    final session = account.activeSession;
+    return SessionRequestSnapshot(
+      account: account,
+      session: session,
+      client: SessionClient._pinned(account, inner, session),
+    );
+  }
 
   @override
   Future<http.StreamedResponse> send(http.BaseRequest request) async {
     final write = request.method != 'GET' && request.method != 'HEAD';
-    final session = account.activeSession;
+    final session = _pinnedSession ?? account.activeSession;
+    if (_isPinned &&
+        (_pinnedSession == null ||
+            !account.hasSession(_pinnedSession) ||
+            account.activeSession?.verifiedUserId !=
+                _pinnedSession.verifiedUserId)) {
+      throw const SessionChangedException();
+    }
     request.headers.addAll(session?.authHeaders(isMutation: write) ?? const {});
     final response = await inner.send(request);
     if (response.statusCode == 401 || response.statusCode == 403) {
@@ -267,6 +291,31 @@ class SessionClient extends http.BaseClient {
     }
     return response;
   }
+}
+
+/// A request client and identity fence captured before a multi-request
+/// operation. It prevents a retry from silently using a replacement account.
+final class SessionRequestSnapshot {
+  const SessionRequestSnapshot({
+    required this.account,
+    required this.session,
+    required this.client,
+  });
+
+  final InstalledAccount account;
+  final NativeSession? session;
+  final SessionClient client;
+
+  bool get isCurrent =>
+      session != null &&
+      account.hasSession(session!) &&
+      account.activeSession?.verifiedUserId == session!.verifiedUserId;
+}
+
+class SessionChangedException implements Exception {
+  const SessionChangedException();
+  @override
+  String toString() => 'The installed account changed during the request.';
 }
 
 /// The kinds of login messages the installed sign-in shows (FINAL record

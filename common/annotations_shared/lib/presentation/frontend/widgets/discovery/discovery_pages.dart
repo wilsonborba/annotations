@@ -4,6 +4,8 @@ import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../../core/tracking_manifest.dart';
+import '../../../../core/platform_profile.dart';
+import '../../../../domain/models/local_note.dart';
 import '../../../../dal/remote/api_adapter.dart';
 import '../../../../domain/models/note_document.dart';
 import '../../../../domain/services/discovery_reader_service.dart';
@@ -572,6 +574,33 @@ class _ReaderPageState extends State<ReaderPage> {
     context,
   ).getPublicNote(widget.noteId, view: widget.view).then(_open);
 
+  Future<void> _startHandwrittenStudy(ReaderNoteView note) async {
+    final context = this.context;
+    final workspace = AppScope.of(context).workspace;
+    if (workspace == null ||
+        workspace.profile != PlatformProfile.fullWriter ||
+        !note.hasTyped) {
+      return;
+    }
+    final raw = note.raw;
+    try {
+      final studyId = await workspace.createHandwrittenStudy(
+        StudySourceReference(
+          noteId: note.noteId,
+          title: note.title,
+          authorId: raw['author_id'] as String?,
+          authorName: raw['author_name'] as String?,
+        ),
+      );
+      if (!context.mounted) return;
+      context.go('/v1/write/$studyId');
+    } catch (_) {
+      if (context.mounted) {
+        showAppToast(context, context.tr('studySourceCreateFailed'));
+      }
+    }
+  }
+
   void _load() {
     _paper?.dispose();
     _paper = null;
@@ -707,6 +736,19 @@ class _ReaderPageState extends State<ReaderPage> {
                 Text('${raw['language'] ?? ''}', style: text.bodySmall),
               ],
             ),
+            if (AppScope.of(context).workspace?.profile ==
+                    PlatformProfile.fullWriter &&
+                note.hasTyped) ...[
+              const SizedBox(height: 12),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: AppButton(
+                  key: const Key('reader-start-handwritten-study'),
+                  label: context.tr('startHandwrittenStudy'),
+                  onPressed: () => _startHandwrittenStudy(note),
+                ),
+              ),
+            ],
             const SizedBox(height: 16),
             if (note.canSwitchView)
               Align(

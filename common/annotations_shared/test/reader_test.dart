@@ -2,10 +2,15 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:annotations_shared/app.dart';
+import 'package:annotations_shared/core/platform_profile.dart';
 import 'package:annotations_shared/core/settings.dart';
 import 'package:annotations_shared/core/strings.dart';
+import 'package:annotations_shared/dal/local/sqlite_note_store.dart';
+import 'package:annotations_shared/domain/models/local_note.dart';
 import 'package:annotations_shared/domain/models/note_document.dart';
 import 'package:annotations_shared/domain/services/discovery_reader_service.dart';
+import 'package:annotations_shared/domain/services/local_workspace.dart';
+import 'package:annotations_shared/domain/services/note_sync_service.dart';
 import 'package:annotations_shared/domain/services/note_autosave.dart';
 import 'package:annotations_shared/domain/services/read_only_store.dart';
 import 'package:annotations_shared/domain/services/preferences.dart';
@@ -200,6 +205,7 @@ Future<void> open(
   double width = 1300,
   String locale = 'en',
   String theme = 'light',
+  LocalWorkspace? workspace,
 }) async {
   tester.platformDispatcher.accessibilityFeaturesTestValue =
       const FakeAccessibilityFeatures(disableAnimations: true);
@@ -216,6 +222,7 @@ Future<void> open(
       key: UniqueKey(),
       trackingEnabled: false,
       service: api.service,
+      workspace: workspace,
       initialLocation: at,
     ),
   );
@@ -330,6 +337,160 @@ void main() {
   });
 
   group('Reader', () {
+    testWidgets(
+      'full writer can start a distinct local study from a published Typed view',
+      (tester) async {
+        final storage = await tester.runAsync(() async {
+          final root = await Directory.systemTemp.createTemp('reader_study_');
+          return (root: root, store: await SqliteNoteStore.open(root.path));
+        });
+        final root = storage!.root;
+        final store = storage.store;
+        final workspace = LocalWorkspace(
+          store: store,
+          catalog: ProjectTagCatalog(),
+          profile: PlatformProfile.fullWriter,
+        );
+        try {
+          final api = FakeApi()..views = const ['typed'];
+          await open(
+            tester,
+            api,
+            '/v1/notes/source-typed?view=typed',
+            workspace: workspace,
+          );
+          expect(
+            find.byKey(const Key('reader-start-handwritten-study')),
+            findsOneWidget,
+          );
+          expect(
+            find.text(translate('startHandwrittenStudy', 'en')),
+            findsOneWidget,
+          );
+          for (final locale in ['pt-BR', 'th']) {
+            expect(
+              translate('startHandwrittenStudy', locale),
+              isNot('startHandwrittenStudy'),
+            );
+          }
+          await tester.tap(
+            find.byKey(const Key('reader-start-handwritten-study')),
+          );
+          // Writer screens can keep a caret/animation ticker alive; the route
+          // push and local save need only a bounded pump here.
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 100));
+          final route = location(tester);
+          expect(route, startsWith('/v1/write/'));
+          final studyId = route.split('/').last;
+          expect(studyId, isNot('source-typed'));
+          final note = (await store.load(studyId))!;
+          expect(note.schema.name, 'note-original');
+          expect((note.document as PaperDocument).items, isEmpty);
+          expect(
+            note.studySource,
+            const StudySourceReference(
+              noteId: 'source-typed',
+              title: 'Note source-typed',
+              authorId: 'a1',
+              authorName: 'Wilson',
+            ),
+          );
+          expect((await store.notes()).map((n) => n.id), [studyId]);
+          expect(
+            api.requests.where((uri) => uri.path == '/notes/source-typed'),
+            hasLength(1),
+          );
+        } finally {
+          await tester.pumpWidget(const SizedBox());
+          await tester.runAsync(store.close);
+          await tester.runAsync(() => root.delete(recursive: true));
+        }
+      },
+    );
+
+    testWidgets('handwritten-study failure uses a localized visible message', (
+      tester,
+    ) async {
+      final storage = await tester.runAsync(() async {
+        final root = await Directory.systemTemp.createTemp(
+          'reader_study_error_',
+        );
+        return (root: root, store: await SqliteNoteStore.open(root.path));
+      });
+      final root = storage!.root;
+      final store = storage.store;
+      final workspace = LocalWorkspace(
+        store: store,
+        catalog: ProjectTagCatalog(),
+        profile: PlatformProfile.fullWriter,
+      );
+      try {
+        final api = FakeApi()..views = const ['typed'];
+        await store.close();
+        await open(
+          tester,
+          api,
+          '/v1/notes/source-typed?view=typed',
+          workspace: workspace,
+        );
+        await tester.tap(
+          find.byKey(const Key('reader-start-handwritten-study')),
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+        expect(
+          find.text(translate('studySourceCreateFailed', 'en')),
+          findsOneWidget,
+        );
+        expect(
+          translate('studySourceCreateFailed', 'pt-BR'),
+          isNot('studySourceCreateFailed'),
+        );
+        expect(
+          translate('studySourceCreateFailed', 'th'),
+          isNot('studySourceCreateFailed'),
+        );
+      } finally {
+        await tester.pumpWidget(const SizedBox());
+        await tester.runAsync(() => root.delete(recursive: true));
+      }
+    });
+
+    testWidgets('phone does not expose the handwritten study action', (
+      tester,
+    ) async {
+      final storage = await tester.runAsync(() async {
+        final root = await Directory.systemTemp.createTemp('reader_phone_');
+        return (root: root, store: await SqliteNoteStore.open(root.path));
+      });
+      final root = storage!.root;
+      final store = storage.store;
+      final workspace = LocalWorkspace(
+        store: store,
+        catalog: ProjectTagCatalog(),
+        profile: PlatformProfile.phone,
+      );
+      try {
+        final api = FakeApi()..views = const ['typed'];
+        await open(
+          tester,
+          api,
+          '/v1/notes/source-typed?view=typed',
+          workspace: workspace,
+        );
+        expect(
+          find.byKey(const Key('reader-start-handwritten-study')),
+          findsNothing,
+        );
+        expect(await store.notes(), isEmpty);
+      } finally {
+        await tester.pumpWidget(const SizedBox());
+        await tester.runAsync(store.close);
+        await tester.runAsync(() => root.delete(recursive: true));
+      }
+    });
+
     testWidgets('QR encodes the selected canonical reader route locally', (
       tester,
     ) async {

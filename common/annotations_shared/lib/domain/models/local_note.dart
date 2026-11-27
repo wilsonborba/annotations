@@ -5,6 +5,66 @@ library;
 
 import 'note_document.dart';
 
+/// The public typed note a local handwritten study was started from. This
+/// reference is note metadata, not part of the paper/document content.
+final class StudySourceReference {
+  const StudySourceReference({
+    required this.noteId,
+    this.title,
+    this.authorId,
+    this.authorName,
+    this.relationAttached = false,
+  });
+
+  final String noteId;
+  final String? title;
+  final String? authorId;
+  final String? authorName;
+
+  /// True only after the owner-scoped API response confirms that it retained
+  /// the source relation. Local metadata alone never implies a remote link.
+  final bool relationAttached;
+
+  StudySourceReference copyWith({bool? relationAttached}) =>
+      StudySourceReference(
+        noteId: noteId,
+        title: title,
+        authorId: authorId,
+        authorName: authorName,
+        relationAttached: relationAttached ?? this.relationAttached,
+      );
+
+  Map<String, Object?> toJson() => {
+    'note_id': noteId,
+    if (title != null) 'title': title,
+    if (authorId != null) 'author_id': authorId,
+    if (authorName != null) 'author_name': authorName,
+    'relation_attached': relationAttached,
+  };
+
+  factory StudySourceReference.fromJson(Map<String, dynamic> json) =>
+      StudySourceReference(
+        noteId: json['note_id'] as String,
+        title: json['title'] as String?,
+        authorId: json['author_id'] as String?,
+        authorName: json['author_name'] as String?,
+        relationAttached: json['relation_attached'] as bool? ?? false,
+      );
+
+  @override
+  bool operator ==(Object other) =>
+      other is StudySourceReference &&
+      other.noteId == noteId &&
+      other.title == title &&
+      other.authorId == authorId &&
+      other.authorName == authorName &&
+      other.relationAttached == relationAttached;
+
+  @override
+  int get hashCode =>
+      Object.hash(noteId, title, authorId, authorName, relationAttached);
+}
+
 /// Where a local note stands against the private cloud (D2, H8.1). Nothing
 /// moves to the cloud from this value: sync and publication are explicit user
 /// actions (annotations#37).
@@ -41,6 +101,7 @@ final class LocalNoteDraft {
     this.transcriptionSourceHash,
     this.transcriptionSourceLocalRevision,
     this.isConflictCopy = false,
+    this.studySource,
   });
 
   final String id;
@@ -64,6 +125,9 @@ final class LocalNoteDraft {
   /// Marks a server conflict copy that has no cloud identity and cannot use
   /// client-id recovery as a later sync target.
   final bool isConflictCopy;
+
+  /// Optional published Typed source for a newly created handwritten study.
+  final StudySourceReference? studySource;
 }
 
 /// A saved note: the last complete state in the store.
@@ -88,6 +152,7 @@ final class LocalNote {
     this.transcriptionSourceRevisionId,
     this.transcriptionSourceHash,
     this.transcriptionSourceLocalRevision,
+    this.studySource,
     this.isConflictCopy = false,
   });
 
@@ -130,6 +195,9 @@ final class LocalNote {
   final String? transcriptionSourceRevisionId;
   final String? transcriptionSourceHash;
   final int? transcriptionSourceLocalRevision;
+
+  /// The source relation remains local even if its public post is removed.
+  final StudySourceReference? studySource;
 
   /// True when this is an owner-bound local copy of a server conflict.
   final bool isConflictCopy;

@@ -97,6 +97,9 @@ const _schemaSteps = [
   ALTER TABLE notes ADD COLUMN transcription_source_hash TEXT;
   ALTER TABLE notes ADD COLUMN transcription_source_local_revision INTEGER;
   ''',
+  // Notes61: keep a public Typed source reference outside note content so it
+  // survives autosaves, restart, offline use, and source unpublication.
+  'ALTER TABLE notes ADD COLUMN study_source TEXT;',
 ];
 
 /// A stable 64-bit hash of an item body, to find changed items: FNV-1a and
@@ -116,7 +119,10 @@ int _hash(String body) {
 const _partialFolder = '.partial';
 
 final class SqliteNoteStore
-    implements DeletableLocalNoteStore, AtomicTypedNoteStore {
+    implements
+        DeletableLocalNoteStore,
+        AtomicTypedNoteStore,
+        StudySourceMetadataStore {
   SqliteNoteStore._(this._db, this._files);
 
   final Database _db;
@@ -252,6 +258,11 @@ final class SqliteNoteStore
       transcriptionSourceHash: row['transcription_source_hash'] as String?,
       transcriptionSourceLocalRevision:
           row['transcription_source_local_revision'] as int?,
+      studySource: row['study_source'] == null
+          ? null
+          : StudySourceReference.fromJson(
+              jsonDecode(row['study_source'] as String) as Map<String, dynamic>,
+            ),
       isConflictCopy: row['is_conflict_copy'] == 1,
     );
   }
@@ -260,6 +271,21 @@ final class SqliteNoteStore
   Future<LocalNote?> load(String id) async {
     final rows = _db.select('SELECT * FROM notes WHERE id = ?', [id]);
     return rows.isEmpty ? null : _note(rows.first);
+  }
+
+  @override
+  Future<void> setStudySourceRelationAttached(String id, bool attached) async {
+    final rows = _db.select('SELECT study_source FROM notes WHERE id = ?', [
+      id,
+    ]);
+    if (rows.isEmpty || rows.first['study_source'] == null) return;
+    final source = StudySourceReference.fromJson(
+      jsonDecode(rows.first['study_source'] as String) as Map<String, dynamic>,
+    );
+    _db.execute('UPDATE notes SET study_source = ? WHERE id = ?', [
+      jsonEncode(source.copyWith(relationAttached: attached).toJson()),
+      id,
+    ]);
   }
 
   @override
@@ -375,8 +401,9 @@ final class SqliteNoteStore
           revision, created_at, updated_at, sync_state, account_id,
           is_conflict_copy, transcription_source_note_id,
           transcription_run_id, transcription_source_revision_id,
-          transcription_source_hash, transcription_source_local_revision)
-        VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          transcription_source_hash, transcription_source_local_revision,
+          study_source)
+        VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT (id) DO UPDATE SET
           family = excluded.family,
           schema_version = excluded.schema_version,
@@ -399,7 +426,8 @@ final class SqliteNoteStore
               notes.transcription_source_hash)
           , transcription_source_local_revision = COALESCE(
               excluded.transcription_source_local_revision,
-              notes.transcription_source_local_revision)
+              notes.transcription_source_local_revision),
+          study_source = COALESCE(notes.study_source, excluded.study_source)
         ''',
         [
           draft.id,
@@ -417,6 +445,9 @@ final class SqliteNoteStore
           draft.transcriptionSourceRevisionId,
           draft.transcriptionSourceHash,
           draft.transcriptionSourceLocalRevision,
+          draft.studySource == null
+              ? null
+              : jsonEncode(draft.studySource!.toJson()),
           LocalSyncState.synced.code,
           LocalSyncState.changed.code,
         ],

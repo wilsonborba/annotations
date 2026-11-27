@@ -131,3 +131,9 @@ abstract interface class AtomicTypedNoteStore {
     required String? expectedServerSourceRevisionId,
   });
 }
+
+/// Optional metadata-only capability for stores that persist source-link
+/// delivery separately from paper content and autosave revision numbers.
+abstract interface class StudySourceMetadataStore {
+  Future<void> setStudySourceRelationAttached(String id, bool attached);
+}
