@@ -413,8 +413,7 @@ class TranscriptionDraftService {
         return vertical != 0 ? vertical : a.x.compareTo(b.x);
       });
     final updated = draft.copyWith(passages: sorted);
-    _savedDrafts[key] = updated;
-    _saveToDisk();
+    _commitDraft(key, updated);
     return updated;
   }
 
@@ -467,6 +466,90 @@ class TranscriptionDraftService {
     return updated;
   }
 
+  /// Persists a correction or Keep Ink decision together with the exact frozen
+  /// feedback event that reports it. A failure to replace the durable draft
+  /// restores the in-memory value too, so neither half can appear committed.
+  TranscriptionDraft applyCorrectionWithPendingFeedback(
+    String noteId,
+    String partId, {
+    required Map<String, Object?> event,
+    required String accountId,
+    String? correctedText,
+    bool? keepAsInk,
+  }) {
+    final key = _draftKey(noteId, accountId);
+    final draft = _savedDrafts[key];
+    if (draft == null || draft.runId == null) {
+      throw StateError('Missing registered draft for $noteId');
+    }
+    final matching = draft.passages.where(
+      (passage) => passage.partId == partId,
+    );
+    if (matching.length != 1) throw StateError('Missing passage $partId');
+    final frozen = _freezeFeedbackEvent(event);
+    if (frozen['segment_id'] != partId ||
+        frozen['stage'] is! String ||
+        frozen['correction'] is! String ||
+        (correctedText != null && frozen['correction'] != correctedText) ||
+        (keepAsInk == true && frozen['correction'] != '')) {
+      throw ArgumentError('Feedback does not describe the selected passage.');
+    }
+    final eventId = frozen['event_id']! as String;
+    final duplicate = draft.pendingFeedbackEvents.where(
+      (item) => item['event_id'] == eventId,
+    );
+    if (duplicate.isNotEmpty) {
+      if (jsonEncode(duplicate.single) != jsonEncode(frozen)) {
+        throw StateError('A feedback event id cannot change its body.');
+      }
+      return draft;
+    }
+    final updated = draft.copyWith(
+      passages: [
+        for (final passage in draft.passages)
+          if (passage.partId == partId)
+            passage.copyWith(
+              text: correctedText ?? passage.text,
+              keepAsInk: keepAsInk ?? passage.keepAsInk,
+              uncertain: false,
+              userCorrected: true,
+              feedbackAccepted: false,
+            )
+          else
+            passage,
+      ],
+      pendingFeedbackEvents: [...draft.pendingFeedbackEvents, frozen],
+    );
+    _commitDraft(key, updated);
+    return updated;
+  }
+
+  Map<String, Object?> _freezeFeedbackEvent(Map<String, Object?> event) {
+    final frozen = Map<String, Object?>.from(
+      jsonDecode(jsonEncode(event)) as Map,
+    );
+    final eventId = frozen['event_id'];
+    if (eventId is! String || eventId.isEmpty) {
+      throw ArgumentError('Feedback event id is required.');
+    }
+    return frozen;
+  }
+
+  void _commitDraft(String key, TranscriptionDraft updated) {
+    final previous = _savedDrafts[key];
+    _savedDrafts[key] = updated;
+    try {
+      _saveToDisk();
+    } catch (_) {
+      if (previous == null) {
+        _savedDrafts.remove(key);
+      } else {
+        _savedDrafts[key] = previous;
+      }
+      rethrow;
+    }
+  }
+
   /// Records a frozen feedback event in the same atomic private draft write as
   /// the correction. It bridges a crash/session change before the network retry
   /// queue receives that event.
@@ -480,13 +563,8 @@ class TranscriptionDraftService {
     if (draft == null || draft.runId == null) {
       throw StateError('Missing registered draft for $noteId');
     }
-    final frozen = Map<String, Object?>.from(
-      jsonDecode(jsonEncode(event)) as Map,
-    );
-    final eventId = frozen['event_id'];
-    if (eventId is! String || eventId.isEmpty) {
-      throw ArgumentError('Feedback event id is required.');
-    }
+    final frozen = _freezeFeedbackEvent(event);
+    final eventId = frozen['event_id']! as String;
     final existing = draft.pendingFeedbackEvents.where(
       (item) => item['event_id'] == eventId,
     );
@@ -499,8 +577,7 @@ class TranscriptionDraftService {
     final updated = draft.copyWith(
       pendingFeedbackEvents: [...draft.pendingFeedbackEvents, frozen],
     );
-    _savedDrafts[key] = updated;
-    _saveToDisk();
+    _commitDraft(key, updated);
     return updated;
   }
 
@@ -508,48 +585,75 @@ class TranscriptionDraftService {
     String noteId,
     String eventId, {
     required String accountId,
+    required String expectedRunId,
+    required String? expectedSourceRevisionId,
+    required String? expectedSourceHash,
   }) {
     final key = _draftKey(noteId, accountId);
     final draft = _savedDrafts[key];
     if (draft == null) throw StateError('Missing draft for $noteId');
+    if (draft.runId != expectedRunId ||
+        draft.baseSourceRevisionId != expectedSourceRevisionId ||
+        draft.baseSourceHash != expectedSourceHash) {
+      return draft;
+    }
+    final matchingEvents = draft.pendingFeedbackEvents.where(
+      (event) => event['event_id'] == eventId,
+    );
+    final event = matchingEvents.isEmpty ? null : matchingEvents.single;
+    final partId = event?['segment_id'];
+    final correction = event?['correction'];
+    final acceptedStage = event?['stage'] == 'accepted';
+    final sourceIds = event?['source_item_ids'];
+    final passages = [
+      for (final passage in draft.passages)
+        if (acceptedStage &&
+            !draft.needsReview &&
+            partId == passage.partId &&
+            passage.userCorrected &&
+            sourceIds is List &&
+            sourceIds.every((id) => id is String) &&
+            jsonEncode(sourceIds) ==
+                jsonEncode(
+                  passage.sourceItemIds.isNotEmpty
+                      ? passage.sourceItemIds
+                      : [passage.partId],
+                ) &&
+            (passage.keepAsInk ? correction == '' : correction == passage.text))
+          passage.copyWith(feedbackAccepted: true)
+        else
+          passage,
+    ];
     final updated = draft.copyWith(
+      passages: passages,
       pendingFeedbackEvents: draft.pendingFeedbackEvents
           .where((event) => event['event_id'] != eventId)
           .toList(growable: false),
     );
-    _savedDrafts[key] = updated;
-    _saveToDisk();
+    _commitDraft(key, updated);
     return updated;
   }
 
-  TranscriptionDraft markFeedbackAccepted(
-    String noteId,
-    String partId, {
-    required String accountId,
-  }) {
-    final key = _draftKey(noteId, accountId);
-    final draft = _savedDrafts[key];
-    if (draft == null) throw StateError('Missing draft for $noteId');
-    final updated = draft.copyWith(
-      passages: [
-        for (final passage in draft.passages)
-          if (passage.partId == partId)
-            passage.copyWith(feedbackAccepted: true)
-          else
-            passage,
-      ],
-    );
-    _savedDrafts[key] = updated;
-    _saveToDisk();
-    return updated;
-  }
-
-  List<({String noteId, String runId, Map<String, Object?> event})>
+  List<
+    ({
+      String noteId,
+      String runId,
+      String? sourceRevisionId,
+      String? sourceHash,
+      Map<String, Object?> event,
+    })
+  >
   pendingFeedbackForOwner(String accountId) => [
     for (final draft in _savedDrafts.values)
       if (draft.accountId == accountId && draft.runId != null)
         for (final event in draft.pendingFeedbackEvents)
-          (noteId: draft.noteId, runId: draft.runId!, event: event),
+          (
+            noteId: draft.noteId,
+            runId: draft.runId!,
+            sourceRevisionId: draft.baseSourceRevisionId,
+            sourceHash: draft.baseSourceHash,
+            event: event,
+          ),
   ];
 
   /// Marks the draft for review when the source Original note changes.
