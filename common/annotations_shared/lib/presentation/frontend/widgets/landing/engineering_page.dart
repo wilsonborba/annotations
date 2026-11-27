@@ -7,6 +7,7 @@ import '../../components/controls.dart';
 import '../../components/interactive_card.dart';
 import '../../components/icons.dart';
 import '../../components/scope.dart';
+import '../../components/sketch_art.dart';
 import '../../components/sketch_diagram.dart';
 import 'landing_blocks.dart';
 
@@ -54,9 +55,14 @@ class EngineeringPage extends StatelessWidget {
             SketchDiagram(name: 'rules', stages: rulesStages, onOpen: open),
           ],
         ),
-        ImageRow(
-          image: 'E02',
-          imageRight: false,
+        VisualRow(
+          rowKey: const Key('row-open-source'),
+          // Drawn in code; the site has no photographs (owner, 2026-11-24).
+          visual: const SketchArt(
+            SketchScene.openSource,
+            key: Key('art-open-source'),
+          ),
+          visualRight: false,
           child: RowText(
             title: context.tr('engSourceTitle'),
             lead: context.tr('engSourceText'),
