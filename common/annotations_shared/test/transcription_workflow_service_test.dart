@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:async';
 
 import 'package:annotations_shared/dal/remote/api_adapter.dart';
 import 'package:annotations_shared/dal/remote/transcription_api_adapter.dart';
@@ -266,6 +267,119 @@ void main() {
     expect(requestCount, 0);
     client.close();
   });
+
+  test(
+    'late acceptance acknowledgement cannot accept a newer correction',
+    () async {
+      final stroke = handwriting(1);
+      final strokeId = '${stroke['id']}';
+      final acceptResponse = Completer<http.Response>();
+      final acceptWasSent = Completer<void>();
+      final receivedAcceptedId = Completer<String>();
+      var feedbackCalls = 0;
+      final client = MockClient((request) async {
+        if (request.url.path != '/me/transcriptions/run-1/feedback') {
+          return http.Response('unexpected route', 404);
+        }
+        final body = jsonDecode(request.body) as Map<String, dynamic>;
+        final events = body['events'] as List;
+        final event = Map<String, dynamic>.from(events.single as Map);
+        feedbackCalls++;
+        if (event['stage'] == 'accepted') {
+          acceptWasSent.complete();
+          receivedAcceptedId.complete(event['event_id'] as String);
+          return acceptResponse.future;
+        }
+        return http.Response(
+          jsonEncode({
+            'run_id': 'run-1',
+            'events': [
+              {'event_id': event['event_id']},
+            ],
+          }),
+          200,
+        );
+      });
+      final workflow = _workflow(
+        client: client,
+        directory: directory,
+        sessionProvider: () async => _session(),
+      );
+      workflow.drafts.saveDraft(
+        noteId: 'late-ack',
+        accountId: 'owner-a',
+        runId: 'run-1',
+        downloadId: 'download-1',
+        modelVersion: 'v1',
+        platform: 'linux',
+        language: 'en',
+        schemaVersion: 1,
+        sourceRevision: 1,
+        sourceHash: 'a' * 64,
+        selectedSourceItemIds: [strokeId],
+        selectedInkDocument: {
+          'items': [stroke],
+        },
+        passages: [
+          TranscriptionPassage(
+            partId: strokeId,
+            sourceItemIds: [strokeId],
+            sourceHash: 'ink-source',
+            y: 1,
+            x: 1,
+            kind: TranscriptionPassageKind.text,
+            text: 'model suggestion',
+          ),
+        ],
+      );
+
+      await workflow.correctPassage(
+        noteId: 'late-ack',
+        partId: strokeId,
+        correctedText: 'first accepted text',
+      );
+      final accepting = workflow.acceptCorrection(
+        noteId: 'late-ack',
+        partId: strokeId,
+      );
+      await acceptWasSent.future;
+      final acceptedEventId = await receivedAcceptedId.future;
+      await workflow.correctPassage(
+        noteId: 'late-ack',
+        partId: strokeId,
+        correctedText: 'newer text',
+      );
+      final whileOldAckPending = workflow.drafts.reopenDraft(
+        'late-ack',
+        accountId: 'owner-a',
+      )!;
+      expect(whileOldAckPending.passages.single.text, 'newer text');
+      expect(whileOldAckPending.passages.single.feedbackAccepted, isFalse);
+
+      acceptResponse.complete(
+        http.Response(
+          jsonEncode({
+            'run_id': 'run-1',
+            'events': [
+              {'event_id': acceptedEventId},
+            ],
+          }),
+          200,
+        ),
+      );
+      await accepting;
+      final afterOldAck = workflow.drafts.reopenDraft(
+        'late-ack',
+        accountId: 'owner-a',
+      )!;
+      expect(afterOldAck.passages.single.text, 'newer text');
+      expect(afterOldAck.passages.single.userCorrected, isTrue);
+      expect(afterOldAck.passages.single.feedbackAccepted, isFalse);
+      expect(afterOldAck.pendingFeedbackEvents, isEmpty);
+      expect(feedbackCalls, 3);
+      client.close();
+    },
+  );
 }
 
 TranscriptionWorkflowService _workflow({

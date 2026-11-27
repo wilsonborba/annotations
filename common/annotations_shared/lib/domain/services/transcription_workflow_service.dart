@@ -240,13 +240,13 @@ final class TranscriptionWorkflowService {
       correction: correctedText,
       stage: 'intermediate',
     );
-    drafts.applyUserCorrection(
+    drafts.applyCorrectionWithPendingFeedback(
       noteId,
       partId,
       correctedText: correctedText,
+      event: event,
       accountId: session.accountId,
     );
-    drafts.recordPendingFeedback(noteId, event, accountId: session.accountId);
     await runs.submitFeedback(
       runId: prior.runId!,
       events: [event],
@@ -257,6 +257,9 @@ final class TranscriptionWorkflowService {
       noteId,
       '${event['event_id']}',
       accountId: session.accountId,
+      expectedRunId: prior.runId!,
+      expectedSourceRevisionId: prior.baseSourceRevisionId,
+      expectedSourceHash: prior.baseSourceHash,
     );
   }
 
@@ -291,15 +294,13 @@ final class TranscriptionWorkflowService {
       expectedSession: session,
     );
     session.requireCurrent();
-    drafts.acknowledgePendingFeedback(
+    return drafts.acknowledgePendingFeedback(
       noteId,
       '${event['event_id']}',
       accountId: session.accountId,
-    );
-    return drafts.markFeedbackAccepted(
-      noteId,
-      partId,
-      accountId: session.accountId,
+      expectedRunId: draft.runId!,
+      expectedSourceRevisionId: draft.baseSourceRevisionId,
+      expectedSourceHash: draft.baseSourceHash,
     );
   }
 
@@ -320,34 +321,32 @@ final class TranscriptionWorkflowService {
     }
     final passage = matches.single;
     if (passage.feedbackAccepted) return draft;
-    drafts.applyUserCorrection(
-      noteId,
-      partId,
-      keepAsInk: true,
-      accountId: session.accountId,
-    );
     final event = _feedbackEvent(
       draft: draft,
       passage: passage,
       correction: '',
       stage: 'accepted',
     );
-    drafts.recordPendingFeedback(noteId, event, accountId: session.accountId);
+    drafts.applyCorrectionWithPendingFeedback(
+      noteId,
+      partId,
+      keepAsInk: true,
+      event: event,
+      accountId: session.accountId,
+    );
     await runs.submitFeedback(
       runId: draft.runId!,
       events: [event],
       expectedSession: session,
     );
     session.requireCurrent();
-    drafts.acknowledgePendingFeedback(
+    return drafts.acknowledgePendingFeedback(
       noteId,
       '${event['event_id']}',
       accountId: session.accountId,
-    );
-    return drafts.markFeedbackAccepted(
-      noteId,
-      partId,
-      accountId: session.accountId,
+      expectedRunId: draft.runId!,
+      expectedSourceRevisionId: draft.baseSourceRevisionId,
+      expectedSourceHash: draft.baseSourceHash,
     );
   }
 
@@ -369,15 +368,10 @@ final class TranscriptionWorkflowService {
         pending.noteId,
         eventId,
         accountId: session.accountId,
+        expectedRunId: pending.runId,
+        expectedSourceRevisionId: pending.sourceRevisionId,
+        expectedSourceHash: pending.sourceHash,
       );
-      if (pending.event['stage'] == 'accepted' &&
-          pending.event['segment_id'] is String) {
-        drafts.markFeedbackAccepted(
-          pending.noteId,
-          pending.event['segment_id']! as String,
-          accountId: session.accountId,
-        );
-      }
       delivered++;
     }
     session.requireCurrent();

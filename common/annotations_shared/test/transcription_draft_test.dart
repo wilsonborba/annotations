@@ -396,6 +396,94 @@ void main() {
   });
 
   test(
+    'correction and pending feedback commit together or neither does',
+    () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'annotations_feedback_atomic_',
+      );
+      final file = File('${tempDir.path}/drafts.json');
+      try {
+        final service = TranscriptionDraftService(persistenceFile: file);
+        service.saveDraft(
+          noteId: 'atomic',
+          accountId: 'owner-a',
+          runId: 'run-atomic',
+          sourceRevision: 1,
+          passages: [
+            TranscriptionPassage(
+              partId: 'part-a',
+              sourceHash: 'source-a',
+              y: 0,
+              x: 0,
+              kind: TranscriptionPassageKind.text,
+              text: 'suggestion',
+            ),
+          ],
+        );
+        final firstEvent = <String, Object?>{
+          'event_id': 'event-first',
+          'segment_id': 'part-a',
+          'correction': 'first correction',
+          'stage': 'intermediate',
+        };
+        service.applyCorrectionWithPendingFeedback(
+          'atomic',
+          'part-a',
+          accountId: 'owner-a',
+          correctedText: 'first correction',
+          event: firstEvent,
+        );
+        final committed = TranscriptionDraftService(
+          persistenceFile: file,
+        ).reopenDraft('atomic', accountId: 'owner-a')!;
+        expect(committed.passages.single.text, 'first correction');
+        expect(committed.pendingFeedbackEvents, [firstEvent]);
+        final staleRunAck = service.acknowledgePendingFeedback(
+          'atomic',
+          'event-first',
+          accountId: 'owner-a',
+          expectedRunId: 'replaced-run',
+          expectedSourceRevisionId: null,
+          expectedSourceHash: null,
+        );
+        expect(staleRunAck.pendingFeedbackEvents, [firstEvent]);
+
+        // Force the next atomic-file replacement to fail before the rename.
+        await Directory('${file.path}.writing').create();
+        final secondEvent = <String, Object?>{
+          'event_id': 'event-second',
+          'segment_id': 'part-a',
+          'correction': 'second correction',
+          'stage': 'intermediate',
+        };
+        expect(
+          () => service.applyCorrectionWithPendingFeedback(
+            'atomic',
+            'part-a',
+            accountId: 'owner-a',
+            correctedText: 'second correction',
+            event: secondEvent,
+          ),
+          throwsA(isA<FileSystemException>()),
+        );
+        final afterFailure = service.reopenDraft(
+          'atomic',
+          accountId: 'owner-a',
+        )!;
+        expect(afterFailure.passages.single.text, 'first correction');
+        expect(afterFailure.pendingFeedbackEvents, [firstEvent]);
+        final afterRestart = TranscriptionDraftService(
+          persistenceFile: file,
+        ).reopenDraft('atomic', accountId: 'owner-a')!;
+        expect(afterRestart.passages.single.text, 'first correction');
+        expect(afterRestart.pendingFeedbackEvents, [firstEvent]);
+      } finally {
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      }
+    },
+  );
+
+  test(
     'accepted Typed stays locally paired with its unchanged Original',
     () async {
       final tempDir = await Directory.systemTemp.createTemp(
