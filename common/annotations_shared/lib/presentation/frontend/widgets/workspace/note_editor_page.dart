@@ -439,6 +439,35 @@ class _NoteEditorPageState extends State<NoteEditorPage>
 
   void _accountChanged() => _open();
 
+  Future<void> _openStudySource(String sourceNoteId) async {
+    final handler = _handler;
+    final note = _note;
+    final generation = _openGeneration;
+    if (handler == null ||
+        note == null ||
+        note.studySource?.noteId != sourceNoteId) {
+      return;
+    }
+    try {
+      await handler.autosave.flush();
+    } on Object {
+      // The save indicator remains the retry surface for the open note.
+    }
+    if (!mounted ||
+        generation != _openGeneration ||
+        widget.noteId != note.id ||
+        !identical(handler, _handler) ||
+        !identical(note, _note) ||
+        note.studySource?.noteId != sourceNoteId) {
+      return;
+    }
+    if (handler.saveState.value != SaveState.saved) {
+      showAppToast(context, context.tr('saveFailed'));
+      return;
+    }
+    context.go('/v1/notes/${Uri.encodeComponent(sourceNoteId)}?view=typed');
+  }
+
   Future<void> _open() async {
     final generation = ++_openGeneration;
     _reportsOwnerScopeRevision.value = generation;
@@ -1571,6 +1600,9 @@ class _NoteEditorPageState extends State<NoteEditorPage>
                       handler: handler,
                       profile: workspace.profile,
                       studySource: note.studySource,
+                      onOpenStudySource: note.studySource == null
+                          ? null
+                          : _openStudySource,
                       reportsSource: reportsSource,
                       trustedReportsAccountId: reportsSource == null
                           ? null

@@ -46,6 +46,7 @@ class NoteScreen extends StatelessWidget {
   final PaperHandler handler;
   final PlatformProfile profile;
   final StudySourceReference? studySource;
+  final Future<void> Function(String noteId)? onOpenStudySource;
   final bool publicProjection;
   final Future<QuizSummary?> Function(String quizId)? loadQuizCard;
   final Future<TaskSummary?> Function(String taskId)? loadTaskCard;
@@ -75,6 +76,7 @@ class NoteScreen extends StatelessWidget {
     required this.handler,
     required this.profile,
     this.studySource,
+    this.onOpenStudySource,
     this.publicProjection = false,
     this.loadQuizCard,
     this.loadTaskCard,
@@ -113,11 +115,15 @@ class NoteScreen extends StatelessWidget {
       ),
     };
     final source = studySource;
-    if (source == null) return view;
+    if (source == null ||
+        profile != PlatformProfile.fullWriter ||
+        handler.document.schema.family != DocumentFamily.original) {
+      return view;
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _StudySourceLine(source: source),
+        _StudySourceLine(source: source, onOpen: onOpenStudySource),
         Expanded(child: view),
       ],
     );
@@ -461,9 +467,10 @@ class _TypedNoteEditorState extends State<TypedNoteEditor> {
 }
 
 class _StudySourceLine extends StatefulWidget {
-  const _StudySourceLine({required this.source});
+  const _StudySourceLine({required this.source, this.onOpen});
 
   final StudySourceReference source;
+  final Future<void> Function(String noteId)? onOpen;
 
   @override
   State<_StudySourceLine> createState() => _StudySourceLineState();
@@ -518,9 +525,15 @@ class _StudySourceLineState extends State<_StudySourceLine> {
     }
   }
 
-  void _openSource() {
+  Future<void> _openSource() async {
     final source = widget.source;
     if (_publicSource == null || _unavailable) return;
+    final onOpen = widget.onOpen;
+    if (onOpen != null) {
+      await onOpen(source.noteId);
+      return;
+    }
+    if (!mounted) return;
     context.go('/v1/notes/${Uri.encodeComponent(source.noteId)}?view=typed');
   }
 

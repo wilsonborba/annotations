@@ -34,6 +34,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'attachment_fixtures.dart';
 import 'design_goldens_test.dart' show loadAppFonts;
 import 'paper_canvas_test.dart' show host, phone, setWindow, studyNote;
+import 'fixtures.dart' show fixtureService;
 import 'package:annotations_shared/domain/services/note_autosave.dart';
 import 'package:annotations_shared/core/local_store_settings.dart';
 
@@ -691,7 +692,7 @@ void main() {
     tester,
   ) async {
     await setWindow(tester, phone);
-    final h = handlerFor(simpleTyped(), title: 'Study');
+    final h = handlerFor(studyNote(), title: 'Study');
     addTearDown(h.dispose);
     final requests = <http.Request>[];
     final service = fixtureService(
@@ -719,14 +720,16 @@ void main() {
       routes: [
         GoRoute(
           path: '/editor',
-          builder: (context, state) => NoteScreen(
-            handler: h,
-            profile: PlatformProfile.phone,
-            studySource: const StudySourceReference(
-              noteId: 'public-source',
-              title: 'Saved source title',
-              authorName: 'Saved author',
-              relationAttached: false,
+          builder: (context, state) => Scaffold(
+            body: NoteScreen(
+              handler: h,
+              profile: PlatformProfile.fullWriter,
+              studySource: const StudySourceReference(
+                noteId: 'public-source',
+                title: 'Saved source title',
+                authorName: 'Saved author',
+                relationAttached: false,
+              ),
             ),
           ),
         ),
@@ -763,7 +766,7 @@ void main() {
     'a missing study source reports unavailable and keeps its snapshot offline',
     (tester) async {
       await setWindow(tester, phone);
-      final missing = handlerFor(simpleTyped(), title: 'Study');
+      final missing = handlerFor(studyNote(), title: 'Study');
       addTearDown(missing.dispose);
       final missingService = fixtureService(
         handler: (_) async => http.Response('{"error":"missing"}', 404),
@@ -777,7 +780,7 @@ void main() {
             home: Material(
               child: NoteScreen(
                 handler: missing,
-                profile: PlatformProfile.phone,
+                profile: PlatformProfile.fullWriter,
                 studySource: const StudySourceReference(
                   noteId: 'missing-source',
                   title: 'Saved source snapshot',
@@ -793,7 +796,7 @@ void main() {
       expect(find.textContaining('Saved source snapshot'), findsOneWidget);
       expect(find.textContaining('Saved author'), findsOneWidget);
 
-      final offline = handlerFor(simpleTyped(), title: 'Study');
+      final offline = handlerFor(studyNote(), title: 'Study');
       addTearDown(offline.dispose);
       final offlineService = fixtureService(
         handler: (_) async => throw const SocketException('offline'),
@@ -807,7 +810,7 @@ void main() {
             home: Material(
               child: NoteScreen(
                 handler: offline,
-                profile: PlatformProfile.phone,
+                profile: PlatformProfile.fullWriter,
                 studySource: const StudySourceReference(
                   noteId: 'offline-source',
                   title: 'Saved offline title',

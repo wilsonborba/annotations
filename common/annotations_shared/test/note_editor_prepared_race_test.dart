@@ -17,16 +17,20 @@ import 'package:annotations_shared/domain/services/native_auth_service.dart';
 import 'package:annotations_shared/domain/services/note_sync_service.dart';
 import 'package:annotations_shared/domain/services/preferences.dart';
 import 'package:annotations_shared/presentation/frontend/components/scope.dart';
+import 'package:annotations_shared/presentation/frontend/components/controls.dart'
+    show AppButton;
 import 'package:annotations_shared/presentation/frontend/widgets/workspace/note_editor_page.dart';
 import 'package:annotations_shared/presentation/frontend/widgets/paper/paper_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'design_goldens_test.dart' show loadAppFonts;
+import 'paper_canvas_test.dart' show setWindow;
 
 Future<void> pumpEditorFrames(WidgetTester tester) async {
   for (var frame = 0; frame < 12; frame++) {
@@ -270,8 +274,21 @@ final class _ExportLoadGateStore implements LocalNoteStore {
   final Completer<void> started;
   final Completer<LocalNote?> release;
   bool _gateNextLoad = false;
+  bool _failNextSave = false;
+  Completer<void>? _saveStarted;
+  Completer<void>? _releaseSave;
 
   void gateNextLoad() => _gateNextLoad = true;
+
+  void failNextSave() => _failNextSave = true;
+
+  Completer<void> gateNextSave() {
+    _saveStarted = Completer<void>();
+    _releaseSave = Completer<void>();
+    return _saveStarted!;
+  }
+
+  void releaseSave() => _releaseSave!.complete();
 
   @override
   Future<LocalNote?> load(String id) {
@@ -279,6 +296,23 @@ final class _ExportLoadGateStore implements LocalNoteStore {
     _gateNextLoad = false;
     if (!started.isCompleted) started.complete();
     return release.future;
+  }
+
+  @override
+  Future<LocalNote> save(LocalNoteDraft draft) async {
+    if (_failNextSave) {
+      _failNextSave = false;
+      throw StateError('controlled note-save failure');
+    }
+    final started = _saveStarted;
+    final release = _releaseSave;
+    if (started != null && release != null) {
+      if (!started.isCompleted) started.complete();
+      await release.future;
+      _saveStarted = null;
+      _releaseSave = null;
+    }
+    return delegate.save(draft);
   }
 
   @override
@@ -581,6 +615,62 @@ Future<_QuizReturnFixture> _makeQuizReturnFixture(
   );
 }
 
+Future<String> _createHandwrittenStudy(
+  WidgetTester tester,
+  _QuizReturnFixture fixture,
+) async {
+  final id = await tester.runAsync(
+    () => fixture.workspace.createHandwrittenStudy(
+      const StudySourceReference(
+        noteId: 'public-source',
+        title: 'Saved source title',
+        authorId: 'public-author',
+        authorName: 'Saved author',
+      ),
+    ),
+  );
+  return id!;
+}
+
+Future<GoRouter> _mountHandwrittenStudyEditor(
+  WidgetTester tester,
+  _QuizReturnFixture fixture,
+  String studyNoteId,
+) async {
+  final router = GoRouter(
+    initialLocation: '/v1/write/$studyNoteId',
+    routes: [
+      GoRoute(
+        path: '/v1/write/:id',
+        builder: (context, state) =>
+            NoteEditorPage(noteId: state.pathParameters['id']!),
+      ),
+      GoRoute(
+        path: '/v1/notes/:id',
+        builder: (context, state) =>
+            Text('Opened typed source: ${state.pathParameters['id']}'),
+      ),
+    ],
+  );
+  addTearDown(router.dispose);
+  await tester.pumpWidget(
+    AppScope(
+      preferences: fixture.preferences,
+      service: AnnotationsService(
+        api: ApiAdapter(
+          base: 'https://api.asodya.com/apps/annotations/v1',
+          client: fixture.apiClient,
+        ),
+      ),
+      workspace: fixture.workspace,
+      installed: fixture.account,
+      child: MaterialApp.router(routerConfig: router),
+    ),
+  );
+  await pumpEditorFrames(tester);
+  return router;
+}
+
 void main() {
   setUpAll(loadAppFonts);
 
@@ -588,41 +678,12 @@ void main() {
     tester,
   ) async {
     final fixture = await _makeQuizReturnFixture(tester);
-    final studyNoteId = await tester.runAsync(
-      () => fixture.workspace.createHandwrittenStudy(
-        const StudySourceReference(
-          noteId: 'public-source',
-          title: 'Saved source title',
-          authorId: 'public-author',
-          authorName: 'Saved author',
-        ),
-      ),
-    );
-    expect(studyNoteId, isNotNull);
-    final study = await tester.runAsync(() => fixture.store.load(studyNoteId!));
+    final studyNoteId = await _createHandwrittenStudy(tester, fixture);
+    final study = await tester.runAsync(() => fixture.store.load(studyNoteId));
     final storedStudy = study!;
     expect(storedStudy.schema.family, DocumentFamily.original);
     expect(storedStudy.studySource!.relationAttached, isFalse);
-
-    await tester.pumpWidget(
-      MaterialApp(
-        key: const ValueKey('handwritten-study-editor'),
-        home: NoteEditorPage(noteId: studyNoteId!),
-        builder: (_, child) => AppScope(
-          preferences: fixture.preferences,
-          service: AnnotationsService(
-            api: ApiAdapter(
-              base: 'https://api.asodya.com/apps/annotations/v1',
-              client: fixture.apiClient,
-            ),
-          ),
-          workspace: fixture.workspace,
-          installed: fixture.account,
-          child: child!,
-        ),
-      ),
-    );
-    await pumpEditorFrames(tester);
+    await _mountHandwrittenStudyEditor(tester, fixture, studyNoteId);
 
     expect(find.byType(PaperScreen), findsOneWidget);
     expect(find.textContaining('Published typed source'), findsOneWidget);
@@ -631,6 +692,78 @@ void main() {
       fixture.apiRequestPaths,
       contains('GET /apps/annotations/v1/notes/public-source?view=typed'),
     );
+  });
+
+  testWidgets('source navigation preserves retry when the note save fails', (
+    tester,
+  ) async {
+    await setWindow(tester, const Size(1440, 1200));
+    final fixture = await _makeQuizReturnFixture(tester);
+    final studyNoteId = await _createHandwrittenStudy(tester, fixture);
+    final study = await tester.runAsync(() => fixture.store.load(studyNoteId));
+    expect(study!.schema.family, DocumentFamily.original);
+    await _mountHandwrittenStudyEditor(tester, fixture, studyNoteId);
+    final handler = tester
+        .widget<PaperScreen>(find.byType(PaperScreen))
+        .handler;
+
+    fixture.workspaceStore.failNextSave();
+    handler.rename('Edited study title');
+    await tester.tap(find.textContaining('Published typed source'));
+    await pumpEditorFrames(tester);
+
+    expect(find.byType(NoteEditorPage), findsOneWidget);
+    expect(find.textContaining('Opened typed source'), findsNothing);
+    expect(find.byKey(const Key('save-state-failed')), findsOneWidget);
+    expect(find.byKey(const Key('save-retry')), findsOneWidget);
+    expect(find.textContaining('Published typed source'), findsOneWidget);
+
+    final retryButton = tester.widget<AppButton>(
+      find.byKey(const Key('save-retry')),
+    );
+    expect(retryButton.onPressed, isNotNull);
+    retryButton.onPressed!.call();
+    await pumpEditorFrames(tester);
+    expect(find.byKey(const Key('save-state-saved')), findsOneWidget);
+    await tester.tap(find.textContaining('Published typed source'));
+    await pumpEditorFrames(tester);
+
+    expect(find.text('Opened typed source: public-source'), findsOneWidget);
+    final saved = await tester.runAsync(() => fixture.store.load(studyNoteId));
+    expect(saved!.title, 'Edited study title');
+  });
+
+  testWidgets('source navigation waits for a pending note save', (
+    tester,
+  ) async {
+    await setWindow(tester, const Size(1440, 1200));
+    final fixture = await _makeQuizReturnFixture(tester);
+    final studyNoteId = await _createHandwrittenStudy(tester, fixture);
+    final study = await tester.runAsync(() => fixture.store.load(studyNoteId));
+    expect(study!.schema.family, DocumentFamily.original);
+    await _mountHandwrittenStudyEditor(tester, fixture, studyNoteId);
+    final handler = tester
+        .widget<PaperScreen>(find.byType(PaperScreen))
+        .handler;
+    final saveStarted = fixture.workspaceStore.gateNextSave();
+
+    handler.rename('Pending study title');
+    await tester.tap(find.textContaining('Published typed source'));
+    await tester.runAsync(
+      () => saveStarted.future.timeout(const Duration(seconds: 2)),
+    );
+    await tester.pump();
+    expect(find.byType(NoteEditorPage), findsOneWidget);
+    expect(find.textContaining('Opened typed source'), findsNothing);
+
+    fixture.workspaceStore.releaseSave();
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 100)),
+    );
+    await pumpEditorFrames(tester);
+    expect(find.text('Opened typed source: public-source'), findsOneWidget);
+    final saved = await tester.runAsync(() => fixture.store.load(studyNoteId));
+    expect(saved!.title, 'Pending study title');
   });
 
   testWidgets('one app return reads the saved quiz once and adds one card', (
