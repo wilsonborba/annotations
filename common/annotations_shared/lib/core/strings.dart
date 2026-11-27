@@ -167,6 +167,21 @@ const strings = <String, List<String>>{
     'Não foi possível ler os arquivos selecionados.',
     'อ่านไฟล์ที่เลือกไม่สำเร็จ',
   ],
+  'contentJobTooManyFiles': [
+    'Choose no more than 20 files.',
+    'Escolha no máximo 20 arquivos.',
+    'เลือกไฟล์ได้ไม่เกิน 20 ไฟล์',
+  ],
+  'contentJobFilenameTooLong': [
+    'A selected file name is too long.',
+    'O nome de um arquivo selecionado é muito longo.',
+    'ชื่อไฟล์ที่เลือกยาวเกินไป',
+  ],
+  'contentJobFileTooLarge': [
+    'Each selected file must be 100 MB or smaller.',
+    'Cada arquivo selecionado deve ter até 100 MB.',
+    'ไฟล์ที่เลือกแต่ละไฟล์ต้องมีขนาดไม่เกิน 100 MB',
+  ],
   'contentJobKind': ['Content type', 'Tipo de conteúdo', 'ประเภทเนื้อหา'],
   'contentJobExtraction': ['Extract text', 'Extrair texto', 'ดึงข้อความ'],
   'contentJobStudyNotes': [
@@ -180,6 +195,11 @@ const strings = <String, List<String>>{
     'Iniciar extração',
     'เริ่มดึงเนื้อหา',
   ],
+  'contentJobContinueUpload': [
+    'Continue upload',
+    'Continuar envio',
+    'อัปโหลดต่อ',
+  ],
   'contentJobStarting': ['Starting…', 'Iniciando…', 'กำลังเริ่ม…'],
   'contentJobStartFailed': [
     'The job could not be started. Your selected files are still here.',
@@ -191,6 +211,34 @@ const strings = <String, List<String>>{
     'The job could not be resumed. Try again.',
     'Não foi possível retomar a tarefa. Tente novamente.',
     'ทำงานต่อไม่สำเร็จ ลองอีกครั้ง',
+  ],
+  'contentJobCancel': ['Cancel job', 'Cancelar tarefa', 'ยกเลิกงาน'],
+  'contentJobCancelling': ['Cancelling…', 'Cancelando…', 'กำลังยกเลิก…'],
+  'contentJobCancelFailed': [
+    'The job could not be cancelled. You can try again.',
+    'Não foi possível cancelar a tarefa. Tente novamente.',
+    'ยกเลิกงานไม่สำเร็จ ลองอีกครั้ง',
+  ],
+  'contentJobBackendError': [
+    'Processing error',
+    'Erro de processamento',
+    'ข้อผิดพลาดในการประมวลผล',
+  ],
+  'startHandwrittenStudy': [
+    'Start handwritten study',
+    'Começar estudo manuscrito',
+    'เริ่มบันทึกการเรียนด้วยลายมือ',
+  ],
+  'studySourceUnavailable': [
+    'Source unavailable',
+    'Fonte indisponível',
+    'แหล่งที่มาไม่พร้อมใช้งาน',
+  ],
+  'studySource': ['Source', 'Fonte', 'แหล่งที่มา'],
+  'studySourceCreateFailed': [
+    'Could not start the study. Try again.',
+    'Não foi possível iniciar o estudo. Tente novamente.',
+    'เริ่มการศึกษาไม่สำเร็จ โปรดลองอีกครั้ง',
   ],
   'contentJobReviewResult': [
     'Result ready for review',

@@ -13,6 +13,125 @@ import 'support/annotations_api_contract.dart';
 
 void main() {
   test(
+    'all terminal statuses expose their saved draft and error projection',
+    () async {
+      for (final status in const [
+        'completed',
+        'partial',
+        'cancelled',
+        'failed',
+      ]) {
+        final persistence = InMemoryContentJobPersistence();
+        await persistence.saveRef(
+          'owner-a',
+          ContentJobRef(
+            noteId: 'n1',
+            clientJobId: 'client-1',
+            jobId: 'job-$status',
+            lastEventSeq: 1,
+            status: 'running',
+            uploadedFileIds: const ['file-1'],
+          ),
+        );
+        final client = MockClient((request) async {
+          if (request.url.path.endsWith('/events')) {
+            return http.Response(
+              'id: 2\nevent: $status\ndata: {"seq":2}\n\n',
+              200,
+              headers: {'content-type': 'text/event-stream'},
+            );
+          }
+          if (request.url.path.endsWith('/job-$status')) {
+            return http.Response(
+              jsonEncode({
+                'job_id': 'job-$status',
+                'status': status,
+                'event_cursor': 2,
+                'draft': {'format': 'markdown', 'text': 'partial-$status'},
+                'error': status == 'failed'
+                    ? {'code': 'cortex_failed', 'message': 'Processing stopped'}
+                    : null,
+              }),
+              200,
+            );
+          }
+          return http.Response('{}', 404);
+        });
+        final service = ContentJobService(
+          api: ApiAdapter(client: client, base: 'https://api.test'),
+          persistence: persistence,
+          enabled: true,
+          sessionProvider: _provider(() => true),
+        );
+
+        final draft = await service.resumeJob('n1');
+        expect(draft?.extractedText, 'partial-$status');
+        final ref = await persistence.loadRef('owner-a', 'n1');
+        expect(ref?.status, status);
+        expect(ref?.lastEventSeq, 2);
+        expect(ref?.errorCode, status == 'failed' ? 'cortex_failed' : isNull);
+        expect(
+          ref?.errorMessage,
+          status == 'failed' ? 'Processing stopped' : isNull,
+        );
+        client.close();
+      }
+    },
+  );
+
+  test(
+    'cancel uses owner mutation route and preserves returned partial draft',
+    () async {
+      final persistence = InMemoryContentJobPersistence();
+      await persistence.saveRef(
+        'owner-a',
+        const ContentJobRef(
+          noteId: 'n1',
+          clientJobId: 'client-1',
+          jobId: 'job-cancel',
+          status: 'running',
+          uploadedFileIds: ['file-1'],
+        ),
+      );
+      final requests = <http.Request>[];
+      final client = MockClient((request) async {
+        requests.add(request);
+        if (request.method == 'DELETE' &&
+            request.url.path == '/me/content_jobs/job-cancel/execution') {
+          expect(request.headers['authorization'], 'Bearer write-a');
+          return http.Response(
+            jsonEncode({
+              'job_id': 'job-cancel',
+              'status': 'cancelled',
+              'event_cursor': 4,
+              'draft': {'format': 'markdown', 'text': 'Saved partial output'},
+              'error': null,
+            }),
+            200,
+          );
+        }
+        return http.Response('{}', 404);
+      });
+      final service = ContentJobService(
+        api: ApiAdapter(client: client, base: 'https://api.test'),
+        persistence: persistence,
+        enabled: true,
+        sessionProvider: _provider(() => true),
+      );
+
+      final draft = await service.cancelJob('n1');
+      expect(draft?.extractedText, 'Saved partial output');
+      expect(requests.map((request) => request.method), ['DELETE']);
+      expect((await persistence.loadRef('owner-a', 'n1'))?.status, 'cancelled');
+      expect(
+        (await persistence.loadDraft('owner-a', 'n1'))?.extractedText,
+        'Saved partial output',
+      );
+      client.close();
+    },
+  );
+
+  test(
     'inserted result resumes as handled and discard removes only draft',
     () async {
       final persistence = InMemoryContentJobPersistence();
@@ -72,6 +191,420 @@ void main() {
         'result_discarded',
       );
       client.close();
+    },
+  );
+
+  test(
+    'a restarted new job ignores the prior inserted draft and resumes its own result',
+    () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'content_job_next_after_insert_',
+      );
+      final persistenceFile = File('${tempDir.path}/jobs.json');
+      final requests = <String>[];
+      var uploadNumber = 0;
+      var createdJobs = 0;
+      final client = MockClient((request) async {
+        requests.add('${request.method} ${request.url.path}');
+        if (request.method == 'POST' &&
+            request.url.path.endsWith('/me/files')) {
+          uploadNumber++;
+          return http.Response(
+            jsonEncode({'file_id': 'file-$uploadNumber'}),
+            201,
+          );
+        }
+        if (request.method == 'PUT' &&
+            request.url.path.contains('/me/files/')) {
+          return http.Response('', 204);
+        }
+        if (request.method == 'POST' &&
+            request.url.path.endsWith('/me/content_jobs')) {
+          createdJobs++;
+          final jobId = 'job-$createdJobs';
+          return http.Response(
+            jsonEncode({
+              'job_id': jobId,
+              'status': 'queued',
+              'last_event_seq': 0,
+            }),
+            201,
+          );
+        }
+        final eventMatch = RegExp(
+          r'/me/content_jobs/(job-\d+)/events$',
+        ).firstMatch(request.url.path);
+        if (request.method == 'GET' && eventMatch != null) {
+          return http.Response(
+            'id: 1\nevent: completed\ndata: {"status":"completed"}\n\n',
+            200,
+            headers: {'content-type': 'text/event-stream'},
+          );
+        }
+        final jobMatch = RegExp(
+          r'/me/content_jobs/(job-\d+)$',
+        ).firstMatch(request.url.path);
+        if (request.method == 'GET' && jobMatch != null) {
+          final jobId = jobMatch.group(1)!;
+          return http.Response(
+            jsonEncode({
+              'job_id': jobId,
+              'status': 'completed',
+              'draft': {
+                'format': 'markdown',
+                'text': jobId == 'job-1' ? 'Old inserted result' : 'New result',
+              },
+            }),
+            200,
+          );
+        }
+        return http.Response('unexpected request', 404);
+      });
+
+      try {
+        final api = ApiAdapter(
+          client: client,
+          base: 'https://api.asodya.com/apps/annotations/v1',
+        );
+        final service = ContentJobService(
+          api: api,
+          persistence: FileContentJobPersistence(persistenceFile),
+          enabled: true,
+          sessionProvider: _provider(() => true),
+        );
+        const selectedFile = [
+          ContentJobSelectedFile(
+            filename: 'selected.pdf',
+            contentType: 'application/pdf',
+            bytes: [1, 2, 3],
+          ),
+        ];
+
+        final firstRef = await service.startExplicitJob(
+          noteId: 'n1',
+          kind: ContentJobKind.extraction,
+          selectedFiles: selectedFile,
+        );
+        expect(firstRef.jobId, 'job-1');
+        final firstDraft = await service.resumeJob('n1');
+        expect(firstDraft?.extractedText, 'Old inserted result');
+        await service.markDraftInserted('n1', 'job-1');
+
+        final secondRef = await service.startExplicitJob(
+          noteId: 'n1',
+          kind: ContentJobKind.extraction,
+          selectedFiles: selectedFile,
+        );
+        expect(secondRef.jobId, 'job-2');
+
+        // A fresh service/persistence instance models app restart. The old
+        // accepted draft remains on disk until job 2 completes, but cannot
+        // suppress job 2's event/result fetch or appear as its review draft.
+        final restarted = ContentJobService(
+          api: api,
+          persistence: FileContentJobPersistence(persistenceFile),
+          enabled: true,
+          sessionProvider: _provider(() => true),
+        );
+        final beforeResume = await restarted.loadReviewState('n1');
+        expect(beforeResume.ref?.jobId, 'job-2');
+        expect(beforeResume.draft, isNull);
+
+        final secondDraft = await restarted.resumeJob('n1');
+        expect(secondDraft?.jobId, 'job-2');
+        expect(secondDraft?.extractedText, 'New result');
+        final review = await restarted.loadReviewState('n1');
+        expect(review.ref?.jobId, 'job-2');
+        expect(review.draft?.jobId, 'job-2');
+        expect(review.draft?.extractedText, 'New result');
+        expect(
+          requests,
+          contains('GET /apps/annotations/v1/me/content_jobs/job-2/events'),
+        );
+        expect(
+          requests,
+          contains('GET /apps/annotations/v1/me/content_jobs/job-2'),
+        );
+      } finally {
+        client.close();
+        await tempDir.delete(recursive: true);
+      }
+    },
+  );
+
+  test(
+    'interrupted multi-file upload keeps its client id and prior receipts',
+    () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'content_job_partial_upload_',
+      );
+      final file = File('${tempDir.path}/jobs.json');
+      var reservations = 0;
+      final originalSelection = const [
+        ContentJobSelectedFile(
+          filename: 'one.pdf',
+          contentType: 'application/pdf',
+          bytes: [1],
+        ),
+        ContentJobSelectedFile(
+          filename: 'two.pdf',
+          contentType: 'application/pdf',
+          bytes: [2],
+        ),
+      ];
+      final firstClient = MockClient((request) async {
+        if (request.method == 'POST' && request.url.path == '/me/files') {
+          reservations++;
+          return http.Response(
+            jsonEncode({'file_id': 'file-$reservations'}),
+            201,
+          );
+        }
+        if (request.method == 'PUT' &&
+            request.url.path.endsWith('/file-1/content')) {
+          return http.Response('', 204);
+        }
+        if (request.method == 'PUT' &&
+            request.url.path.endsWith('/file-2/content')) {
+          return http.Response('{"error":"upload interrupted"}', 500);
+        }
+        throw StateError('Unexpected first-attempt request ${request.url}');
+      });
+      final first = ContentJobService(
+        api: ApiAdapter(client: firstClient, base: 'https://api.test'),
+        persistence: FileContentJobPersistence(file),
+        enabled: true,
+        sessionProvider: _provider(() => true),
+      );
+      await expectLater(
+        first.startExplicitJob(
+          noteId: 'n1',
+          kind: ContentJobKind.extraction,
+          selectedFiles: originalSelection,
+        ),
+        throwsA(isA<ApiError>()),
+      );
+      final interrupted = await FileContentJobPersistence(
+        file,
+      ).loadRef('owner-a', 'n1');
+      expect(interrupted?.uploadedFileIds, ['file-1']);
+      expect(interrupted?.selectedFiles, hasLength(2));
+      expect(interrupted?.kind, ContentJobKind.extraction);
+      final clientJobId = interrupted!.clientJobId;
+      firstClient.close();
+
+      var rejectedRequests = 0;
+      final rejectClient = MockClient((request) async {
+        rejectedRequests++;
+        return http.Response('{}', 500);
+      });
+      final rejectService = ContentJobService(
+        api: ApiAdapter(client: rejectClient, base: 'https://api.test'),
+        persistence: FileContentJobPersistence(file),
+        enabled: true,
+        sessionProvider: _provider(() => true),
+      );
+      await expectLater(
+        rejectService.startExplicitJob(
+          noteId: 'n1',
+          kind: ContentJobKind.extraction,
+          selectedFiles: const [
+            ContentJobSelectedFile(
+              filename: 'different.pdf',
+              contentType: 'application/pdf',
+              bytes: [9],
+            ),
+          ],
+        ),
+        throwsA(isA<StateError>()),
+      );
+      expect(rejectedRequests, 0);
+      rejectClient.close();
+
+      final resumedRequests = <http.Request>[];
+      final retryClient = MockClient((request) async {
+        resumedRequests.add(request);
+        if (request.method == 'POST' && request.url.path == '/me/files') {
+          reservations++;
+          return http.Response(
+            jsonEncode({'file_id': 'file-$reservations'}),
+            201,
+          );
+        }
+        if (request.method == 'PUT' &&
+            request.url.path.endsWith('/file-3/content')) {
+          return http.Response('', 204);
+        }
+        if (request.method == 'POST' &&
+            request.url.path == '/me/content_jobs') {
+          final body = jsonDecode(request.body) as Map<String, dynamic>;
+          expect(body['client_job_id'], clientJobId);
+          expect(body['kind'], 'extraction');
+          expect(body['file_ids'], ['file-1', 'file-3']);
+          return http.Response(
+            jsonEncode({'job_id': 'job-1', 'status': 'queued'}),
+            201,
+          );
+        }
+        throw StateError('Unexpected retry request ${request.url}');
+      });
+      final restarted = ContentJobService(
+        api: ApiAdapter(client: retryClient, base: 'https://api.test'),
+        persistence: FileContentJobPersistence(file),
+        enabled: true,
+        sessionProvider: _provider(() => true),
+      );
+      final result = await restarted.startExplicitJob(
+        noteId: 'n1',
+        kind: ContentJobKind.extraction,
+        selectedFiles: originalSelection,
+      );
+      expect(result.jobId, 'job-1');
+      expect(
+        resumedRequests.where((request) => request.method == 'PUT'),
+        hasLength(1),
+      );
+      expect(reservations, 3);
+      retryClient.close();
+      await tempDir.delete(recursive: true);
+    },
+  );
+
+  test(
+    'a restarted new job ignores the prior inserted draft and resumes its own result',
+    () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'content_job_next_after_insert_',
+      );
+      final persistenceFile = File('${tempDir.path}/jobs.json');
+      final requests = <String>[];
+      var uploadNumber = 0;
+      var createdJobs = 0;
+      final client = MockClient((request) async {
+        requests.add('${request.method} ${request.url.path}');
+        if (request.method == 'POST' &&
+            request.url.path.endsWith('/me/files')) {
+          uploadNumber++;
+          return http.Response(
+            jsonEncode({'file_id': 'file-$uploadNumber'}),
+            201,
+          );
+        }
+        if (request.method == 'PUT' &&
+            request.url.path.contains('/me/files/')) {
+          return http.Response('', 204);
+        }
+        if (request.method == 'POST' &&
+            request.url.path.endsWith('/me/content_jobs')) {
+          createdJobs++;
+          final jobId = 'job-$createdJobs';
+          return http.Response(
+            jsonEncode({
+              'job_id': jobId,
+              'status': 'queued',
+              'last_event_seq': 0,
+            }),
+            201,
+          );
+        }
+        final eventMatch = RegExp(
+          r'/me/content_jobs/(job-\d+)/events$',
+        ).firstMatch(request.url.path);
+        if (request.method == 'GET' && eventMatch != null) {
+          return http.Response(
+            'id: 1\nevent: completed\ndata: {"status":"completed"}\n\n',
+            200,
+            headers: {'content-type': 'text/event-stream'},
+          );
+        }
+        final jobMatch = RegExp(
+          r'/me/content_jobs/(job-\d+)$',
+        ).firstMatch(request.url.path);
+        if (request.method == 'GET' && jobMatch != null) {
+          final jobId = jobMatch.group(1)!;
+          return http.Response(
+            jsonEncode({
+              'job_id': jobId,
+              'status': 'completed',
+              'draft': {
+                'format': 'markdown',
+                'text': jobId == 'job-1' ? 'Old inserted result' : 'New result',
+              },
+            }),
+            200,
+          );
+        }
+        return http.Response('unexpected request', 404);
+      });
+
+      try {
+        final api = ApiAdapter(
+          client: client,
+          base: 'https://api.asodya.com/apps/annotations/v1',
+        );
+        final service = ContentJobService(
+          api: api,
+          persistence: FileContentJobPersistence(persistenceFile),
+          enabled: true,
+          sessionProvider: _provider(() => true),
+        );
+        const selectedFile = [
+          ContentJobSelectedFile(
+            filename: 'selected.pdf',
+            contentType: 'application/pdf',
+            bytes: [1, 2, 3],
+          ),
+        ];
+
+        final firstRef = await service.startExplicitJob(
+          noteId: 'n1',
+          kind: ContentJobKind.extraction,
+          selectedFiles: selectedFile,
+        );
+        expect(firstRef.jobId, 'job-1');
+        final firstDraft = await service.resumeJob('n1');
+        expect(firstDraft?.extractedText, 'Old inserted result');
+        await service.markDraftInserted('n1', 'job-1');
+
+        final secondRef = await service.startExplicitJob(
+          noteId: 'n1',
+          kind: ContentJobKind.extraction,
+          selectedFiles: selectedFile,
+        );
+        expect(secondRef.jobId, 'job-2');
+
+        // A fresh service/persistence instance models app restart. The old
+        // accepted draft remains on disk until job 2 completes, but cannot
+        // suppress job 2's event/result fetch or appear as its review draft.
+        final restarted = ContentJobService(
+          api: api,
+          persistence: FileContentJobPersistence(persistenceFile),
+          enabled: true,
+          sessionProvider: _provider(() => true),
+        );
+        final beforeResume = await restarted.loadReviewState('n1');
+        expect(beforeResume.ref?.jobId, 'job-2');
+        expect(beforeResume.draft, isNull);
+
+        final secondDraft = await restarted.resumeJob('n1');
+        expect(secondDraft?.jobId, 'job-2');
+        expect(secondDraft?.extractedText, 'New result');
+        final review = await restarted.loadReviewState('n1');
+        expect(review.ref?.jobId, 'job-2');
+        expect(review.draft?.jobId, 'job-2');
+        expect(review.draft?.extractedText, 'New result');
+        expect(
+          requests,
+          contains('GET /apps/annotations/v1/me/content_jobs/job-2/events'),
+        );
+        expect(
+          requests,
+          contains('GET /apps/annotations/v1/me/content_jobs/job-2'),
+        );
+      } finally {
+        client.close();
+        await tempDir.delete(recursive: true);
+      }
     },
   );
 
@@ -397,6 +930,7 @@ void main() {
                 jsonEncode({
                   'job_id': 'job_99',
                   'status': 'completed',
+                  'event_cursor': 3,
                   'draft': {'format': 'markdown', 'text': 'Extracted summary'},
                 }),
                 200,
@@ -524,6 +1058,8 @@ void main() {
           return http.Response(
             jsonEncode({
               'job_id': 'job-1',
+              'status': 'completed',
+              'event_cursor': 2,
               'draft': {'format': 'markdown'},
             }),
             200,
@@ -708,6 +1244,8 @@ final class _GatedContentJobClient extends http.BaseClient {
           utf8.encode(
             jsonEncode({
               'job_id': 'job-1',
+              'status': 'completed',
+              'event_cursor': 3,
               'draft': {'format': 'markdown', 'text': 'Summary'},
             }),
           ),

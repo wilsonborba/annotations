@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:file_selector/file_selector.dart' as fs;
 import 'package:flutter/foundation.dart'
     show ValueListenable, visibleForTesting;
@@ -27,6 +29,7 @@ class ContentJobReviewPage extends StatefulWidget {
     required this.insertText,
     this.pickFiles,
     this.readFileForTesting,
+    this.fileLengthForTesting,
   });
 
   final String noteId;
@@ -41,6 +44,9 @@ class ContentJobReviewPage extends StatefulWidget {
   @visibleForTesting
   final Future<List<int>> Function(fs.XFile file)? readFileForTesting;
 
+  @visibleForTesting
+  final Future<int> Function(fs.XFile file)? fileLengthForTesting;
+
   @override
   State<ContentJobReviewPage> createState() => _ContentJobReviewPageState();
 }
@@ -53,6 +59,7 @@ class _ContentJobReviewPageState extends State<ContentJobReviewPage> {
   String? _error;
   bool _busy = true;
   bool _ownerExpired = false;
+  int _flowGeneration = 0;
 
   String _failureText(Object error, String fallback) =>
       error is ApiError ? error.message : fallback;
@@ -104,6 +111,7 @@ class _ContentJobReviewPageState extends State<ContentJobReviewPage> {
         _state = state;
         _busy = false;
         _status = state.ref?.status;
+        _kind = state.ref?.kind ?? _kind;
       });
     } on Object catch (error) {
       if (!mounted || !widget.isOwnerScopeCurrent()) return;
@@ -141,17 +149,32 @@ class _ContentJobReviewPageState extends State<ContentJobReviewPage> {
                 ],
               ))();
       if (!mounted || !widget.isOwnerScopeCurrent() || files.isEmpty) return;
+      if (files.length > ContentJobService.maxSelectedFiles) {
+        setState(() => _error = context.tr('contentJobTooManyFiles'));
+        return;
+      }
       final chosen = <ContentJobSelectedFile>[];
       for (final file in files) {
-        final bytes =
-            await (widget.readFileForTesting ??
-                (selected) => selected.readAsBytes())(file);
+        if (file.name.runes.length > ContentJobService.maxFilenameCharacters) {
+          setState(() => _error = context.tr('contentJobFilenameTooLong'));
+          return;
+        }
+        final size =
+            await (widget.fileLengthForTesting ??
+                (selected) => selected.length())(file);
         if (!mounted || !widget.isOwnerScopeCurrent()) return;
+        if (size > ContentJobService.maxFileBytes) {
+          setState(() => _error = context.tr('contentJobFileTooLarge'));
+          return;
+        }
         chosen.add(
           ContentJobSelectedFile(
             filename: file.name,
             contentType: _contentType(file.name),
-            bytes: bytes,
+            size: size,
+            readBytes: () =>
+                (widget.readFileForTesting ??
+                (selected) => _readBoundedFile(selected))(file),
           ),
         );
       }
@@ -221,6 +244,7 @@ class _ContentJobReviewPageState extends State<ContentJobReviewPage> {
 
   Future<void> _resume() async {
     if (_busy || !widget.isOwnerScopeCurrent()) return;
+    final flow = ++_flowGeneration;
     setState(() {
       _busy = true;
       _error = null;
@@ -229,11 +253,19 @@ class _ContentJobReviewPageState extends State<ContentJobReviewPage> {
       final draft = await widget.service.resumeJob(
         widget.noteId,
         onProgress: (sequence, status) {
-          if (!mounted || !widget.isOwnerScopeCurrent()) return;
+          if (flow != _flowGeneration ||
+              !mounted ||
+              !widget.isOwnerScopeCurrent()) {
+            return;
+          }
           setState(() => _status = status);
         },
       );
-      if (!mounted || !widget.isOwnerScopeCurrent()) return;
+      if (flow != _flowGeneration ||
+          !mounted ||
+          !widget.isOwnerScopeCurrent()) {
+        return;
+      }
       setState(() {
         _state = ContentJobReviewState(ref: _state.ref, draft: draft);
         _busy = false;
@@ -242,10 +274,49 @@ class _ContentJobReviewPageState extends State<ContentJobReviewPage> {
             : context.tr('contentJobReviewResult');
       });
     } on Object catch (error) {
-      if (mounted && widget.isOwnerScopeCurrent()) {
+      if (flow == _flowGeneration && mounted && widget.isOwnerScopeCurrent()) {
         setState(() {
           _busy = false;
           _error = _failureText(error, context.tr('contentJobResumeFailed'));
+        });
+      }
+    }
+  }
+
+  Future<void> _cancel() async {
+    if (!widget.isOwnerScopeCurrent()) return;
+    final flow = ++_flowGeneration;
+    setState(() {
+      _busy = true;
+      _error = null;
+      _status = context.tr('contentJobCancelling');
+    });
+    try {
+      final draft = await widget.service.cancelJob(widget.noteId);
+      if (flow != _flowGeneration ||
+          !mounted ||
+          !widget.isOwnerScopeCurrent()) {
+        return;
+      }
+      final next = await widget.service.loadReviewState(widget.noteId);
+      if (flow != _flowGeneration ||
+          !mounted ||
+          !widget.isOwnerScopeCurrent()) {
+        return;
+      }
+      setState(() {
+        _state = ContentJobReviewState(
+          ref: next.ref,
+          draft: draft ?? next.draft,
+        );
+        _busy = false;
+        _status = next.ref?.status;
+      });
+    } on Object catch (error) {
+      if (flow == _flowGeneration && mounted && widget.isOwnerScopeCurrent()) {
+        setState(() {
+          _busy = false;
+          _error = _failureText(error, context.tr('contentJobCancelFailed'));
         });
       }
     }
@@ -326,6 +397,14 @@ class _ContentJobReviewPageState extends State<ContentJobReviewPage> {
               liveRegion: true,
               child: Text(_error!, key: const Key('content-job-error')),
             ),
+          if (ref?.errorMessage != null)
+            Semantics(
+              liveRegion: true,
+              child: Text(
+                '${context.tr('contentJobBackendError')}: ${ref!.errorMessage}',
+                key: const Key('content-job-backend-error'),
+              ),
+            ),
           if (draft != null && !draft.accepted) ...[
             Text(context.tr('contentJobResultTitle')),
             const SizedBox(height: 8),
@@ -356,14 +435,36 @@ class _ContentJobReviewPageState extends State<ContentJobReviewPage> {
                   : context.tr('contentJobAlreadyInserted'),
             ),
             ..._fileSelectionControls(context),
+          ] else if (ref != null && ref.jobId == null) ...[
+            Text('${context.tr('contentJobStatus')}: ${_status ?? ref.status}'),
+            const SizedBox(height: 8),
+            ..._fileSelectionControls(context),
+          ] else if (ref != null &&
+              ref.jobId != null &&
+              ContentJobService.isActiveStatus(ref.status)) ...[
+            Text('${context.tr('contentJobStatus')}: ${_status ?? ref.status}'),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              children: [
+                OutlinedButton(
+                  key: const Key('content-job-resume'),
+                  onPressed: _busy ? null : _resume,
+                  child: Text(context.tr('contentJobResume')),
+                ),
+                OutlinedButton(
+                  key: const Key('content-job-cancel'),
+                  // Cancellation is deliberately available while SSE resume
+                  // is busy; it is a separate, owner-fenced request.
+                  onPressed: widget.isOwnerScopeCurrent() ? _cancel : null,
+                  child: Text(context.tr('contentJobCancel')),
+                ),
+              ],
+            ),
           ] else if (ref != null) ...[
             Text('${context.tr('contentJobStatus')}: ${_status ?? ref.status}'),
             const SizedBox(height: 8),
-            OutlinedButton(
-              key: const Key('content-job-resume'),
-              onPressed: _busy ? null : _resume,
-              child: Text(context.tr('contentJobResume')),
-            ),
+            ..._fileSelectionControls(context),
           ] else
             ..._fileSelectionControls(context),
           if (_status != null && (ref != null || _busy))
@@ -415,12 +516,31 @@ class _ContentJobReviewPageState extends State<ContentJobReviewPage> {
         dense: true,
         leading: const Icon(Icons.insert_drive_file_outlined),
         title: Text(file.filename),
-        subtitle: Text('${file.bytes.length} bytes'),
+        subtitle: Text('${file.size ?? file.bytes?.length ?? 0} bytes'),
       ),
     FilledButton(
       key: const Key('content-job-start'),
       onPressed: _busy || _selected.isEmpty ? null : _start,
-      child: Text(context.tr('contentJobStart')),
+      child: Text(
+        context.tr(
+          _state.ref?.jobId == null && _state.ref != null
+              ? 'contentJobContinueUpload'
+              : 'contentJobStart',
+        ),
+      ),
     ),
   ];
+}
+
+Future<List<int>> _readBoundedFile(fs.XFile file) async {
+  final bytes = BytesBuilder(copy: false);
+  var length = 0;
+  await for (final chunk in file.openRead()) {
+    length += chunk.length;
+    if (length > ContentJobService.maxFileBytes) {
+      throw StateError('Each selected file must be 100 MB or less.');
+    }
+    bytes.add(chunk);
+  }
+  return bytes.takeBytes();
 }

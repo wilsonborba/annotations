@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:annotations_shared/dal/remote/api_adapter.dart';
@@ -53,6 +54,8 @@ void main() {
         return http.Response(
           jsonEncode({
             'job_id': 'job-1',
+            'status': 'completed',
+            'event_cursor': 1,
             'draft': {'format': 'markdown', 'text': 'Selected-file result'},
           }),
           200,
@@ -93,6 +96,7 @@ void main() {
               return [XFile('selected.pdf')];
             },
             readFileForTesting: (_) async => [1, 2, 3],
+            fileLengthForTesting: (_) async => 3,
             insertText: (jobId, text) async {
               expect(jobId, 'job-1');
               expect(text, 'Selected-file result');
@@ -217,6 +221,84 @@ void main() {
     client.close();
   });
 
+  testWidgets('cancel remains available during resume and shows partial output', (
+    tester,
+  ) async {
+    final persistence = InMemoryContentJobPersistence();
+    await persistence.saveRef(
+      'owner-a',
+      const ContentJobRef(
+        noteId: 'note-1',
+        clientJobId: 'client-1',
+        jobId: 'job-1',
+        status: 'running',
+        uploadedFileIds: ['file-1'],
+      ),
+    );
+    final client = _CancellableContentJobClient();
+    final service = ContentJobService(
+      api: ApiAdapter(client: client, base: 'https://api.test'),
+      persistence: persistence,
+      enabled: true,
+      sessionProvider: () async => TranscriptionSession(
+        accountId: 'owner-a',
+        readHeaders: const {'authorization': 'Bearer read'},
+        mutationHeaders: const {'authorization': 'Bearer write'},
+        isCurrent: () => true,
+      ),
+    );
+    final ownerRevision = ValueNotifier(1);
+    addTearDown(ownerRevision.dispose);
+
+    await tester.pumpWidget(
+      AppScope(
+        preferences: Preferences(),
+        service: fixtureService(),
+        child: MaterialApp(
+          home: ContentJobReviewPage(
+            noteId: 'note-1',
+            service: service,
+            isOwnerScopeCurrent: () => ownerRevision.value == 1,
+            ownerScopeRevision: ownerRevision,
+            expectedOwnerScopeRevision: 1,
+            insertText: (_, _) async => true,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('content-job-resume')));
+    await client.eventStarted.future.timeout(const Duration(seconds: 2));
+    await tester.pump();
+    expect(find.byKey(const Key('content-job-cancel')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('content-job-cancel')));
+    await client.cancelRequested.future.timeout(const Duration(seconds: 2));
+    for (
+      var attempt = 0;
+      attempt < 20 && find.text('Partial reviewed text').evaluate().isEmpty;
+      attempt++
+    ) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    await tester.pump();
+
+    final pageError = find.byKey(const Key('content-job-error'));
+    expect(
+      find.text('Partial reviewed text'),
+      findsOneWidget,
+      reason: pageError.evaluate().isEmpty
+          ? 'Cancellation request arrived=${client.cancelRequested.isCompleted}; '
+                'saved draft=${(await persistence.loadDraft('owner-a', 'note-1'))?.extractedText}'
+          : tester.widget<Text>(pageError).data,
+    );
+    expect(
+      (await persistence.loadRef('owner-a', 'note-1'))?.status,
+      'cancelled',
+    );
+    await client.events.close();
+    client.close();
+  });
+
   testWidgets('discard removes local result without another API request', (
     tester,
   ) async {
@@ -286,4 +368,202 @@ void main() {
     );
     client.close();
   });
+
+  testWidgets(
+    'file limits are checked before reading and a rejected selection preserves the previous one',
+    (tester) async {
+      final client = MockClient((request) async {
+        fail('Selecting files must not start network requests: ${request.url}');
+      });
+      final service = ContentJobService(
+        api: ApiAdapter(client: client, base: 'https://api.test'),
+        persistence: InMemoryContentJobPersistence(),
+        enabled: true,
+        sessionProvider: () async => TranscriptionSession(
+          accountId: 'owner-a',
+          readHeaders: const {},
+          mutationHeaders: const {},
+          isCurrent: () => true,
+        ),
+      );
+      final ownerRevision = ValueNotifier(1);
+      addTearDown(ownerRevision.dispose);
+      var selectedFiles = <XFile>[XFile('selected.pdf')];
+      var byteReads = 0;
+      var metadataReads = 0;
+      await tester.pumpWidget(
+        AppScope(
+          preferences: Preferences(),
+          service: fixtureService(),
+          child: MaterialApp(
+            home: ContentJobReviewPage(
+              noteId: 'note-1',
+              service: service,
+              isOwnerScopeCurrent: () => ownerRevision.value == 1,
+              ownerScopeRevision: ownerRevision,
+              expectedOwnerScopeRevision: 1,
+              insertText: (_, _) async => false,
+              pickFiles: () async => selectedFiles,
+              fileLengthForTesting: (file) async {
+                metadataReads++;
+                return switch (file.name) {
+                  'large.pdf' => ContentJobService.maxFileBytes + 1,
+                  'exact.pdf' => ContentJobService.maxFileBytes,
+                  _ => 3,
+                };
+              },
+              readFileForTesting: (_) async {
+                byteReads++;
+                return [1, 2, 3];
+              },
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('content-job-select-files')));
+      await tester.pumpAndSettle();
+      expect(find.text('selected.pdf'), findsOneWidget);
+
+      selectedFiles = [XFile('large.pdf')];
+      await tester.tap(find.byKey(const Key('content-job-select-files')));
+      await tester.pumpAndSettle();
+      expect(find.text('selected.pdf'), findsOneWidget);
+      expect(find.text('large.pdf'), findsNothing);
+      expect(
+        find.text('Each selected file must be 100 MB or smaller.'),
+        findsOneWidget,
+      );
+      expect(byteReads, 0);
+
+      selectedFiles = [XFile('exact.pdf')];
+      await tester.tap(find.byKey(const Key('content-job-select-files')));
+      await tester.pumpAndSettle();
+      expect(find.text('exact.pdf'), findsOneWidget);
+      expect(find.text('100000000 bytes'), findsOneWidget);
+      expect(byteReads, 0);
+
+      selectedFiles = [for (var i = 0; i < 21; i++) XFile('file-$i.pdf')];
+      final metadataBeforeTooMany = metadataReads;
+      await tester.tap(find.byKey(const Key('content-job-select-files')));
+      await tester.pumpAndSettle();
+      expect(find.text('exact.pdf'), findsOneWidget);
+      expect(find.text('Choose no more than 20 files.'), findsOneWidget);
+      expect(metadataReads, metadataBeforeTooMany);
+      expect(byteReads, 0);
+
+      selectedFiles = [XFile('${List.filled(256, 'a').join()}.pdf')];
+      await tester.tap(find.byKey(const Key('content-job-select-files')));
+      await tester.pumpAndSettle();
+      expect(find.text('exact.pdf'), findsOneWidget);
+      expect(find.text('A selected file name is too long.'), findsOneWidget);
+      expect(metadataReads, metadataBeforeTooMany);
+      expect(byteReads, 0);
+      client.close();
+    },
+  );
+
+  testWidgets('owner change during file metadata check never reads bytes', (
+    tester,
+  ) async {
+    final client = MockClient((request) async {
+      fail('File selection must not call the API: ${request.url}');
+    });
+    final service = ContentJobService(
+      api: ApiAdapter(client: client, base: 'https://api.test'),
+      persistence: InMemoryContentJobPersistence(),
+      enabled: true,
+      sessionProvider: () async => TranscriptionSession(
+        accountId: 'owner-a',
+        readHeaders: const {},
+        mutationHeaders: const {},
+        isCurrent: () => true,
+      ),
+    );
+    final ownerRevision = ValueNotifier(1);
+    addTearDown(ownerRevision.dispose);
+    final lengthStarted = Completer<void>();
+    final fileLength = Completer<int>();
+    var byteReads = 0;
+    await tester.pumpWidget(
+      AppScope(
+        preferences: Preferences(),
+        service: fixtureService(),
+        child: MaterialApp(
+          home: ContentJobReviewPage(
+            noteId: 'note-1',
+            service: service,
+            isOwnerScopeCurrent: () => ownerRevision.value == 1,
+            ownerScopeRevision: ownerRevision,
+            expectedOwnerScopeRevision: 1,
+            insertText: (_, _) async => false,
+            pickFiles: () async => [XFile('waiting.pdf')],
+            fileLengthForTesting: (_) {
+              if (!lengthStarted.isCompleted) lengthStarted.complete();
+              return fileLength.future;
+            },
+            readFileForTesting: (_) async {
+              byteReads++;
+              return [1, 2, 3];
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('content-job-select-files')));
+    await lengthStarted.future;
+    ownerRevision.value++;
+    await tester.pump();
+    fileLength.complete(3);
+    await tester.pumpAndSettle();
+
+    expect(byteReads, 0);
+    expect(find.text('waiting.pdf'), findsNothing);
+    client.close();
+  });
+}
+
+final class _CancellableContentJobClient extends http.BaseClient {
+  final events = StreamController<List<int>>();
+  final eventStarted = Completer<void>();
+  final cancelRequested = Completer<void>();
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    if (request.url.path.endsWith('/events')) {
+      if (!eventStarted.isCompleted) eventStarted.complete();
+      return http.StreamedResponse(
+        events.stream,
+        200,
+        headers: {'content-type': 'text/event-stream'},
+      );
+    }
+    if (request.method == 'DELETE' && request.url.path.endsWith('/execution')) {
+      if (!cancelRequested.isCompleted) cancelRequested.complete();
+      return http.StreamedResponse(
+        Stream<List<int>>.value(
+          utf8.encode(
+            jsonEncode({
+              'job_id': 'job-1',
+              'status': 'cancelled',
+              'event_cursor': 1,
+              'draft': {'format': 'markdown', 'text': 'Partial reviewed text'},
+              'error': null,
+            }),
+          ),
+        ),
+        200,
+        headers: {'content-type': 'application/json'},
+      );
+    }
+    throw StateError('Unexpected request ${request.method} ${request.url}');
+  }
+
+  @override
+  void close() {
+    if (!events.isClosed) events.close();
+  }
 }

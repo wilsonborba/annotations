@@ -19,13 +19,60 @@ enum ContentJobKind {
 final class ContentJobSelectedFile {
   final String filename;
   final String contentType;
-  final List<int> bytes;
+  final List<int>? bytes;
+  final int? size;
+  final Future<List<int>> Function()? readBytes;
 
   const ContentJobSelectedFile({
     required this.filename,
     required this.contentType,
-    required this.bytes,
+    this.bytes,
+    this.size,
+    this.readBytes,
   });
+
+  Future<List<int>> loadBytes() async {
+    final data = bytes;
+    if (data != null) return data;
+    final read = readBytes;
+    if (read == null) throw StateError('Selected file bytes are unavailable.');
+    return read();
+  }
+}
+
+final class ContentJobFileIdentity {
+  const ContentJobFileIdentity({
+    required this.filename,
+    required this.contentType,
+    required this.size,
+    required this.sha256,
+  });
+
+  final String filename;
+  final String contentType;
+  final int size;
+  final String sha256;
+
+  Map<String, Object?> toJson() => {
+    'filename': filename,
+    'content_type': contentType,
+    'size': size,
+    'sha256': sha256,
+  };
+
+  factory ContentJobFileIdentity.fromJson(Map<String, dynamic> json) =>
+      ContentJobFileIdentity(
+        filename: '${json['filename']}',
+        contentType: '${json['content_type']}',
+        size: (json['size'] as num).toInt(),
+        sha256: '${json['sha256']}',
+      );
+
+  bool matches(ContentJobFileIdentity other) =>
+      filename == other.filename &&
+      contentType == other.contentType &&
+      size == other.size &&
+      sha256 == other.sha256;
 }
 
 final class ContentJobRef {
@@ -35,6 +82,10 @@ final class ContentJobRef {
   final int lastEventSeq;
   final String status;
   final List<String> uploadedFileIds;
+  final ContentJobKind? kind;
+  final List<ContentJobFileIdentity> selectedFiles;
+  final String? errorCode;
+  final String? errorMessage;
 
   const ContentJobRef({
     required this.noteId,
@@ -43,6 +94,10 @@ final class ContentJobRef {
     this.lastEventSeq = 0,
     required this.status,
     required this.uploadedFileIds,
+    this.kind,
+    this.selectedFiles = const [],
+    this.errorCode,
+    this.errorMessage,
   });
 
   ContentJobRef copyWith({
@@ -50,6 +105,11 @@ final class ContentJobRef {
     int? lastEventSeq,
     String? status,
     List<String>? uploadedFileIds,
+    ContentJobKind? kind,
+    List<ContentJobFileIdentity>? selectedFiles,
+    String? errorCode,
+    String? errorMessage,
+    bool clearError = false,
   }) => ContentJobRef(
     noteId: noteId,
     clientJobId: clientJobId,
@@ -57,6 +117,10 @@ final class ContentJobRef {
     lastEventSeq: lastEventSeq ?? this.lastEventSeq,
     status: status ?? this.status,
     uploadedFileIds: uploadedFileIds ?? this.uploadedFileIds,
+    kind: kind ?? this.kind,
+    selectedFiles: selectedFiles ?? this.selectedFiles,
+    errorCode: clearError ? null : errorCode ?? this.errorCode,
+    errorMessage: clearError ? null : errorMessage ?? this.errorMessage,
   );
 
   Map<String, Object?> toJson() => {
@@ -66,6 +130,10 @@ final class ContentJobRef {
     'last_event_seq': lastEventSeq,
     'status': status,
     'uploaded_file_ids': uploadedFileIds,
+    'kind': kind?.code,
+    'selected_files': [for (final file in selectedFiles) file.toJson()],
+    'error_code': errorCode,
+    'error_message': errorMessage,
   };
 
   factory ContentJobRef.fromJson(Map<String, dynamic> j) => ContentJobRef(
@@ -77,7 +145,24 @@ final class ContentJobRef {
     uploadedFileIds: ((j['uploaded_file_ids'] as List?) ?? const [])
         .map((e) => '$e')
         .toList(),
+    kind: _contentJobKind(j['kind']),
+    selectedFiles: ((j['selected_files'] as List?) ?? const [])
+        .map(
+          (e) => ContentJobFileIdentity.fromJson(
+            Map<String, dynamic>.from(e as Map),
+          ),
+        )
+        .toList(),
+    errorCode: j['error_code'] as String?,
+    errorMessage: j['error_message'] as String?,
   );
+}
+
+ContentJobKind? _contentJobKind(Object? code) {
+  for (final kind in ContentJobKind.values) {
+    if (kind.code == code) return kind;
+  }
+  return null;
 }
 
 final class ContentJobDraft {
@@ -294,11 +379,16 @@ final class InMemoryContentJobPersistence implements ContentJobPersistence {
 ///   `PUT /me/files/{id}/content`, never `note_id` or full notes.
 /// - Resumes SSE `GET /me/content_jobs/{id}/events` with `?after=<seq>` and `Last-Event-ID`.
 class ContentJobService {
+  static const maxSelectedFiles = 20;
+  static const maxFileBytes = 100000000;
+  static const maxFilenameCharacters = 255;
+
   final ApiAdapter api;
   final ContentJobPersistence persistence;
   final bool enabled;
   final TranscriptionSessionProvider? sessionProvider;
   final Random _random = Random.secure();
+  final Map<String, int> _operationEpochs = {};
 
   ContentJobService({
     required this.api,
@@ -311,6 +401,59 @@ class ContentJobService {
     final n = _random.nextInt(1 << 30);
     return 'cj_${DateTime.now().microsecondsSinceEpoch}_$n';
   }
+
+  Future<List<ContentJobFileIdentity>> _identifySelectedFiles(
+    TranscriptionSession session,
+    List<ContentJobSelectedFile> files,
+  ) async {
+    final identities = <ContentJobFileIdentity>[];
+    for (final file in files) {
+      session.requireCurrent();
+      final bytes = await file.loadBytes();
+      session.requireCurrent();
+      if (file.size != null && bytes.length != file.size) {
+        throw StateError('The selected file changed after it was chosen.');
+      }
+      if (bytes.length > maxFileBytes) {
+        throw ArgumentError('Each selected file must be 100 MB or less.');
+      }
+      identities.add(
+        ContentJobFileIdentity(
+          filename: file.filename,
+          contentType: file.contentType,
+          size: bytes.length,
+          sha256: sha256.convert(bytes).toString(),
+        ),
+      );
+    }
+    return identities;
+  }
+
+  static bool _isBackendTerminal(String status) =>
+      status == 'completed' ||
+      status == 'partial' ||
+      status == 'cancelled' ||
+      status == 'failed';
+
+  static bool isActiveStatus(String status) =>
+      status == 'queued' || status == 'uploading' || status == 'running';
+
+  static bool _sameSelection(
+    List<ContentJobFileIdentity> left,
+    List<ContentJobFileIdentity> right,
+  ) =>
+      left.length == right.length &&
+      Iterable<int>.generate(
+        left.length,
+      ).every((index) => left[index].matches(right[index]));
+
+  String _ownerNoteKey(TranscriptionSession session, String noteId) =>
+      '${session.accountId}\u0000$noteId';
+
+  int _advanceEpoch(String key) =>
+      _operationEpochs.update(key, (value) => value + 1, ifAbsent: () => 1);
+
+  bool _isCurrentEpoch(String key, int epoch) => _operationEpochs[key] == epoch;
 
   /// Starts a content job only on explicit request when [enabled] is true.
   Future<ContentJobRef> startExplicitJob({
@@ -326,14 +469,59 @@ class ContentJobService {
     if (selectedFiles.isEmpty) {
       throw ArgumentError('At least one selected file is required.');
     }
+    if (selectedFiles.length > maxSelectedFiles) {
+      throw ArgumentError('Select no more than $maxSelectedFiles files.');
+    }
+    for (final file in selectedFiles) {
+      if (file.filename.runes.length > maxFilenameCharacters) {
+        throw ArgumentError('The selected file name is too long.');
+      }
+      if (file.size != null && (file.size! < 0 || file.size! > maxFileBytes)) {
+        throw ArgumentError('Each selected file must be 100 MB or less.');
+      }
+    }
 
-    // Generate & persist client_job_id BEFORE the first network call.
     var existing = await persistence.loadRef(session.accountId, noteId);
     session.requireCurrent();
     if (existing?.status == 'result_inserted' ||
-        existing?.status == 'result_discarded') {
+        existing?.status == 'result_discarded' ||
+        (existing != null && _isBackendTerminal(existing.status))) {
       existing = null;
     }
+
+    if (existing?.jobId != null) {
+      throw StateError(
+        'This job already exists. Resume it before starting another.',
+      );
+    }
+    if (existing != null && existing.selectedFiles.isEmpty) {
+      throw StateError(
+        'This interrupted upload has no saved file identity and cannot be resumed safely.',
+      );
+    }
+    if (existing?.kind != null && existing!.kind != kind) {
+      throw StateError(
+        'This interrupted upload belongs to a different content type.',
+      );
+    }
+
+    final selectedIdentities = await _identifySelectedFiles(
+      session,
+      selectedFiles,
+    );
+    session.requireCurrent();
+    if (existing != null && existing.selectedFiles.isNotEmpty) {
+      if (!_sameSelection(existing.selectedFiles, selectedIdentities)) {
+        throw StateError(
+          'This upload belongs to different selected files. Choose the original files to continue.',
+        );
+      }
+      if (existing.uploadedFileIds.length > selectedIdentities.length) {
+        throw StateError('The saved upload state is invalid.');
+      }
+    }
+
+    // Persist the client id and selected-file fingerprint before network I/O.
     final clientJobId = existing?.clientJobId ?? _newClientJobId();
     var ref =
         existing ??
@@ -342,53 +530,68 @@ class ContentJobService {
           clientJobId: clientJobId,
           status: 'reserving',
           uploadedFileIds: const [],
+          kind: kind,
+          selectedFiles: selectedIdentities,
         );
     session.requireCurrent();
     await persistence.saveRef(session.accountId, ref);
     session.requireCurrent();
 
-    // Reserve + upload bytes only for selected files via `/me/files`.
     final uploadedIds = <String>[...ref.uploadedFileIds];
-    if (uploadedIds.isEmpty) {
-      for (final file in selectedFiles) {
-        final checksum = sha256.convert(file.bytes).toString();
-        session.requireCurrent();
-        final reserved = await api.request(
-          '/me/files',
-          method: 'POST',
-          headers: session.headers(mutation: true),
-          body: {
-            'purpose': 'content_job',
-            'filename': file.filename,
-            'content_type': file.contentType,
-            'size': file.bytes.length,
-            'checksum': checksum,
-          },
-        );
-        session.requireCurrent();
-        final fileId = '${reserved['file_id'] ?? reserved['id']}';
-        final putReq = http.Request(
-          'PUT',
-          Uri.parse('${api.base}/me/files/$fileId/content'),
-        );
-        putReq.headers['content-type'] = file.contentType;
-        putReq.headers.addAll(session.headers(mutation: true));
-        putReq.bodyBytes = file.bytes;
-        session.requireCurrent();
-        final putResp = await http.Response.fromStream(
-          await api.client.send(putReq),
-        );
-        session.requireCurrent();
-        if (putResp.statusCode >= 400) {
-          throw ApiError(putResp.statusCode, 'File upload failed');
-        }
-        uploadedIds.add(fileId);
+    for (
+      var index = uploadedIds.length;
+      index < selectedFiles.length;
+      index++
+    ) {
+      final file = selectedFiles[index];
+      final identity = selectedIdentities[index];
+      session.requireCurrent();
+      final bytes = await file.loadBytes();
+      session.requireCurrent();
+      if (bytes.length != identity.size ||
+          sha256.convert(bytes).toString() != identity.sha256) {
+        throw StateError('The selected file changed while it was uploaded.');
       }
-      ref = ref.copyWith(uploadedFileIds: uploadedIds, status: 'starting');
+      final reserved = await api.request(
+        '/me/files',
+        method: 'POST',
+        headers: session.headers(mutation: true),
+        body: {
+          'purpose': 'content_job',
+          'filename': file.filename,
+          'content_type': file.contentType,
+          'size': bytes.length,
+          'checksum': identity.sha256,
+        },
+      );
+      session.requireCurrent();
+      final fileId = '${reserved['file_id'] ?? reserved['id']}';
+      final putReq = http.Request(
+        'PUT',
+        Uri.parse('${api.base}/me/files/$fileId/content'),
+      );
+      putReq.headers['content-type'] = file.contentType;
+      putReq.headers.addAll(session.headers(mutation: true));
+      putReq.bodyBytes = bytes;
+      session.requireCurrent();
+      final putResp = await http.Response.fromStream(
+        await api.client.send(putReq),
+      );
+      session.requireCurrent();
+      if (putResp.statusCode >= 400) {
+        throw ApiError(putResp.statusCode, 'File upload failed');
+      }
+      uploadedIds.add(fileId);
+      ref = ref.copyWith(uploadedFileIds: uploadedIds, status: 'uploading');
       session.requireCurrent();
       await persistence.saveRef(session.accountId, ref);
       session.requireCurrent();
     }
+
+    ref = ref.copyWith(status: 'starting');
+    session.requireCurrent();
+    await persistence.saveRef(session.accountId, ref);
+    session.requireCurrent();
 
     session.requireCurrent();
     final created = await api.request(
@@ -475,7 +678,14 @@ class ContentJobService {
     }
     final savedDraft = await persistence.loadDraft(session.accountId, noteId);
     session.requireCurrent();
-    if (savedDraft != null) return savedDraft.accepted ? null : savedDraft;
+    if (savedDraft?.jobId == ref.jobId) {
+      return savedDraft!.accepted ? null : savedDraft;
+    }
+    if (_isBackendTerminal(ref.status)) {
+      return _fetchTerminalResult(session, noteId, ref);
+    }
+    final key = _ownerNoteKey(session, noteId);
+    final epoch = _advanceEpoch(key);
 
     final uri = Uri.parse('${api.base}/me/content_jobs/${ref.jobId}/events')
         .replace(
@@ -500,6 +710,10 @@ class ContentJobService {
       await response.stream.listen((_) {}, onError: (Object _) {}).cancel();
       rethrow;
     }
+    if (!_isCurrentEpoch(key, epoch)) {
+      await response.stream.listen((_) {}, onError: (Object _) {}).cancel();
+      return null;
+    }
     if (response.statusCode >= 400) {
       await response.stream.drain<void>();
       session.requireCurrent();
@@ -512,6 +726,7 @@ class ContentJobService {
     if (contentType.toLowerCase().contains('application/json')) {
       final body = await response.stream.bytesToString();
       session.requireCurrent();
+      if (!_isCurrentEpoch(key, epoch)) return null;
       final decoded = jsonDecode(body);
       if (decoded is! Map<String, dynamic>) {
         throw const FormatException('Invalid content job event response.');
@@ -520,6 +735,7 @@ class ContentJobService {
       status = '${decoded['status'] ?? status}';
     } else {
       await for (final frame in _parseContentJobSse(response.stream)) {
+        if (!_isCurrentEpoch(key, epoch)) break;
         session.requireCurrent();
         if (frame.seq <= nextSeq) continue;
         nextSeq = frame.seq;
@@ -529,42 +745,119 @@ class ContentJobService {
           ref.copyWith(lastEventSeq: nextSeq, status: status),
         );
         session.requireCurrent();
+        if (!_isCurrentEpoch(key, epoch)) break;
         onProgress?.call(frame.seq, frame.status);
       }
     }
 
+    if (!_isCurrentEpoch(key, epoch)) return null;
     session.requireCurrent();
     await persistence.saveRef(
       session.accountId,
       ref.copyWith(lastEventSeq: nextSeq, status: status),
     );
     session.requireCurrent();
+    if (!_isCurrentEpoch(key, epoch)) return null;
 
-    if (status == 'completed') {
-      final job = await api.request(
-        '/me/content_jobs/${ref.jobId}',
-        headers: session.headers(mutation: false),
+    if (_isBackendTerminal(status)) {
+      return _fetchTerminalResult(
+        session,
+        noteId,
+        ref.copyWith(lastEventSeq: nextSeq, status: status),
       );
-      session.requireCurrent();
-      final rawDraft = job['draft'];
-      if (job['job_id'] != ref.jobId ||
-          rawDraft is! Map ||
-          rawDraft['format'] != 'markdown' ||
-          rawDraft['text'] is! String ||
-          (rawDraft['text'] as String).trim().isEmpty) {
-        throw const FormatException('Invalid completed content job draft.');
-      }
-      final draft = ContentJobDraft(
-        noteId: noteId,
-        jobId: ref.jobId!,
-        extractedText: rawDraft['text'] as String,
-        accepted: false,
-      );
-      await persistence.saveDraft(session.accountId, draft);
-      session.requireCurrent();
-      return draft;
     }
     return null;
+  }
+
+  Future<ContentJobDraft?> _fetchTerminalResult(
+    TranscriptionSession session,
+    String noteId,
+    ContentJobRef ref,
+  ) async {
+    final job = await api.request(
+      '/me/content_jobs/${ref.jobId}',
+      headers: session.headers(mutation: false),
+    );
+    session.requireCurrent();
+    return _persistTerminalProjection(session, noteId, ref, job);
+  }
+
+  Future<ContentJobDraft?> _persistTerminalProjection(
+    TranscriptionSession session,
+    String noteId,
+    ContentJobRef ref,
+    Map<String, dynamic> job,
+  ) async {
+    if (job['job_id'] != ref.jobId || job['status'] is! String) {
+      throw const FormatException('Invalid content job result.');
+    }
+    final status = job['status'] as String;
+    if (!_isBackendTerminal(status)) {
+      throw const FormatException('Content job response is not terminal.');
+    }
+    final rawError = job['error'];
+    final errorCode = rawError is Map && rawError['code'] is String
+        ? rawError['code'] as String
+        : null;
+    final errorMessage = rawError is Map && rawError['message'] is String
+        ? rawError['message'] as String
+        : null;
+    final nextRef = ref.copyWith(
+      status: status,
+      lastEventSeq: (job['event_cursor'] as num?)?.toInt() ?? ref.lastEventSeq,
+      errorCode: errorCode,
+      errorMessage: errorMessage,
+      clearError: errorCode == null && errorMessage == null,
+    );
+    await persistence.saveRef(session.accountId, nextRef);
+    session.requireCurrent();
+
+    final rawDraft = job['draft'];
+    if (rawDraft == null) return null;
+    if (rawDraft is! Map ||
+        rawDraft['format'] != 'markdown' ||
+        rawDraft['text'] is! String) {
+      throw const FormatException('Invalid content job draft.');
+    }
+    final text = rawDraft['text'] as String;
+    if (text.trim().isEmpty) return null;
+    final draft = ContentJobDraft(
+      noteId: noteId,
+      jobId: ref.jobId!,
+      extractedText: text,
+      accepted: false,
+    );
+    await persistence.saveDraft(session.accountId, draft);
+    session.requireCurrent();
+    return draft;
+  }
+
+  /// Cancels only this owner's active job. The server returns its durable
+  /// terminal projection, including any partial draft; the shared HTTP client
+  /// is never closed or otherwise modified.
+  Future<ContentJobDraft?> cancelJob(String noteId) async {
+    if (!enabled) throw StateError('Cortex content jobs are disabled.');
+    final session = await _verifiedSession();
+    final ref = await persistence.loadRef(session.accountId, noteId);
+    session.requireCurrent();
+    if (ref?.jobId == null) return null;
+    if (_isBackendTerminal(ref!.status)) {
+      return _fetchTerminalResult(session, noteId, ref);
+    }
+    final key = _ownerNoteKey(session, noteId);
+    _advanceEpoch(key);
+    session.requireCurrent();
+    final response = await api.request(
+      '/me/content_jobs/${ref.jobId}/execution',
+      method: 'DELETE',
+      headers: session.headers(mutation: true),
+    );
+    session.requireCurrent();
+    if (response['job_id'] != ref.jobId) {
+      throw const FormatException('Invalid content job cancellation result.');
+    }
+    // DELETE returns the same owner-scoped durable projection as GET detail.
+    return _persistTerminalProjection(session, noteId, ref, response);
   }
 
   Future<TranscriptionSession> _verifiedSession() async {
@@ -583,7 +876,10 @@ class ContentJobService {
     session.requireCurrent();
     final draft = await persistence.loadDraft(session.accountId, noteId);
     session.requireCurrent();
-    return ContentJobReviewState(ref: ref, draft: draft);
+    return ContentJobReviewState(
+      ref: ref,
+      draft: draft?.jobId == ref?.jobId ? draft : null,
+    );
   }
 
   /// Marks a result as inserted into the local note. The draft remains
