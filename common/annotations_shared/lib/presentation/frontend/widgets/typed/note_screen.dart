@@ -485,10 +485,12 @@ class _StudySourceLineState extends State<_StudySourceLine> {
   Future<void> _refreshSource() async {
     final generation = ++_requestGeneration;
     final source = widget.source;
-    setState(() {
-      _publicSource = null;
-      _unavailable = false;
-    });
+    if (_publicSource != null || _unavailable) {
+      setState(() {
+        _publicSource = null;
+        _unavailable = false;
+      });
+    }
     try {
       final note = await DiscoveryReaderAdapter(
         AppScope.of(context).service.api,
