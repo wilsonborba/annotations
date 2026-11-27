@@ -687,6 +687,23 @@ void main() {
         expect(find.byKey(const Key('phone-frame')), findsNothing);
         expect(find.byKey(const Key('showcase-switch')), findsNothing);
         expect(find.byType(Image), findsNothing);
+        final notesSemantics = tester.widget<Semantics>(
+          find
+              .ancestor(
+                of: find.byKey(const Key('sketch-notes')),
+                matching: find.byWidgetPredicate(
+                  (widget) =>
+                      widget is Semantics &&
+                      widget.properties.label?.isNotEmpty == true,
+                ),
+              )
+              .first,
+        );
+        expect(notesSemantics.properties.image, isTrue);
+        expect(
+          notesSemantics.properties.label,
+          translate('modeNotesTitle', 'en'),
+        );
         expect(
           tester.getSize(find.byKey(const Key('sketch-notes'))).width,
           390,
@@ -695,6 +712,23 @@ void main() {
         expect(showcase.platform, ShowcasePlatform.linux);
         expect(find.byKey(const Key('sketch-writing')), findsOneWidget);
         expect(find.byType(Image), findsNothing);
+        final writingSemantics = tester.widget<Semantics>(
+          find
+              .ancestor(
+                of: find.byKey(const Key('sketch-writing')),
+                matching: find.byWidgetPredicate(
+                  (widget) =>
+                      widget is Semantics &&
+                      widget.properties.label?.isNotEmpty == true,
+                ),
+              )
+              .first,
+        );
+        expect(writingSemantics.properties.image, isTrue);
+        expect(
+          writingSemantics.properties.label,
+          translate('featureF02Title', 'en'),
+        );
         await tester.pumpWidget(const SizedBox());
       },
     );

@@ -225,8 +225,15 @@ class ProductShowcaseState extends State<ProductShowcase> {
         ShowcasePlatform.linux => SketchScene.writing,
         ShowcasePlatform.browser => SketchScene.tasks,
       };
+      final sceneLabel = switch (scene) {
+        SketchScene.notes => 'modeNotesTitle',
+        SketchScene.writing => 'featureF02Title',
+        SketchScene.tasks => 'featureF09Title',
+        _ => 'modeNotesTitle',
+      };
       return Semantics(
-        label: context.tr('showcaseLabel'),
+        image: true,
+        label: context.tr(sceneLabel),
         container: true,
         child: Center(
           child: ConstrainedBox(
