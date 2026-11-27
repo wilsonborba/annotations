@@ -88,6 +88,9 @@ const _schemaSteps = [
   // NotesUI51: retain only the owner-scoped prepared study id. The setup stays
   // in Certifications and clears when the trusted note identity/revision changes.
   'ALTER TABLE notes ADD COLUMN prepared_study_id TEXT;',
+  // Notes61: keep a public Typed source reference outside note content so it
+  // survives autosaves, restart, offline use, and source unpublication.
+  'ALTER TABLE notes ADD COLUMN study_source TEXT;',
 ];
 
 /// A stable 64-bit hash of an item body, to find changed items: FNV-1a and
@@ -106,7 +109,8 @@ int _hash(String body) {
 /// the same file system, so the rename to the final name is atomic.
 const _partialFolder = '.partial';
 
-final class SqliteNoteStore implements DeletableLocalNoteStore {
+final class SqliteNoteStore
+    implements DeletableLocalNoteStore, StudySourceMetadataStore {
   SqliteNoteStore._(this._db, this._files);
 
   final Database _db;
@@ -235,6 +239,11 @@ final class SqliteNoteStore implements DeletableLocalNoteStore {
       serverOriginalRevisionId: row['server_original_revision_id'] as String?,
       serverTypedRevisionId: row['server_typed_revision_id'] as String?,
       preparedStudyId: row['prepared_study_id'] as String?,
+      studySource: row['study_source'] == null
+          ? null
+          : StudySourceReference.fromJson(
+              jsonDecode(row['study_source'] as String) as Map<String, dynamic>,
+            ),
       isConflictCopy: row['is_conflict_copy'] == 1,
     );
   }
@@ -243,6 +252,21 @@ final class SqliteNoteStore implements DeletableLocalNoteStore {
   Future<LocalNote?> load(String id) async {
     final rows = _db.select('SELECT * FROM notes WHERE id = ?', [id]);
     return rows.isEmpty ? null : _note(rows.first);
+  }
+
+  @override
+  Future<void> setStudySourceRelationAttached(String id, bool attached) async {
+    final rows = _db.select('SELECT study_source FROM notes WHERE id = ?', [
+      id,
+    ]);
+    if (rows.isEmpty || rows.first['study_source'] == null) return;
+    final source = StudySourceReference.fromJson(
+      jsonDecode(rows.first['study_source'] as String) as Map<String, dynamic>,
+    );
+    _db.execute('UPDATE notes SET study_source = ? WHERE id = ?', [
+      jsonEncode(source.copyWith(relationAttached: attached).toJson()),
+      id,
+    ]);
   }
 
   @override
@@ -297,8 +321,8 @@ final class SqliteNoteStore implements DeletableLocalNoteStore {
         '''
         INSERT INTO notes (id, family, schema_version, document, title,
           revision, created_at, updated_at, sync_state, account_id,
-          is_conflict_copy)
-        VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)
+          is_conflict_copy, study_source)
+        VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)
         ON CONFLICT (id) DO UPDATE SET
           family = excluded.family,
           schema_version = excluded.schema_version,
@@ -307,7 +331,8 @@ final class SqliteNoteStore implements DeletableLocalNoteStore {
           revision = notes.revision + 1,
           updated_at = excluded.updated_at,
           sync_state = CASE notes.sync_state
-            WHEN ? THEN ? ELSE notes.sync_state END
+            WHEN ? THEN ? ELSE notes.sync_state END,
+          study_source = COALESCE(notes.study_source, excluded.study_source)
         ''',
         [
           draft.id,
@@ -320,6 +345,9 @@ final class SqliteNoteStore implements DeletableLocalNoteStore {
           LocalSyncState.local.code,
           draft.accountId,
           draft.isConflictCopy ? 1 : 0,
+          draft.studySource == null
+              ? null
+              : jsonEncode(draft.studySource!.toJson()),
           LocalSyncState.synced.code,
           LocalSyncState.changed.code,
         ],

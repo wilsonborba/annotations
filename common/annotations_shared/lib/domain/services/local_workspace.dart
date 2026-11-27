@@ -44,15 +44,35 @@ class LocalWorkspace {
   bool get typedOnly => profile == PlatformProfile.phone;
 
   /// Creates an empty, untitled note and returns its id.
-  Future<String> createNote() async {
+  Future<String> createNote() => _createNote(typedOnly ? _typed : _original);
+
+  /// Creates a separate blank Original linked to an already published Typed
+  /// note. The source page itself is never modified.
+  Future<String> createHandwrittenStudy(StudySourceReference source) async {
+    if (profile != PlatformProfile.fullWriter) {
+      throw StateError('Handwritten studies require the full writer.');
+    }
+    if (source.noteId.length > 128 ||
+        source.noteId.isEmpty ||
+        !source.noteId.codeUnits.every(
+          (unit) => unit >= 0x21 && unit <= 0x7e,
+        )) {
+      throw ArgumentError.value(source.noteId, 'source.noteId');
+    }
+    return _createNote(_original, studySource: source);
+  }
+
+  Future<String> _createNote(
+    DocumentSchema schema, {
+    StudySourceReference? studySource,
+  }) async {
     final rng = Random.secure();
     final id = List.generate(
       16,
       (_) => rng.nextInt(256).toRadixString(16).padLeft(2, '0'),
     ).join();
-    final schema = typedOnly ? _typed : _original;
     final document = NoteDocument.fromJson(
-      typedOnly
+      schema.family == DocumentFamily.typed
           ? {'blocks': <Object>[]}
           : {
               'page': {
@@ -68,7 +88,12 @@ class LocalWorkspace {
       schema: schema,
     );
     await store.save(
-      LocalNoteDraft(id: id, schema: schema, document: document),
+      LocalNoteDraft(
+        id: id,
+        schema: schema,
+        document: document,
+        studySource: studySource,
+      ),
     );
     return id;
   }

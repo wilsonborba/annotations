@@ -429,6 +429,8 @@ class NoteSyncService {
         'main_representation': repKey,
         if (note.title != null && note.title!.trim().isNotEmpty)
           'metadata': {'title': note.title},
+        if (note.studySource != null)
+          'study_source_note_id': note.studySource!.noteId,
         'representations': {
           repKey: {
             'schema_version': note.schema.version,
@@ -466,13 +468,35 @@ class NoteSyncService {
     }
 
     try {
-      final resp = await api.request(
-        path,
-        method: method,
-        body: payload,
-        headers: headers,
-        compress: true,
-      );
+      Map<String, dynamic> resp;
+      try {
+        resp = await api.request(
+          path,
+          method: method,
+          body: payload,
+          headers: headers,
+          compress: true,
+        );
+      } on ApiError catch (err) {
+        // The API validates study_source_note_id before reserving/creating a
+        // note. If the public source disappeared while this study was offline,
+        // retry once with the same note id and document, dropping only the
+        // optional remote relation. The local source reference stays intact.
+        if (!isFirstUpload ||
+            note.studySource == null ||
+            err.details?['code'] != 'study_source_unavailable') {
+          rethrow;
+        }
+        final contentOnly = Map<String, dynamic>.of(payload)
+          ..remove('study_source_note_id');
+        resp = await api.request(
+          path,
+          method: method,
+          body: contentOnly,
+          headers: headers,
+          compress: true,
+        );
+      }
       final serverNoteId = knownServerNoteId ?? _requireServerNoteId(resp);
       final serverRev = (resp['revision'] as num?)?.toInt();
       final (origRevId, typedRevId) = _parseRevisions(resp);
@@ -485,6 +509,19 @@ class NoteSyncService {
         serverOriginalRevisionId: origRevId,
         serverTypedRevisionId: typedRevId,
       );
+      if (isFirstUpload && note.studySource != null) {
+        final responseSource = resp['study_source'];
+        final relationAttached =
+            responseSource is Map &&
+            responseSource['note_id'] == note.studySource!.noteId;
+        if (store is StudySourceMetadataStore) {
+          final metadataStore = store as StudySourceMetadataStore;
+          await metadataStore.setStudySourceRelationAttached(
+            note.id,
+            relationAttached,
+          );
+        }
+      }
       final updated = (await store.load(note.id)) ?? note;
       return SyncResult.synced(localNote: updated, serverRevision: serverRev);
     } on ApiError catch (err) {

@@ -119,3 +119,9 @@ abstract interface class LocalNoteStore implements EditorFiles {
   /// Closes the store. Pending saves must finish first.
   Future<void> close();
 }
+
+/// Optional metadata-only capability for stores that persist source-link
+/// delivery separately from paper content and autosave revision numbers.
+abstract interface class StudySourceMetadataStore {
+  Future<void> setStudySourceRelationAttached(String id, bool attached);
+}
