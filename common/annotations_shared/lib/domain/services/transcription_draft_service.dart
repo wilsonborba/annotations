@@ -837,6 +837,8 @@ class TranscriptionDraftService {
       ),
       sourceNoteId: noteId,
       targetOwnerId: targetOwnerId,
+      expectedSourceRevision: orig.revision,
+      expectedServerSourceRevisionId: orig.serverOriginalRevisionId,
     );
   }
 }

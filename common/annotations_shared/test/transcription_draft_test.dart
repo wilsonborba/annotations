@@ -679,4 +679,85 @@ void main() {
       }
     },
   );
+
+  test(
+    'accept rejects an Original revision that changes after it is loaded',
+    () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'annotations_46_typed_source_race_',
+      );
+      final store = await SqliteNoteStore.open('${tempDir.path}/notes');
+      try {
+        final source = await store.save(
+          LocalNoteDraft(
+            id: 'changing-original',
+            schema: origSchema,
+            document:
+                NoteDocument.fromJson({
+                      'page': {
+                        'width': 1000,
+                        'background': {'kind': 'blank'},
+                      },
+                      'items': [handwriting(93)],
+                    }, schema: origSchema)
+                    as OriginalDocument,
+            title: 'Original',
+          ),
+        );
+        final drafts = TranscriptionDraftService(
+          persistenceFile: File('${tempDir.path}/drafts.json'),
+        );
+        drafts.saveDraft(
+          noteId: source.id,
+          accountId: 'owner-a',
+          runId: 'run-a',
+          sourceRevision: source.revision,
+          passages: const [
+            TranscriptionPassage(
+              partId: 'source-part',
+              sourceHash: 'source-hash',
+              y: 1,
+              x: 1,
+              kind: TranscriptionPassageKind.text,
+              text: 'Stale transcription',
+            ),
+          ],
+        );
+
+        final pendingAccept = drafts.acceptToTypedNote(
+          source.id,
+          store: store,
+          accountId: 'owner-a',
+        );
+        final changedDocument =
+            NoteDocument.fromJson({
+                  'page': {
+                    'width': 1000,
+                    'background': {'kind': 'blank'},
+                  },
+                  'items': [handwriting(94)],
+                }, schema: origSchema)
+                as OriginalDocument;
+        final updatedSource = await store.save(
+          LocalNoteDraft(
+            id: source.id,
+            schema: origSchema,
+            document: changedDocument,
+            title: 'Original',
+          ),
+        );
+        expect(updatedSource.revision, source.revision + 1);
+
+        await expectLater(pendingAccept, throwsStateError);
+        expect(await store.load('${source.id}__typed'), isNull);
+        expect(
+          (await store.load(source.id))!.document.toJson(),
+          changedDocument.toJson(),
+        );
+      } finally {
+        await store.close();
+        if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
+      }
+    },
+  );
 }

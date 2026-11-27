@@ -286,16 +286,22 @@ final class SqliteNoteStore
     LocalNoteDraft draft, {
     required String sourceNoteId,
     required String? targetOwnerId,
+    required int expectedSourceRevision,
+    required String? expectedServerSourceRevisionId,
   }) => _save(
     draft,
     expectedTypedSourceNoteId: sourceNoteId,
     typedTargetOwnerId: targetOwnerId,
+    expectedOriginalLocalRevision: expectedSourceRevision,
+    expectedOriginalServerRevisionId: expectedServerSourceRevisionId,
   );
 
   Future<LocalNote> _save(
     LocalNoteDraft draft, {
     String? expectedTypedSourceNoteId,
     String? typedTargetOwnerId,
+    int? expectedOriginalLocalRevision,
+    String? expectedOriginalServerRevisionId,
   }) async {
     final document = draft.document;
     final List<(String, String, int)>? items;
@@ -320,6 +326,25 @@ final class SqliteNoteStore
     final now = DateTime.now().millisecondsSinceEpoch;
     _transaction(_db, () {
       if (expectedTypedSourceNoteId != null) {
+        final sourceRows = _db.select(
+          'SELECT revision, account_id, server_original_revision_id FROM notes WHERE id = ?',
+          [expectedTypedSourceNoteId],
+        );
+        if (sourceRows.isEmpty) {
+          throw StateError('The Original note is unavailable.');
+        }
+        final source = sourceRows.first;
+        final sourceOwnerId = source['account_id'] as String?;
+        if (source['revision'] != expectedOriginalLocalRevision ||
+            source['server_original_revision_id'] !=
+                expectedOriginalServerRevisionId) {
+          throw StateError(
+            'The Original changed; review its updated source first.',
+          );
+        }
+        if (sourceOwnerId != null && sourceOwnerId != typedTargetOwnerId) {
+          throw StateError('Original note is unavailable for this owner.');
+        }
         final existing = _db.select(
           'SELECT account_id, transcription_source_note_id FROM notes WHERE id = ?',
           [draft.id],

@@ -127,5 +127,7 @@ abstract interface class AtomicTypedNoteStore {
     LocalNoteDraft draft, {
     required String sourceNoteId,
     required String? targetOwnerId,
+    required int expectedSourceRevision,
+    required String? expectedServerSourceRevisionId,
   });
 }
