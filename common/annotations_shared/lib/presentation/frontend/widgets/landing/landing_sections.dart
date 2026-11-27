@@ -219,6 +219,38 @@ class ProductShowcaseState extends State<ProductShowcase> {
     final dark = context.colors.isDark;
     final phone = isPhone(context);
     final still = MediaQuery.of(context).disableAnimations;
+    if (phone) {
+      final scene = switch (platform) {
+        ShowcasePlatform.mac => SketchScene.notes,
+        ShowcasePlatform.linux => SketchScene.writing,
+        ShowcasePlatform.browser => SketchScene.tasks,
+      };
+      final sceneLabel = switch (scene) {
+        SketchScene.notes => 'modeNotesTitle',
+        SketchScene.writing => 'featureF02Title',
+        SketchScene.tasks => 'featureF09Title',
+        _ => 'modeNotesTitle',
+      };
+      return Semantics(
+        image: true,
+        label: context.tr(sceneLabel),
+        container: true,
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 720),
+            child: AspectRatio(
+              aspectRatio: 400 / 260,
+              child: AnimatedSwitcher(
+                duration: still
+                    ? Duration.zero
+                    : const Duration(milliseconds: 450),
+                child: SketchArt(scene, key: ValueKey(scene)),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
     final shot = platform == ShowcasePlatform.browser
         ? browserShot
         : desktopShot;
@@ -269,14 +301,14 @@ class ProductShowcaseState extends State<ProductShowcase> {
               const SizedBox(height: 28),
               LayoutBuilder(
                 builder: (context, c) {
-                  final phoneWidth = phone ? c.maxWidth * .3 : c.maxWidth * .2;
+                  final phoneWidth = c.maxWidth * .2;
                   return Stack(
                     clipBehavior: Clip.none,
                     children: [
                       Padding(
                         padding: EdgeInsets.only(
-                          right: phone ? phoneWidth * .45 : phoneWidth * .55,
-                          bottom: phone ? 40 : 56,
+                          right: phoneWidth * .55,
+                          bottom: 56,
                         ),
                         child: AspectRatio(
                           aspectRatio: desktopShot.ratio * .94,

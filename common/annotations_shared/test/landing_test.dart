@@ -648,9 +648,11 @@ void main() {
     Future<ProductShowcaseState> pumpShowcase(
       WidgetTester tester, {
       bool still = false,
+      double width = 1300,
+      double height = 1200,
     }) async {
       tester.view.devicePixelRatio = 1;
-      tester.view.physicalSize = const Size(1300, 1200);
+      tester.view.physicalSize = Size(width, height);
       addTearDown(tester.view.reset);
       if (still) stillMotion(tester);
       await tester.pumpWidget(
@@ -673,6 +675,78 @@ void main() {
       final phone = tester.getRect(find.byKey(const Key('phone-frame')));
       expect(window.overlaps(phone), isTrue);
       expect(phone.right, greaterThan(window.right));
+      await tester.pumpWidget(const SizedBox());
+    });
+
+    testWidgets(
+      'phone uses a full-width drawn note animation, not device shots',
+      (tester) async {
+        final showcase = await pumpShowcase(tester, width: 390, height: 844);
+        expect(find.byKey(const Key('sketch-notes')), findsOneWidget);
+        expect(find.byKey(const Key('window-mac')), findsNothing);
+        expect(find.byKey(const Key('phone-frame')), findsNothing);
+        expect(find.byKey(const Key('showcase-switch')), findsNothing);
+        expect(find.byType(Image), findsNothing);
+        final notesSemantics = tester.widget<Semantics>(
+          find
+              .ancestor(
+                of: find.byKey(const Key('sketch-notes')),
+                matching: find.byWidgetPredicate(
+                  (widget) =>
+                      widget is Semantics &&
+                      widget.properties.label?.isNotEmpty == true,
+                ),
+              )
+              .first,
+        );
+        expect(notesSemantics.properties.image, isTrue);
+        expect(
+          notesSemantics.properties.label,
+          translate('modeNotesTitle', 'en'),
+        );
+        expect(
+          tester.getSize(find.byKey(const Key('sketch-notes'))).width,
+          390,
+        );
+        await tester.pump(const Duration(seconds: 2));
+        expect(showcase.platform, ShowcasePlatform.linux);
+        expect(find.byKey(const Key('sketch-writing')), findsOneWidget);
+        expect(find.byType(Image), findsNothing);
+        final writingSemantics = tester.widget<Semantics>(
+          find
+              .ancestor(
+                of: find.byKey(const Key('sketch-writing')),
+                matching: find.byWidgetPredicate(
+                  (widget) =>
+                      widget is Semantics &&
+                      widget.properties.label?.isNotEmpty == true,
+                ),
+              )
+              .first,
+        );
+        expect(writingSemantics.properties.image, isTrue);
+        expect(
+          writingSemantics.properties.label,
+          translate('featureF02Title', 'en'),
+        );
+        await tester.pumpWidget(const SizedBox());
+      },
+    );
+
+    testWidgets('phone illustration stays still under reduced motion', (
+      tester,
+    ) async {
+      final showcase = await pumpShowcase(
+        tester,
+        still: true,
+        width: 390,
+        height: 844,
+      );
+      await tester.pump(const Duration(seconds: 10));
+      expect(showcase.platform, ShowcasePlatform.mac);
+      expect(find.byKey(const Key('sketch-notes')), findsOneWidget);
+      expect(find.byKey(const Key('sketch-writing')), findsNothing);
+      expect(find.byType(Image), findsNothing);
       await tester.pumpWidget(const SizedBox());
     });
 
