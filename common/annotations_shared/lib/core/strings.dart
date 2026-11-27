@@ -140,6 +140,117 @@ const strings = <String, List<String>>{
     'จำนวนคำถาม',
   ],
   'quizTitle': ['Study title', 'Título do estudo', 'ชื่อการศึกษา'],
+  // Local handwriting transcription review (held behind its release switch).
+  'transcriptionTitle': [
+    'Review handwriting',
+    'Revisar escrita à mão',
+    'ตรวจทานลายมือ',
+  ],
+  'transcriptionConvert': [
+    'Convert handwriting',
+    'Converter escrita à mão',
+    'แปลงลายมือ',
+  ],
+  'transcriptionChooseSource': [
+    'Choose the note parts to convert',
+    'Escolha as partes da anotação para converter',
+    'เลือกส่วนของบันทึกที่จะแปลง',
+  ],
+  'transcriptionChooseModel': [
+    'Choose a model',
+    'Escolher modelo',
+    'เลือกโมเดล',
+  ],
+  'transcriptionModel': ['Model', 'Modelo', 'โมเดล'],
+  'transcriptionDownloading': [
+    'Downloading the verified model…',
+    'Baixando o modelo verificado…',
+    'กำลังดาวน์โหลดโมเดลที่ตรวจสอบแล้ว…',
+  ],
+  'transcriptionResuming': [
+    'Resuming the saved draft…',
+    'Retomando o rascunho salvo…',
+    'กำลังเปิดฉบับร่างที่บันทึกไว้…',
+  ],
+  'transcriptionResumeFailed': [
+    'The saved draft could not be resumed.',
+    'Não foi possível retomar o rascunho salvo.',
+    'เปิดฉบับร่างที่บันทึกไว้ไม่ได้',
+  ],
+  'transcriptionModelsFailed': [
+    'Available models could not be loaded.',
+    'Não foi possível carregar os modelos disponíveis.',
+    'โหลดโมเดลที่ใช้ได้ไม่สำเร็จ',
+  ],
+  'transcriptionConvertFailed': [
+    'The conversion did not finish. Your saved draft is unchanged.',
+    'A conversão não terminou. O rascunho salvo não foi alterado.',
+    'แปลงไม่สำเร็จ ฉบับร่างที่บันทึกไว้ไม่เปลี่ยนแปลง',
+  ],
+  'transcriptionFeedbackFailed': [
+    'Your change is saved and will be retried when you review it again.',
+    'Sua alteração foi salva e poderá ser reenviada ao retomar a revisão.',
+    'บันทึกการแก้ไขแล้ว ระบบจะลองส่งอีกครั้งเมื่อกลับมาตรวจทาน',
+  ],
+  'transcriptionRetryFeedback': [
+    'Retry saved feedback',
+    'Tentar enviar o feedback salvo',
+    'ลองส่งผลตอบรับที่บันทึกไว้อีกครั้ง',
+  ],
+  'transcriptionAcceptFailed': [
+    'The Typed note could not be saved. The Original is unchanged.',
+    'Não foi possível salvar a anotação digitada. A Original não foi alterada.',
+    'บันทึกโน้ตแบบพิมพ์ไม่ได้ ต้นฉบับไม่เปลี่ยนแปลง',
+  ],
+  'transcriptionSourceChanged': [
+    'The Original note changed. Review the updated source before accepting.',
+    'A anotação Original mudou. Revise a fonte atualizada antes de aceitar.',
+    'ต้นฉบับมีการเปลี่ยนแปลง โปรดตรวจทานแหล่งข้อมูลก่อนยอมรับ',
+  ],
+  'transcriptionSessionChanged': [
+    'This account session changed. Reopen the note to continue.',
+    'A sessão da conta mudou. Abra a anotação novamente para continuar.',
+    'เซสชันบัญชีเปลี่ยนแล้ว เปิดบันทึกอีกครั้งเพื่อดำเนินการต่อ',
+  ],
+  'transcriptionReviewSaved': [
+    'Saved draft. Review each passage before accepting.',
+    'Rascunho salvo. Revise cada trecho antes de aceitar.',
+    'บันทึกฉบับร่างแล้ว ตรวจทานแต่ละส่วนก่อนยอมรับ',
+  ],
+  'transcriptionUncertain': [
+    'Needs review',
+    'Precisa de revisão',
+    'ต้องตรวจทาน',
+  ],
+  'transcriptionResult': [
+    'Recognized text',
+    'Texto reconhecido',
+    'ข้อความที่รู้จำได้',
+  ],
+  'transcriptionAcceptText': ['Accept text', 'Aceitar texto', 'ยอมรับข้อความ'],
+  'transcriptionTextAccepted': [
+    'Text accepted',
+    'Texto aceito',
+    'ยอมรับข้อความแล้ว',
+  ],
+  'transcriptionKeepInk': [
+    'Keep handwriting',
+    'Manter escrita à mão',
+    'เก็บลายมือไว้',
+  ],
+  'transcriptionKeptAsInk': [
+    'Handwriting will stay in the Typed note.',
+    'A escrita à mão será mantida na anotação digitada.',
+    'ลายมือจะอยู่ในโน้ตแบบพิมพ์',
+  ],
+  'transcriptionMoveUp': ['Move up', 'Mover para cima', 'เลื่อนขึ้น'],
+  'transcriptionMoveDown': ['Move down', 'Mover para baixo', 'เลื่อนลง'],
+  'transcriptionAcceptTyped': [
+    'Accept as Typed note',
+    'Aceitar como anotação digitada',
+    'ยอมรับเป็นโน้ตแบบพิมพ์',
+  ],
+  'transcriptionCancel': ['Cancel', 'Cancelar', 'ยกเลิก'],
   'quizOriginal': [
     'Original note text only',
     'Somente texto da anotação original',

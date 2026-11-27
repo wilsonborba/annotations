@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart' show kDebugMode, visibleForTesting;
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -39,12 +40,22 @@ import '../../components/reports_search_dialog.dart';
 import '../../components/reports_create_dialog.dart';
 import '../../components/task_card_picker.dart';
 import '../typed/note_screen.dart';
+import 'transcription_review_page.dart';
 
 /// `/v1/write/<id>`: one local note in the editor of this platform.
 class NoteEditorPage extends StatefulWidget {
-  const NoteEditorPage({super.key, required this.noteId});
+  const NoteEditorPage({
+    super.key,
+    required this.noteId,
+    this.transcriptionReviewForTesting,
+  });
 
   final String noteId;
+
+  /// Fixture-only injection while no reviewed runtime is released. The
+  /// production entry remains hidden with [FeatureSwitches.transcription].
+  @visibleForTesting
+  final TranscriptionReviewAccess? transcriptionReviewForTesting;
 
   @override
   State<NoteEditorPage> createState() => _NoteEditorPageState();
@@ -910,6 +921,64 @@ class _NoteEditorPageState extends State<NoteEditorPage>
         session.verifiedUserId == note.accountId;
   }
 
+  Future<void> _openTranscriptionReview() async {
+    final access = widget.transcriptionReviewForTesting;
+    final handler = _handler;
+    final noteBefore = _note;
+    final installed = _installed;
+    final session = installed?.activeSession;
+    final workspace = AppScope.of(context).workspace;
+    final generation = _openGeneration;
+    if (access == null ||
+        handler == null ||
+        noteBefore == null ||
+        workspace == null ||
+        installed == null ||
+        session == null ||
+        !_hasTrustedOwnerSession() ||
+        noteBefore.document.schema.family != DocumentFamily.original) {
+      return;
+    }
+    bool isCurrent() =>
+        mounted &&
+        generation == _openGeneration &&
+        identical(handler, _handler) &&
+        identical(noteBefore, _note) &&
+        identical(installed, _installed) &&
+        identical(session, installed.activeSession) &&
+        identical(workspace, AppScope.of(context).workspace) &&
+        installed.signedIn &&
+        session.verifiedUserId == noteBefore.accountId &&
+        noteBefore.accountId == installed.userId &&
+        noteBefore.accountId == installed.localOwnerId;
+
+    if (!isCurrent()) return;
+    await handler.autosave.flush();
+    if (!isCurrent()) return;
+    final currentNote = await workspace.loadNoteForAccount(
+      noteBefore.id,
+      installed.localOwnerId,
+    );
+    if (!mounted ||
+        !isCurrent() ||
+        currentNote == null ||
+        currentNote.accountId != noteBefore.accountId) {
+      return;
+    }
+    await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (context) => TranscriptionReviewPage(
+          note: currentNote,
+          access: access,
+          store: workspace.store,
+          ownerAccountId: noteBefore.accountId!,
+          initialSelectedItemIds: handler.selection.value.ids,
+          isOwnerScopeCurrent: isCurrent,
+        ),
+      ),
+    );
+  }
+
   ReportsEmbedSource? _reportsSourceFor(
     LocalNote note,
     InstalledAccount? installed,
@@ -1163,6 +1232,12 @@ class _NoteEditorPageState extends State<NoteEditorPage>
     final workspace = scope.workspace;
     final handler = _handler;
     final note = _note;
+    final transcriptionAccess = widget.transcriptionReviewForTesting;
+    final transcriptionEntryVisible =
+        transcriptionAccess != null &&
+        (FeatureSwitches.transcription || kDebugMode) &&
+        note?.document.schema.family == DocumentFamily.original &&
+        _hasTrustedOwnerSession();
     final reportsSource = note == null
         ? null
         : _reportsSourceFor(note, _installed);
@@ -1200,6 +1275,15 @@ class _NoteEditorPageState extends State<NoteEditorPage>
                             ? context.tr('prepareQuiz')
                             : context.tr('continueQuiz'),
                         onPressed: _preparingQuiz ? null : _prepareQuiz,
+                      ),
+                    ),
+                  if (transcriptionEntryVisible)
+                    track(
+                      'workspace.note.convert_handwriting',
+                      AppButton(
+                        key: const Key('editor-convert-handwriting'),
+                        label: context.tr('transcriptionConvert'),
+                        onPressed: _openTranscriptionReview,
                       ),
                     ),
                   if (handler != null && workspace != null)
