@@ -485,4 +485,101 @@ void main() {
       }
     },
   );
+
+  test(
+    'another owner cannot overwrite a Typed pair for the same unbound Original',
+    () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'annotations_46_typed_owner_',
+      );
+      final store = await SqliteNoteStore.open('${tempDir.path}/notes');
+      try {
+        final originalDocument =
+            NoteDocument.fromJson({
+                  'page': {
+                    'width': 1000,
+                    'background': {'kind': 'blank'},
+                  },
+                  'items': [handwriting(91)],
+                }, schema: origSchema)
+                as OriginalDocument;
+        final original = await store.save(
+          LocalNoteDraft(
+            id: 'shared-local-original',
+            schema: origSchema,
+            document: originalDocument,
+            title: 'Original',
+          ),
+        );
+        final originalBytes = jsonEncode(original.document.toJson());
+        final drafts = TranscriptionDraftService(
+          persistenceFile: File('${tempDir.path}/drafts.json'),
+        );
+        void savePassage(String owner, String text) {
+          drafts.saveDraft(
+            noteId: original.id,
+            accountId: owner,
+            runId: 'run-$owner',
+            sourceRevision: original.revision,
+            passages: [
+              TranscriptionPassage(
+                partId: 'transcribed-part',
+                sourceHash: 'source-part-hash',
+                y: 1,
+                x: 1,
+                kind: TranscriptionPassageKind.text,
+                text: text,
+              ),
+            ],
+          );
+        }
+
+        savePassage('owner-a', 'Owner A typed text');
+        final typedByA = await drafts.acceptToTypedNote(
+          original.id,
+          store: store,
+          accountId: 'owner-a',
+        );
+        expect(typedByA.accountId, 'owner-a');
+        expect(typedByA.transcriptionSourceNoteId, original.id);
+        final typedBytesBeforeB = jsonEncode(typedByA.document.toJson());
+        final typedRevisionBeforeB = typedByA.revision;
+
+        savePassage('owner-b', 'Owner B must not replace this');
+        await expectLater(
+          drafts.acceptToTypedNote(
+            original.id,
+            store: store,
+            accountId: 'owner-b',
+          ),
+          throwsStateError,
+        );
+
+        final typedAfterB = (await store.load(typedByA.id))!;
+        expect(typedAfterB.accountId, 'owner-a');
+        expect(typedAfterB.revision, typedRevisionBeforeB);
+        expect(jsonEncode(typedAfterB.document.toJson()), typedBytesBeforeB);
+        final originalAfterB = (await store.load(original.id))!;
+        expect(originalAfterB.accountId, isNull);
+        expect(jsonEncode(originalAfterB.document.toJson()), originalBytes);
+
+        savePassage('owner-a', 'Owner A updated their Typed text');
+        final typedUpdatedByA = await drafts.acceptToTypedNote(
+          original.id,
+          store: store,
+          accountId: 'owner-a',
+        );
+        expect(typedUpdatedByA.accountId, 'owner-a');
+        expect(typedUpdatedByA.transcriptionSourceNoteId, original.id);
+        expect(typedUpdatedByA.revision, typedRevisionBeforeB + 1);
+        expect(
+          (await store.load(original.id))!.document.toJson(),
+          original.document.toJson(),
+        );
+      } finally {
+        await store.close();
+        if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
+      }
+    },
+  );
 }

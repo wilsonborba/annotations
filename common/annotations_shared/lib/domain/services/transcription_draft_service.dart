@@ -821,6 +821,11 @@ class TranscriptionDraftService {
         existingTyped.transcriptionSourceNoteId != noteId) {
       throw StateError('The Typed note id is already used by another note.');
     }
+    final targetOwnerId = orig.accountId ?? draft.accountId ?? accountId;
+    final existingTypedOwnerId = existingTyped?.accountId;
+    if (existingTypedOwnerId != null && existingTypedOwnerId != targetOwnerId) {
+      throw StateError('The Typed note belongs to another owner.');
+    }
     return store.save(
       LocalNoteDraft(
         id: typedId,
