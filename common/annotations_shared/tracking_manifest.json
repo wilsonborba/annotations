@@ -702,6 +702,13 @@
       "path": "workspace > note > export",
       "description": "Open the export of the note in the editor.",
       "source": "lib/presentation/frontend/widgets/workspace/note_editor_page.dart"
+    },
+    {
+      "id": "workspace.note.convert_handwriting",
+      "label": "Workspace note convert handwriting",
+      "path": "workspace > note > convert_handwriting",
+      "description": "Open the owner-scoped review for explicitly selected Original handwriting units.",
+      "source": "lib/presentation/frontend/widgets/workspace/note_editor_page.dart"
     }
   ]
 }
