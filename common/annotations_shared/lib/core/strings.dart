@@ -234,22 +234,12 @@ const strings = <String, List<String>>{
     'Erro de processamento',
     'ข้อผิดพลาดในการประมวลผล',
   ],
-  'startHandwrittenStudy': [
-    'Start handwritten study',
-    'Começar estudo manuscrito',
-    'เริ่มบันทึกการเรียนด้วยลายมือ',
-  ],
   'studySourceUnavailable': [
     'Source unavailable',
     'Fonte indisponível',
     'แหล่งที่มาไม่พร้อมใช้งาน',
   ],
   'studySource': ['Source', 'Fonte', 'แหล่งที่มา'],
-  'studySourceCreateFailed': [
-    'Could not start the study. Try again.',
-    'Não foi possível iniciar o estudo. Tente novamente.',
-    'เริ่มการศึกษาไม่สำเร็จ โปรดลองอีกครั้ง',
-  ],
   'contentJobReviewResult': [
     'Result ready for review',
     'Resultado pronto para revisão',
