@@ -440,7 +440,7 @@ class _TaskCreateDialogState extends State<_TaskCreateDialog> {
               controller: _title,
               enabled: _fieldsEnabled,
               maxLength: 255,
-              decoration: InputDecoration(labelText: context.tr('title')),
+              decoration: InputDecoration(labelText: context.tr('noteTitle')),
               onChanged: (_) => setState(() {}),
             ),
             TextField(
