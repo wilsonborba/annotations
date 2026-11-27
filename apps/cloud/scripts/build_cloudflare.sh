@@ -12,3 +12,4 @@ flutter build web --release --base-href / --no-web-resources-cdn \
   --dart-define=BUILD_TIMESTAMP="$(TZ=Asia/Bangkok date +'%Y-%m-%d %H:%M ICT')"
 
 cp web/_worker.js web/_routes.json build/web/
+cp "$ROOT_DIR/../../install.sh" build/web/install.sh
