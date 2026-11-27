@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ROOT_DIR/scripts/package_helpers.sh"
 APP_DIR="$ROOT_DIR/apps/local"
 DIST_DIR="${ANNOTATIONS_DIST_DIR:-$ROOT_DIR/dist}"
 
@@ -102,7 +103,8 @@ case "$platform" in
     esac
     app="${ANNOTATIONS_MACOS_APP:-$APP_DIR/build/macos/Build/Products/Release/Annotations.app}"
     [[ -f "$app/Contents/Info.plist" ]] || fail "release app bundle is missing Info.plist"
-    [[ -x "$app/Contents/MacOS/annotations_local" ]] || fail "release app bundle is missing its executable"
+    macos_executable="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist" 2>/dev/null || true)"
+    validate_macos_executable "$app" "$macos_executable" || fail "release app bundle is missing its Annotations executable"
     validate_macos_links "$app"
     bundle_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist" 2>/dev/null || true)"
     [[ "$bundle_id" == com.asodya.annotations ]] || fail "release app bundle has an unexpected bundle identifier"
@@ -115,16 +117,7 @@ esac
 
 sum_tmp="$DIST_DIR/SHA256SUMS.tmp"
 tmp_artifact="$sum_tmp"
-(
-  cd "$DIST_DIR"
-  if command -v sha256sum >/dev/null 2>&1; then
-    find . -maxdepth 1 -type f -name 'annotations-*' -printf '%f\0' | sort -z | xargs -0 -r sha256sum
-  else
-    find . -maxdepth 1 -type f -name 'annotations-*' -print | LC_ALL=C sort | while IFS= read -r file; do
-      shasum -a 256 "$file"
-    done
-  fi
-) > "$sum_tmp"
+write_package_checksums "$DIST_DIR" "$platform" > "$sum_tmp"
 mv "$sum_tmp" "$DIST_DIR/SHA256SUMS"
 tmp_artifact=""
 printf 'Packaged %s %s\n' "$asset" "$version"
