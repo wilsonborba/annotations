@@ -178,6 +178,33 @@ void main() {
     },
   );
 
+  testWidgets('expanded toolbar remeasures after a settled resize', (
+    tester,
+  ) async {
+    await pump(tester, size: const Size(900, 844));
+    await toDraw(tester);
+    await tester.tap(byKey('toolbar-collapse'));
+    await tester.pumpAndSettle();
+    var toolbar = tester.getRect(byKey('paper-toolbar'));
+    expect(paper.toolbarInsets.top, closeTo(toolbar.height + 24, 0.1));
+
+    tester.view.physicalSize = const Size(390, 844);
+    await tester.pumpAndSettle();
+    toolbar = tester.getRect(byKey('paper-toolbar'));
+    expect(paper.toolbarInsets.top, closeTo(toolbar.height + 24, 0.1));
+    expect(byKey('toolbar-expand'), findsOneWidget);
+
+    await tester.tap(byKey('toolbar-expand'));
+    await tester.pumpAndSettle();
+    toolbar = tester.getRect(byKey('paper-toolbar'));
+    expect(paper.toolbarInsets.top, closeTo(toolbar.height + 24, 0.1));
+    expect(
+      paper.view.value!.toScreen(Offset.zero).dy,
+      greaterThan(toolbar.bottom),
+    );
+    await finish(tester);
+  });
+
   testWidgets('Add menu reaches the owner-scoped Reports action', (
     tester,
   ) async {

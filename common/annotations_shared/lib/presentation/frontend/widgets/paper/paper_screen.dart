@@ -148,6 +148,7 @@ class _PaperScreenState extends State<PaperScreen> {
 
   ToolbarPlacement? _placement;
   final GlobalKey _toolbarSizeKey = GlobalKey();
+  bool _toolbarMeasurementScheduled = false;
 
   /// Focus (B8): the tools, Type and Draw, the lock and Exit Focus stay;
   /// the status panel goes. Content, selection, mode, view and history stay,
@@ -222,6 +223,23 @@ class _PaperScreenState extends State<PaperScreen> {
     );
   }
 
+  void _scheduleToolbarMeasurement() {
+    if (_toolbarMeasurementScheduled) return;
+    _toolbarMeasurementScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _toolbarMeasurementScheduled = false;
+      if (!mounted) return;
+      final renderObject = _toolbarSizeKey.currentContext?.findRenderObject();
+      if (renderObject is! RenderBox || !renderObject.hasSize) return;
+      // Read the actual wrap extent after layout. The toolbar stays where it
+      // was placed while the paper's safe area follows width and text scale.
+      final insets = _insetsFor(placement, renderObject.size);
+      if (insets != widget.handler.toolbarInsets) {
+        widget.handler.toolbarInsets = insets;
+      }
+    });
+  }
+
   /// The toolbar at its placement, inside the screen. A keyboard that would
   /// cover it moves it up; the stored placement stays, so it comes back
   /// (B7 rule 8).
@@ -268,17 +286,7 @@ class _PaperScreenState extends State<PaperScreen> {
       onExitFocus: _focus ? () => _setFocus(false) : null,
       extent: (vertical ? size.height : size.width) - 2 * _margin,
     );
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      final renderObject = _toolbarSizeKey.currentContext?.findRenderObject();
-      if (renderObject is! RenderBox || !renderObject.hasSize) return;
-      // Read the actual wrap extent after layout. The toolbar stays where it
-      // was placed while the paper's safe area follows width and text scale.
-      final insets = _insetsFor(placement, renderObject.size);
-      if (insets != widget.handler.toolbarInsets) {
-        widget.handler.toolbarInsets = insets;
-      }
-    });
+    _scheduleToolbarMeasurement();
     final drag = _dragAt;
     final Alignment align;
     if (drag != null) {
@@ -306,7 +314,16 @@ class _PaperScreenState extends State<PaperScreen> {
       child: Align(
         key: const Key('toolbar-place'),
         alignment: align,
-        child: IgnorePointer(ignoring: widget.readOnly, child: bar),
+        child: IgnorePointer(
+          ignoring: widget.readOnly,
+          child: NotificationListener<SizeChangedLayoutNotification>(
+            onNotification: (_) {
+              _scheduleToolbarMeasurement();
+              return false;
+            },
+            child: SizeChangedLayoutNotifier(child: bar),
+          ),
+        ),
       ),
     );
   }
