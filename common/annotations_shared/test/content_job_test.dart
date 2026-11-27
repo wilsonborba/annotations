@@ -79,6 +79,93 @@ void main() {
     },
   );
 
+  test('late terminal detail cannot replace a newer explicit job', () async {
+    final tempDir = await Directory.systemTemp.createTemp(
+      'content_job_terminal_projection_race_',
+    );
+    final persistence = FileContentJobPersistence(
+      File('${tempDir.path}/jobs.json'),
+    );
+    await persistence.saveRef(
+      'owner-a',
+      const ContentJobRef(
+        noteId: 'n1',
+        clientJobId: 'client-a',
+        jobId: 'job-a',
+        status: 'failed',
+        uploadedFileIds: ['file-a'],
+      ),
+    );
+    final detailStarted = Completer<void>();
+    final oldDetail = Completer<http.Response>();
+    final client = MockClient((request) async {
+      if (request.method == 'GET' &&
+          request.url.path == '/me/content_jobs/job-a') {
+        if (!detailStarted.isCompleted) detailStarted.complete();
+        return oldDetail.future;
+      }
+      if (request.method == 'POST' && request.url.path == '/me/files') {
+        return http.Response(jsonEncode({'file_id': 'file-b'}), 201);
+      }
+      if (request.method == 'PUT' &&
+          request.url.path == '/me/files/file-b/content') {
+        return http.Response('', 200);
+      }
+      if (request.method == 'POST' && request.url.path == '/me/content_jobs') {
+        return http.Response(
+          jsonEncode({'job_id': 'job-b', 'status': 'queued'}),
+          201,
+        );
+      }
+      return http.Response('unexpected route', 404);
+    });
+    final service = ContentJobService(
+      api: ApiAdapter(client: client, base: 'https://api.test'),
+      persistence: persistence,
+      enabled: true,
+      sessionProvider: _provider(() => true),
+    );
+
+    try {
+      final staleResume = service.resumeJob('n1');
+      await detailStarted.future;
+      final replacement = await service.startExplicitJob(
+        noteId: 'n1',
+        kind: ContentJobKind.extraction,
+        selectedFiles: const [
+          ContentJobSelectedFile(
+            filename: 'replacement.pdf',
+            contentType: 'application/pdf',
+            bytes: [4, 5, 6],
+          ),
+        ],
+      );
+      expect(replacement.jobId, 'job-b');
+
+      oldDetail.complete(
+        http.Response(
+          jsonEncode({
+            'job_id': 'job-a',
+            'status': 'failed',
+            'draft': {'format': 'markdown', 'text': 'stale result from A'},
+            'error': {'code': 'failed', 'message': 'old result'},
+          }),
+          200,
+        ),
+      );
+      await staleResume;
+
+      final state = await service.loadReviewState('n1');
+      expect(state.ref?.jobId, 'job-b');
+      expect(state.ref?.status, 'queued');
+      expect(state.draft, isNull);
+      expect(await persistence.loadDraft('owner-a', 'n1'), isNull);
+    } finally {
+      client.close();
+      await tempDir.delete(recursive: true);
+    }
+  });
+
   test(
     'cancel uses owner mutation route and preserves returned partial draft',
     () async {

@@ -205,6 +205,12 @@ abstract interface class ContentJobPersistence {
   Future<void> saveRef(String accountId, ContentJobRef ref);
   Future<void> saveDraft(String accountId, ContentJobDraft draft);
   Future<ContentJobDraft?> loadDraft(String accountId, String noteId);
+  Future<bool> saveTerminalProjection(
+    String accountId,
+    ContentJobRef expectedRef,
+    ContentJobRef terminalRef,
+    ContentJobDraft? draft,
+  );
   Future<void> finishDraft(
     String accountId,
     String noteId,
@@ -260,6 +266,38 @@ final class FileContentJobPersistence implements ContentJobPersistence {
     return ContentJobDraft.fromJson(
       Map<String, dynamic>.from(drafts[key] as Map),
     );
+  }
+
+  @override
+  Future<bool> saveTerminalProjection(
+    String accountId,
+    ContentJobRef expectedRef,
+    ContentJobRef terminalRef,
+    ContentJobDraft? draft,
+  ) async {
+    final data = _read();
+    final key = _key(accountId, expectedRef.noteId);
+    final refs = Map<String, dynamic>.from((data['refs'] as Map?) ?? const {});
+    final rawRef = refs[key];
+    if (rawRef is! Map) return false;
+    final current = ContentJobRef.fromJson(Map<String, dynamic>.from(rawRef));
+    if (current.jobId != expectedRef.jobId ||
+        current.clientJobId != expectedRef.clientJobId ||
+        terminalRef.jobId != expectedRef.jobId ||
+        terminalRef.clientJobId != expectedRef.clientJobId) {
+      return false;
+    }
+    refs[key] = terminalRef.toJson();
+    data['refs'] = refs;
+    if (draft != null) {
+      final drafts = Map<String, dynamic>.from(
+        (data['drafts'] as Map?) ?? const {},
+      );
+      drafts[key] = draft.toJson();
+      data['drafts'] = drafts;
+    }
+    _write(data);
+    return true;
   }
 
   @override
@@ -342,6 +380,26 @@ final class InMemoryContentJobPersistence implements ContentJobPersistence {
   @override
   Future<ContentJobDraft?> loadDraft(String accountId, String noteId) async =>
       _drafts[_key(accountId, noteId)];
+
+  @override
+  Future<bool> saveTerminalProjection(
+    String accountId,
+    ContentJobRef expectedRef,
+    ContentJobRef terminalRef,
+    ContentJobDraft? draft,
+  ) async {
+    final key = _key(accountId, expectedRef.noteId);
+    final current = _refs[key];
+    if (current?.jobId != expectedRef.jobId ||
+        current?.clientJobId != expectedRef.clientJobId ||
+        terminalRef.jobId != expectedRef.jobId ||
+        terminalRef.clientJobId != expectedRef.clientJobId) {
+      return false;
+    }
+    _refs[key] = terminalRef;
+    if (draft != null) _drafts[key] = draft;
+    return true;
+  }
 
   @override
   Future<void> finishDraft(
@@ -466,6 +524,7 @@ class ContentJobService {
     }
     final session = await _verifiedSession();
     session.requireCurrent();
+    _advanceEpoch(_ownerNoteKey(session, noteId));
     if (selectedFiles.isEmpty) {
       throw ArgumentError('At least one selected file is required.');
     }
@@ -670,22 +729,24 @@ class ContentJobService {
     if (!enabled) return null;
     final session = await _verifiedSession();
     session.requireCurrent();
+    final key = _ownerNoteKey(session, noteId);
+    final epoch = _advanceEpoch(key);
     final ref = await persistence.loadRef(session.accountId, noteId);
     session.requireCurrent();
+    if (!_isCurrentEpoch(key, epoch)) return null;
     if (ref == null || ref.jobId == null) return null;
     if (ref.status == 'result_inserted' || ref.status == 'result_discarded') {
       return null;
     }
     final savedDraft = await persistence.loadDraft(session.accountId, noteId);
     session.requireCurrent();
+    if (!_isCurrentEpoch(key, epoch)) return null;
     if (savedDraft?.jobId == ref.jobId) {
       return savedDraft!.accepted ? null : savedDraft;
     }
     if (_isBackendTerminal(ref.status)) {
-      return _fetchTerminalResult(session, noteId, ref);
+      return _fetchTerminalResult(session, noteId, ref, key: key, epoch: epoch);
     }
-    final key = _ownerNoteKey(session, noteId);
-    final epoch = _advanceEpoch(key);
 
     final uri = Uri.parse('${api.base}/me/content_jobs/${ref.jobId}/events')
         .replace(
@@ -764,6 +825,8 @@ class ContentJobService {
         session,
         noteId,
         ref.copyWith(lastEventSeq: nextSeq, status: status),
+        key: key,
+        epoch: epoch,
       );
     }
     return null;
@@ -772,22 +835,35 @@ class ContentJobService {
   Future<ContentJobDraft?> _fetchTerminalResult(
     TranscriptionSession session,
     String noteId,
-    ContentJobRef ref,
-  ) async {
+    ContentJobRef ref, {
+    required String key,
+    required int epoch,
+  }) async {
     final job = await api.request(
       '/me/content_jobs/${ref.jobId}',
       headers: session.headers(mutation: false),
     );
     session.requireCurrent();
-    return _persistTerminalProjection(session, noteId, ref, job);
+    if (!_isCurrentEpoch(key, epoch)) return null;
+    return _persistTerminalProjection(
+      session,
+      noteId,
+      ref,
+      job,
+      key: key,
+      epoch: epoch,
+    );
   }
 
   Future<ContentJobDraft?> _persistTerminalProjection(
     TranscriptionSession session,
     String noteId,
     ContentJobRef ref,
-    Map<String, dynamic> job,
-  ) async {
+    Map<String, dynamic> job, {
+    required String key,
+    required int epoch,
+  }) async {
+    if (!_isCurrentEpoch(key, epoch)) return null;
     if (job['job_id'] != ref.jobId || job['status'] is! String) {
       throw const FormatException('Invalid content job result.');
     }
@@ -809,26 +885,33 @@ class ContentJobService {
       errorMessage: errorMessage,
       clearError: errorCode == null && errorMessage == null,
     );
-    await persistence.saveRef(session.accountId, nextRef);
-    session.requireCurrent();
-
     final rawDraft = job['draft'];
-    if (rawDraft == null) return null;
-    if (rawDraft is! Map ||
-        rawDraft['format'] != 'markdown' ||
-        rawDraft['text'] is! String) {
-      throw const FormatException('Invalid content job draft.');
+    ContentJobDraft? draft;
+    if (rawDraft != null) {
+      if (rawDraft is! Map ||
+          rawDraft['format'] != 'markdown' ||
+          rawDraft['text'] is! String) {
+        throw const FormatException('Invalid content job draft.');
+      }
+      final text = rawDraft['text'] as String;
+      if (text.trim().isNotEmpty) {
+        draft = ContentJobDraft(
+          noteId: noteId,
+          jobId: ref.jobId!,
+          extractedText: text,
+          accepted: false,
+        );
+      }
     }
-    final text = rawDraft['text'] as String;
-    if (text.trim().isEmpty) return null;
-    final draft = ContentJobDraft(
-      noteId: noteId,
-      jobId: ref.jobId!,
-      extractedText: text,
-      accepted: false,
+    if (!_isCurrentEpoch(key, epoch)) return null;
+    final saved = await persistence.saveTerminalProjection(
+      session.accountId,
+      ref,
+      nextRef,
+      draft,
     );
-    await persistence.saveDraft(session.accountId, draft);
     session.requireCurrent();
+    if (!_isCurrentEpoch(key, epoch) || !saved) return null;
     return draft;
   }
 
@@ -838,14 +921,15 @@ class ContentJobService {
   Future<ContentJobDraft?> cancelJob(String noteId) async {
     if (!enabled) throw StateError('Cortex content jobs are disabled.');
     final session = await _verifiedSession();
+    final key = _ownerNoteKey(session, noteId);
+    final epoch = _advanceEpoch(key);
     final ref = await persistence.loadRef(session.accountId, noteId);
     session.requireCurrent();
+    if (!_isCurrentEpoch(key, epoch)) return null;
     if (ref?.jobId == null) return null;
     if (_isBackendTerminal(ref!.status)) {
-      return _fetchTerminalResult(session, noteId, ref);
+      return _fetchTerminalResult(session, noteId, ref, key: key, epoch: epoch);
     }
-    final key = _ownerNoteKey(session, noteId);
-    _advanceEpoch(key);
     session.requireCurrent();
     final response = await api.request(
       '/me/content_jobs/${ref.jobId}/execution',
@@ -853,11 +937,19 @@ class ContentJobService {
       headers: session.headers(mutation: true),
     );
     session.requireCurrent();
+    if (!_isCurrentEpoch(key, epoch)) return null;
     if (response['job_id'] != ref.jobId) {
       throw const FormatException('Invalid content job cancellation result.');
     }
     // DELETE returns the same owner-scoped durable projection as GET detail.
-    return _persistTerminalProjection(session, noteId, ref, response);
+    return _persistTerminalProjection(
+      session,
+      noteId,
+      ref,
+      response,
+      key: key,
+      epoch: epoch,
+    );
   }
 
   Future<TranscriptionSession> _verifiedSession() async {

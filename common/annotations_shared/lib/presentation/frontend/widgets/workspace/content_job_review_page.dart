@@ -250,7 +250,7 @@ class _ContentJobReviewPageState extends State<ContentJobReviewPage> {
       _error = null;
     });
     try {
-      final draft = await widget.service.resumeJob(
+      await widget.service.resumeJob(
         widget.noteId,
         onProgress: (sequence, status) {
           if (flow != _flowGeneration ||
@@ -266,11 +266,17 @@ class _ContentJobReviewPageState extends State<ContentJobReviewPage> {
           !widget.isOwnerScopeCurrent()) {
         return;
       }
+      final nextState = await widget.service.loadReviewState(widget.noteId);
+      if (flow != _flowGeneration ||
+          !mounted ||
+          !widget.isOwnerScopeCurrent()) {
+        return;
+      }
       setState(() {
-        _state = ContentJobReviewState(ref: _state.ref, draft: draft);
+        _state = nextState;
         _busy = false;
-        _status = draft == null
-            ? (_state.ref?.status ?? _status)
+        _status = nextState.draft == null
+            ? (nextState.ref?.status ?? _status)
             : context.tr('contentJobReviewResult');
       });
     } on Object catch (error) {

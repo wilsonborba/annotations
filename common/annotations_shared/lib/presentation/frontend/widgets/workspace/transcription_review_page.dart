@@ -335,7 +335,7 @@ class _TranscriptionReviewPageState extends State<TranscriptionReviewPage> {
     } on Object {
       if (mounted && widget.isOwnerScopeCurrent()) {
         setState(() {
-          _reloadDurableDraft(preservePartId: passage.partId);
+          _reloadDurableDraft();
           _busy = false;
           _error = context.tr('transcriptionFeedbackFailed');
         });
@@ -503,7 +503,7 @@ class _TranscriptionReviewPageState extends State<TranscriptionReviewPage> {
     }
   }
 
-  void _reloadDurableDraft({String? preservePartId}) {
+  void _reloadDurableDraft() {
     final saved = _workflow.drafts.reopenDraft(
       widget.note.id,
       accountId: widget.ownerAccountId,
@@ -511,12 +511,13 @@ class _TranscriptionReviewPageState extends State<TranscriptionReviewPage> {
     if (saved == null) return;
     _draft = saved;
     for (final passage in saved.passages) {
-      if (passage.partId == preservePartId) continue;
-      final controller = _controllers.putIfAbsent(
+      // Reload durable event state without discarding edits in another
+      // passage. A failed request may follow an edit that has not yet been
+      // committed; only create missing controllers from the durable snapshot.
+      _controllers.putIfAbsent(
         passage.partId,
         () => TextEditingController(text: passage.text),
       );
-      if (controller.text != passage.text) controller.text = passage.text;
     }
   }
 

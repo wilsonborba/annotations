@@ -250,11 +250,9 @@ void main() {
   testWidgets('failed correction stays visible and retries the same event', (
     tester,
   ) async {
-    final directory = Directory(
-      '/home/main-server/.cache/codex-impl-3/tmp/'
-      'annotations48-transcription-review/widget-files/'
-      '${DateTime.now().microsecondsSinceEpoch}',
-    )..createSync(recursive: true);
+    final directory = Directory.systemTemp.createTempSync(
+      'annotations_transcription_feedback_retry_',
+    );
     addTearDown(() {
       if (directory.existsSync()) directory.deleteSync(recursive: true);
     });
@@ -263,7 +261,7 @@ void main() {
         'width': 1000,
         'background': {'kind': 'blank'},
       },
-      'items': [handwriting(4)],
+      'items': [handwriting(4), handwriting(5)],
     }, schema: DocumentSchema(DocumentFamily.original.schemaName, 1));
     final note = LocalNote(
       id: 'note-feedback-retry',
@@ -289,7 +287,7 @@ void main() {
       platform: 'linux',
       language: 'en',
       schemaVersion: 1,
-      selectedSourceItemIds: const ['s4'],
+      selectedSourceItemIds: const ['s4', 's5'],
       selectedInkDocument: original.toJson(),
       sourceRevision: note.revision,
       sourceHash: sha256
@@ -304,6 +302,15 @@ void main() {
           x: 1,
           kind: TranscriptionPassageKind.text,
           text: 'model suggestion',
+        ),
+        const TranscriptionPassage(
+          partId: 's5',
+          sourceItemIds: ['s5'],
+          sourceHash: 'source-hash-s5',
+          y: 100,
+          x: 1,
+          kind: TranscriptionPassageKind.text,
+          text: 'second model suggestion',
         ),
       ],
     );
@@ -373,7 +380,10 @@ void main() {
       await tester.pump(const Duration(milliseconds: 50));
     }
     final textField = find.byKey(const Key('transcription-text-s4'));
+    final otherTextField = find.byKey(const Key('transcription-text-s5'));
     expect(textField, findsOneWidget);
+    expect(otherTextField, findsOneWidget);
+    await tester.enterText(otherTextField, 'unsaved second passage edit');
     await tester.enterText(textField, 'corrected text kept for retry');
     await tester.pump();
     final accept = find.byKey(const Key('transcription-accept-text-s4'));
@@ -401,6 +411,10 @@ void main() {
       'corrected text kept for retry',
     );
     expect(
+      tester.widget<TextField>(otherTextField).controller!.text,
+      'unsaved second passage edit',
+    );
+    expect(
       find.byKey(const Key('transcription-retry-feedback')),
       findsOneWidget,
     );
@@ -409,10 +423,17 @@ void main() {
       accountId: 'owner-a',
     )!;
     expect(
-      savedAfterFailure.passages.single.text,
+      savedAfterFailure.passages
+          .singleWhere((passage) => passage.partId == 's4')
+          .text,
       'corrected text kept for retry',
     );
-    expect(savedAfterFailure.passages.single.feedbackAccepted, isFalse);
+    expect(
+      savedAfterFailure.passages
+          .singleWhere((passage) => passage.partId == 's4')
+          .feedbackAccepted,
+      isFalse,
+    );
     expect(savedAfterFailure.pendingFeedbackEvents, hasLength(1));
     final frozenEventId =
         savedAfterFailure.pendingFeedbackEvents.single['event_id'];
@@ -430,10 +451,17 @@ void main() {
 
     final savedAfterRetry = drafts.reopenDraft(note.id, accountId: 'owner-a')!;
     expect(
-      savedAfterRetry.passages.single.text,
+      savedAfterRetry.passages
+          .singleWhere((passage) => passage.partId == 's4')
+          .text,
       'corrected text kept for retry',
     );
-    expect(savedAfterRetry.passages.single.feedbackAccepted, isFalse);
+    expect(
+      savedAfterRetry.passages
+          .singleWhere((passage) => passage.partId == 's4')
+          .feedbackAccepted,
+      isFalse,
+    );
     expect(savedAfterRetry.pendingFeedbackEvents, isEmpty);
     expect(eventIds, isNotEmpty);
     expect(eventIds.toSet(), {frozenEventId});

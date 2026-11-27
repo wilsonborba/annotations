@@ -16,6 +16,95 @@ import 'package:http/testing.dart';
 import 'fixtures.dart';
 
 void main() {
+  testWidgets('resume refreshes failed terminal status and error', (
+    tester,
+  ) async {
+    final persistence = InMemoryContentJobPersistence();
+    await persistence.saveRef(
+      'owner-a',
+      const ContentJobRef(
+        noteId: 'note-terminal',
+        clientJobId: 'client-terminal',
+        jobId: 'job-terminal',
+        status: 'running',
+        uploadedFileIds: ['file-1'],
+      ),
+    );
+    final client = MockClient((request) async {
+      if (request.method == 'GET' && request.url.path.endsWith('/events')) {
+        return http.Response(
+          'id: 2\nevent: failed\ndata: {"status":"failed"}\n\n',
+          200,
+          headers: {'content-type': 'text/event-stream'},
+        );
+      }
+      if (request.method == 'GET' &&
+          request.url.path.endsWith('/job-terminal')) {
+        return http.Response(
+          jsonEncode({
+            'job_id': 'job-terminal',
+            'status': 'failed',
+            'event_cursor': 2,
+            'error': {'code': 'worker_failed', 'message': 'Worker stopped'},
+            'draft': null,
+          }),
+          200,
+        );
+      }
+      fail('Unexpected request: ${request.method} ${request.url}');
+    });
+    final service = ContentJobService(
+      api: ApiAdapter(client: client, base: 'https://api.test'),
+      persistence: persistence,
+      enabled: true,
+      sessionProvider: () async => TranscriptionSession(
+        accountId: 'owner-a',
+        readHeaders: const {'authorization': 'Bearer read'},
+        mutationHeaders: const {'authorization': 'Bearer write'},
+        isCurrent: () => true,
+      ),
+    );
+    final ownerRevision = ValueNotifier(1);
+    addTearDown(ownerRevision.dispose);
+    await tester.pumpWidget(
+      AppScope(
+        preferences: Preferences(),
+        service: fixtureService(),
+        child: MaterialApp(
+          home: ContentJobReviewPage(
+            noteId: 'note-terminal',
+            service: service,
+            isOwnerScopeCurrent: () => ownerRevision.value == 1,
+            ownerScopeRevision: ownerRevision,
+            expectedOwnerScopeRevision: 1,
+            insertText: (_, _) async => false,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('content-job-resume')), findsOneWidget);
+    expect(find.byKey(const Key('content-job-cancel')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('content-job-resume')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('content-job-progress')), findsOneWidget);
+    expect(
+      tester.widget<Text>(find.byKey(const Key('content-job-progress'))).data,
+      'Job status: failed',
+    );
+    expect(find.text('Processing error: Worker stopped'), findsOneWidget);
+    expect(find.byKey(const Key('content-job-resume')), findsNothing);
+    expect(find.byKey(const Key('content-job-cancel')), findsNothing);
+    expect(find.byKey(const Key('content-job-select-files')), findsOneWidget);
+    expect(
+      (await persistence.loadRef('owner-a', 'note-terminal'))?.status,
+      'failed',
+    );
+    client.close();
+  });
+
   testWidgets('selected file starts, resumes and inserts one saved result', (
     tester,
   ) async {
