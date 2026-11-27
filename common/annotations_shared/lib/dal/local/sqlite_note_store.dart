@@ -88,6 +88,15 @@ const _schemaSteps = [
   // NotesUI51: retain only the owner-scoped prepared study id. The setup stays
   // in Certifications and clears when the trusted note identity/revision changes.
   'ALTER TABLE notes ADD COLUMN prepared_study_id TEXT;',
+  // An accepted private transcription stays a separate local Typed document,
+  // with an explicit source/run relation for later owner-authorized sync.
+  '''
+  ALTER TABLE notes ADD COLUMN transcription_source_note_id TEXT;
+  ALTER TABLE notes ADD COLUMN transcription_run_id TEXT;
+  ALTER TABLE notes ADD COLUMN transcription_source_revision_id TEXT;
+  ALTER TABLE notes ADD COLUMN transcription_source_hash TEXT;
+  ALTER TABLE notes ADD COLUMN transcription_source_local_revision INTEGER;
+  ''',
 ];
 
 /// A stable 64-bit hash of an item body, to find changed items: FNV-1a and
@@ -235,6 +244,13 @@ final class SqliteNoteStore implements DeletableLocalNoteStore {
       serverOriginalRevisionId: row['server_original_revision_id'] as String?,
       serverTypedRevisionId: row['server_typed_revision_id'] as String?,
       preparedStudyId: row['prepared_study_id'] as String?,
+      transcriptionSourceNoteId: row['transcription_source_note_id'] as String?,
+      transcriptionRunId: row['transcription_run_id'] as String?,
+      transcriptionSourceRevisionId:
+          row['transcription_source_revision_id'] as String?,
+      transcriptionSourceHash: row['transcription_source_hash'] as String?,
+      transcriptionSourceLocalRevision:
+          row['transcription_source_local_revision'] as int?,
       isConflictCopy: row['is_conflict_copy'] == 1,
     );
   }
@@ -297,8 +313,10 @@ final class SqliteNoteStore implements DeletableLocalNoteStore {
         '''
         INSERT INTO notes (id, family, schema_version, document, title,
           revision, created_at, updated_at, sync_state, account_id,
-          is_conflict_copy)
-        VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)
+          is_conflict_copy, transcription_source_note_id,
+          transcription_run_id, transcription_source_revision_id,
+          transcription_source_hash, transcription_source_local_revision)
+        VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT (id) DO UPDATE SET
           family = excluded.family,
           schema_version = excluded.schema_version,
@@ -308,6 +326,20 @@ final class SqliteNoteStore implements DeletableLocalNoteStore {
           updated_at = excluded.updated_at,
           sync_state = CASE notes.sync_state
             WHEN ? THEN ? ELSE notes.sync_state END
+          , transcription_source_note_id = COALESCE(
+              excluded.transcription_source_note_id,
+              notes.transcription_source_note_id)
+          , transcription_run_id = COALESCE(
+              excluded.transcription_run_id, notes.transcription_run_id)
+          , transcription_source_revision_id = COALESCE(
+              excluded.transcription_source_revision_id,
+              notes.transcription_source_revision_id)
+          , transcription_source_hash = COALESCE(
+              excluded.transcription_source_hash,
+              notes.transcription_source_hash)
+          , transcription_source_local_revision = COALESCE(
+              excluded.transcription_source_local_revision,
+              notes.transcription_source_local_revision)
         ''',
         [
           draft.id,
@@ -320,6 +352,11 @@ final class SqliteNoteStore implements DeletableLocalNoteStore {
           LocalSyncState.local.code,
           draft.accountId,
           draft.isConflictCopy ? 1 : 0,
+          draft.transcriptionSourceNoteId,
+          draft.transcriptionRunId,
+          draft.transcriptionSourceRevisionId,
+          draft.transcriptionSourceHash,
+          draft.transcriptionSourceLocalRevision,
           LocalSyncState.synced.code,
           LocalSyncState.changed.code,
         ],

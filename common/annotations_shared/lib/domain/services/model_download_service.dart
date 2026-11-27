@@ -7,10 +7,15 @@ import '../../dal/remote/transcription_api_adapter.dart';
 import '../models/transcription_session.dart';
 
 final class DownloadedModel {
-  const DownloadedModel({required this.grant, required this.file});
+  const DownloadedModel({
+    required this.grant,
+    required this.file,
+    required this.manifest,
+  });
 
   final ModelDownloadGrant grant;
   final File file;
+  final ModelReleaseManifest manifest;
 }
 
 abstract interface class ModelArtifactStore {
@@ -187,6 +192,66 @@ final class ModelDownloadService {
         platform: platform,
         sha256: artifact.sha256,
       ),
+      manifest: manifest,
+    );
+  }
+
+  /// Reuses a saved logical grant and verified artifact on run reopen. This
+  /// does not create a second download identity.
+  Future<DownloadedModel> resume({
+    required String downloadId,
+    required String version,
+    required String platform,
+    TranscriptionSession? expectedSession,
+  }) async {
+    if (!enabled) throw const TranscriptionFeatureDisabledException();
+    expectedSession?.requireCurrent();
+    final session = await sessionProvider();
+    if (session == null) throw const TranscriptionSignInRequiredException();
+    expectedSession?.requireCurrent();
+    if (expectedSession != null &&
+        session.accountId != expectedSession.accountId) {
+      throw const TranscriptionSessionChangedException();
+    }
+    session.requireCurrent();
+    final manifest = await api.getModel(session, version);
+    final artifact = manifest.artifactFor(platform);
+    if (manifest.version != version || artifact == null) {
+      throw const ModelArtifactUnavailableException();
+    }
+    final grant = await api.getDownload(session, downloadId);
+    if (grant.modelVersion != manifest.version ||
+        grant.platform != artifact.platform ||
+        grant.size != artifact.size ||
+        grant.sha256 != artifact.sha256) {
+      throw const ModelManifestChangedException();
+    }
+    session.requireCurrent();
+    if (!await store.hasValidArtifact(
+      version: version,
+      platform: platform,
+      size: artifact.size,
+      sha256: artifact.sha256,
+    )) {
+      await _finishDownload(session, grant, artifact);
+    }
+    session.requireCurrent();
+    if (!await store.hasValidArtifact(
+      version: version,
+      platform: platform,
+      size: artifact.size,
+      sha256: artifact.sha256,
+    )) {
+      throw const ModelChecksumMismatchException();
+    }
+    return DownloadedModel(
+      grant: grant,
+      file: await store.artifactFile(
+        version: version,
+        platform: platform,
+        sha256: artifact.sha256,
+      ),
+      manifest: manifest,
     );
   }
 

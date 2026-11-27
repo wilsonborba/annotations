@@ -397,6 +397,107 @@ void main() {
   });
 
   test(
+    'local hash-source run resumes the saved run without a second inference',
+    () async {
+      final sourceHash = List.filled(64, 'a').join();
+      final document = <String, Object?>{
+        'page': {
+          'width': 1000,
+          'background': {'kind': 'blank'},
+        },
+        'items': <Object?>[],
+      };
+      final calls = <String>[];
+      var runtimeCalls = 0;
+      Map<String, Object?> run(String status) {
+        final value = Map<String, Object?>.from(_run(status))
+          ..remove('source_revision_id')
+          ..['source_hash'] = sourceHash;
+        if (status == 'completed') {
+          value['result'] = {'event_id': 'hash-result', 'document': document};
+        }
+        return value;
+      }
+
+      final client = MockClient((request) async {
+        calls.add('${request.method} ${request.url.path}');
+        if (request.url.path == '/me/transcriptions') {
+          expect(request.method, 'POST');
+          expect(_requestBody(request)['source_hash'], sourceHash);
+          expect(
+            _requestBody(request).containsKey('source_revision_id'),
+            isFalse,
+          );
+          return http.Response(jsonEncode(run('registered')), 201);
+        }
+        if (request.url.path == '/me/transcriptions/run-1/result') {
+          expect(request.method, 'PUT');
+          final body = _requestBody(request);
+          expect(body['source_hash'], sourceHash);
+          expect(body.containsKey('source_revision_id'), isFalse);
+          return http.Response(jsonEncode(run('completed')), 200);
+        }
+        if (request.url.path == '/me/transcriptions/run-1') {
+          expect(request.method, 'GET');
+          return http.Response(jsonEncode(run('completed')), 200);
+        }
+        return http.Response('{"error":"unexpected route"}', 404);
+      });
+      final service = _service(
+        client: client,
+        store: MemoryPendingTranscriptionFeedbackStore(),
+        session: _session('owner-a'),
+        pendingResults: MemoryPendingTranscriptionResults(),
+        eventId: () => 'hash-result',
+      );
+      final runtime = _CountingRuntime(document, () => runtimeCalls++);
+      final registrationOrder = <String>[];
+
+      await service.runLocal(
+        downloadId: 'download-1',
+        modelVersion: 'v1',
+        language: 'en',
+        sourceHash: sourceHash,
+        selectedInkDocument: document,
+        schemaVersion: 1,
+        modelFile: File('fixture-model'),
+        runtime: runtime,
+        onStage: (stage) => registrationOrder.add(stage),
+        onRegistered: (run) async {
+          expect(run.runId, 'run-1');
+          registrationOrder.add('saved-context');
+        },
+      );
+      final resumed = await service.resumeLocal(
+        runId: 'run-1',
+        sourceHash: sourceHash,
+        downloadId: 'download-1',
+        modelVersion: 'v1',
+        language: 'en',
+        selectedInkDocument: document,
+        schemaVersion: 1,
+        modelFile: File('fixture-model'),
+        runtime: runtime,
+        onStage: (_) {},
+      );
+
+      expect(registrationOrder, ['saved-context', 'recognizing']);
+      expect(runtimeCalls, 1);
+      expect(resumed.runId, 'run-1');
+      expect(resumed.eventId, 'hash-result');
+      expect(
+        calls.where((call) => call == 'POST /me/transcriptions'),
+        hasLength(1),
+      );
+      expect(
+        calls.where((call) => call == 'GET /me/transcriptions/run-1'),
+        hasLength(1),
+      );
+      client.close();
+    },
+  );
+
+  test(
     'registration account switch never rebinds local recognition to new owner',
     () async {
       var currentAccount = 'owner-a';
@@ -770,6 +871,7 @@ final class _CountingRuntime implements TranscriptionRuntime {
     required void Function(String stage) onStage,
   }) async {
     onRecognize();
+    onStage('recognizing');
     return LocalRecognitionResult(
       document: document,
       runtimeName: 'fixture',

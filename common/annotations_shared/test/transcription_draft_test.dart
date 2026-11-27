@@ -28,13 +28,15 @@ void main() {
           'decorative': true,
         };
 
-        final originalDoc = NoteDocument.fromJson({
-          'page': {
-            'width': 1000,
-            'background': {'kind': 'blank'},
-          },
-          'items': [stroke2, stroke1, decorative],
-        }, schema: origSchema);
+        final originalDoc =
+            NoteDocument.fromJson({
+                  'page': {
+                    'width': 1000,
+                    'background': {'kind': 'blank'},
+                  },
+                  'items': [stroke2, stroke1, decorative],
+                }, schema: origSchema)
+                as OriginalDocument;
         await store.save(
           LocalNoteDraft(
             id: 'n1',
@@ -43,7 +45,7 @@ void main() {
             title: 'Handwritten Note',
           ),
         );
-        final originalStoredBefore = jsonEncode(
+        var originalStoredBefore = jsonEncode(
           (await store.load('n1'))!.document.toJson(),
         );
 
@@ -101,6 +103,22 @@ void main() {
           ...stroke2,
           'color': '#222222',
         };
+        await store.save(
+          LocalNoteDraft(
+            id: 'n1',
+            schema: origSchema,
+            document: originalDoc.withItems([
+              changedStroke2,
+              stroke1,
+              decorative,
+            ]),
+            title: 'Handwritten Note',
+          ),
+        );
+        final originalAfterSourceChange = await store.load('n1');
+        originalStoredBefore = jsonEncode(
+          originalAfterSourceChange!.document.toJson(),
+        );
         service2.markSourceChanged('n1', newSourceRevision: 2);
         final toReprocess = service2.changedPartIds('n1', [
           stroke1,
@@ -171,6 +189,299 @@ void main() {
         if (tempDir.existsSync()) {
           tempDir.deleteSync(recursive: true);
         }
+      }
+    },
+  );
+
+  test('accepted Keep Ink becomes a real Typed HandwritingBlock', () {
+    final stroke = Map<String, Object?>.from(handwriting(44));
+    final service = TranscriptionDraftService();
+    service.saveDraft(
+      noteId: 'ink-note',
+      accountId: 'owner-a',
+      runId: 'run-1',
+      downloadId: 'download-1',
+      modelVersion: 'model-1',
+      platform: 'linux-x64',
+      selectedSourceItemIds: const ['stroke-44'],
+      sourceRevision: 0,
+      sourceHash: List.filled(64, 'a').join(),
+      passages: [
+        TranscriptionPassage(
+          partId: 'stroke-44',
+          sourceHash: List.filled(64, 'b').join(),
+          y: 20,
+          x: 10,
+          kind: TranscriptionPassageKind.inkFallback,
+          text: 'recognized text',
+          keepAsInk: true,
+          preservedData: {
+            'width': 240,
+            'height': 80,
+            'ink': [stroke],
+          },
+        ),
+      ],
+    );
+
+    final typed = service.acceptToTyped('ink-note', accountId: 'owner-a');
+    final block = typed.toJson()['blocks'] as List;
+    expect(block, hasLength(1));
+    expect(block.single['kind'], 'handwriting');
+    expect(block.single['ink'], [stroke]);
+    expect(
+      TranscriptionDraftService().reopenDraft('ink-note', accountId: 'owner-b'),
+      isNull,
+    );
+  });
+
+  test('Keep Ink fails closed when selected source ink was not retained', () {
+    final service = TranscriptionDraftService();
+    service.saveDraft(
+      noteId: 'missing-ink',
+      sourceRevision: 0,
+      passages: [
+        TranscriptionPassage(
+          partId: 'stroke-missing',
+          sourceHash: List.filled(64, 'c').join(),
+          y: 0,
+          x: 0,
+          kind: TranscriptionPassageKind.inkFallback,
+          text: '',
+          keepAsInk: true,
+        ),
+      ],
+    );
+
+    expect(
+      () => service.acceptToTyped('missing-ink'),
+      throwsA(isA<UnsupportedTranscriptionStructureException>()),
+    );
+  });
+
+  test('source change keeps the transcription base identity until update', () {
+    final service = TranscriptionDraftService();
+    final original = service.saveDraft(
+      noteId: 'changed-source',
+      sourceRevision: 7,
+      sourceHash: List.filled(64, 'd').join(),
+      passages: [
+        TranscriptionPassage(
+          partId: 'part-1',
+          sourceHash: List.filled(64, 'e').join(),
+          y: 0,
+          x: 0,
+          kind: TranscriptionPassageKind.text,
+          text: 'saved text',
+        ),
+      ],
+    );
+    final changed = service.markSourceChanged(
+      'changed-source',
+      newSourceRevision: 8,
+      newSourceHash: List.filled(64, 'f').join(),
+    );
+    expect(changed.sourceRevision, 7);
+    expect(changed.baseSourceHash, original.baseSourceHash);
+    expect(changed.currentSourceRevision, 8);
+    expect(changed.currentSourceHash, List.filled(64, 'f').join());
+    final applied = service.applyChangedPartResults(
+      noteId: 'changed-source',
+      resultBaseRevision: 8,
+      updatedResultsByPartId: const {},
+    );
+    expect(applied.sourceRevision, 8);
+    expect(applied.baseSourceHash, 'f' * 64);
+    expect(applied.currentSourceRevision, isNull);
+    expect(applied.needsReview, isFalse);
+  });
+
+  test('saving recovered run output preserves source-change review state', () {
+    final service = TranscriptionDraftService();
+    service.saveDraft(
+      noteId: 'recovered-run',
+      accountId: 'owner-a',
+      runId: 'run-1',
+      sourceRevision: 7,
+      sourceHash: 'd' * 64,
+      passages: const [],
+    );
+    service.markSourceChanged(
+      'recovered-run',
+      accountId: 'owner-a',
+      newSourceRevision: 8,
+      newSourceHash: 'f' * 64,
+    );
+
+    final recovered = service.saveRecognizedPassages('recovered-run', [
+      TranscriptionPassage(
+        partId: 'part-1',
+        sourceHash: 'e' * 64,
+        y: 1,
+        x: 2,
+        kind: TranscriptionPassageKind.text,
+        text: 'Recovered result',
+      ),
+    ], accountId: 'owner-a');
+
+    expect(recovered.runId, 'run-1');
+    expect(recovered.sourceRevision, 7);
+    expect(recovered.baseSourceHash, 'd' * 64);
+    expect(recovered.currentSourceRevision, 8);
+    expect(recovered.currentSourceHash, 'f' * 64);
+    expect(recovered.needsReview, isTrue);
+    expect(recovered.passages.single.text, 'Recovered result');
+    expect(service.reopenDraft('recovered-run', accountId: 'owner-b'), isNull);
+  });
+
+  test('accepted structured passages keep their actual Typed block kinds', () {
+    final service = TranscriptionDraftService();
+    final table = <String, Object?>{
+      'id': 'table-1',
+      'kind': 'table',
+      'header': true,
+      'rows': [
+        {
+          'cells': [
+            {
+              'spans': [
+                {'text': 'Month'},
+              ],
+            },
+            {
+              'spans': [
+                {'text': 'Sales'},
+              ],
+            },
+          ],
+        },
+        {
+          'cells': [
+            {
+              'spans': [
+                {'text': 'Jan'},
+              ],
+            },
+            {
+              'spans': [
+                {'text': '15'},
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    service.saveDraft(
+      noteId: 'structured',
+      sourceRevision: 1,
+      passages: [
+        TranscriptionPassage(
+          partId: 'table-source',
+          sourceHash: 'table-hash',
+          y: 1,
+          x: 0,
+          kind: TranscriptionPassageKind.table,
+          text: '',
+          preservedData: {
+            'typed_blocks': [table],
+          },
+        ),
+      ],
+    );
+
+    final blocks =
+        service.acceptToTyped('structured').toJson()['blocks'] as List;
+    expect(blocks, [table]);
+    expect(blocks.single['kind'], 'table');
+  });
+
+  test(
+    'accepted Typed stays locally paired with its unchanged Original',
+    () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'annotations_46_pair_test_',
+      );
+      final store = await SqliteNoteStore.open('${tempDir.path}/notes');
+      try {
+        final original = NoteDocument.fromJson({
+          'page': {
+            'width': 1000,
+            'background': {'kind': 'blank'},
+          },
+          'items': [handwriting(71)],
+        }, schema: origSchema);
+        final savedOriginal = await store.save(
+          LocalNoteDraft(
+            id: 'private-original',
+            schema: origSchema,
+            document: original,
+            title: 'Source',
+          ),
+        );
+        final sourceBytes = jsonEncode(savedOriginal.document.toJson());
+        final drafts = TranscriptionDraftService(
+          persistenceFile: File('${tempDir.path}/drafts.json'),
+        );
+        drafts.saveDraft(
+          noteId: 'private-original',
+          accountId: 'owner-a',
+          runId: 'run-a',
+          downloadId: 'download-a',
+          modelVersion: 'release-a',
+          platform: 'linux-x64',
+          selectedSourceItemIds: const ['s71'],
+          selectedInkDocument: {
+            'items': [handwriting(71)],
+          },
+          schemaVersion: 1,
+          language: 'en',
+          sourceRevision: savedOriginal.revision,
+          sourceHash: List.filled(64, 'a').join(),
+          passages: [
+            TranscriptionPassage(
+              partId: 'segment-71',
+              sourceItemIds: const ['s71'],
+              sourceHash: List.filled(64, 'b').join(),
+              y: 1,
+              x: 1,
+              kind: TranscriptionPassageKind.text,
+              text: 'Corrected text',
+            ),
+          ],
+        );
+
+        await expectLater(
+          drafts.acceptToTypedNote(
+            'private-original',
+            store: store,
+            accountId: 'owner-b',
+          ),
+          throwsStateError,
+        );
+        final typed = await drafts.acceptToTypedNote(
+          'private-original',
+          store: store,
+          accountId: 'owner-a',
+        );
+        final loadedTyped = (await store.load(typed.id))!;
+        expect(loadedTyped.transcriptionSourceNoteId, 'private-original');
+        expect(loadedTyped.transcriptionRunId, 'run-a');
+        expect(
+          loadedTyped.transcriptionSourceHash,
+          List.filled(64, 'a').join(),
+        );
+        expect(
+          loadedTyped.transcriptionSourceLocalRevision,
+          savedOriginal.revision,
+        );
+        expect(loadedTyped.accountId, 'owner-a');
+        expect(
+          jsonEncode((await store.load('private-original'))!.document.toJson()),
+          sourceBytes,
+        );
+      } finally {
+        await store.close();
+        if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
       }
     },
   );

@@ -402,6 +402,10 @@ class NoteSyncService {
     int? baseRevision,
   }) async {
     _requireOwner(note, accountId);
+    if (note.schema.family == DocumentFamily.typed &&
+        note.transcriptionSourceNoteId != null) {
+      return _syncTranscribedTyped(note, accountId: accountId);
+    }
 
     final isFirstUpload = note.accountId == null && note.serverNoteId == null;
     final op = (!isFirstUpload && baseDocument != null)
@@ -523,6 +527,109 @@ class NoteSyncService {
         serverRevision: serverRev,
       );
     }
+  }
+
+  Future<SyncResult> _syncTranscribedTyped(
+    LocalNote typed, {
+    required String accountId,
+  }) async {
+    final sourceId = typed.transcriptionSourceNoteId!;
+    final runId = typed.transcriptionRunId;
+    final acceptedAtLocalRevision = typed.transcriptionSourceLocalRevision;
+    if (runId == null ||
+        runId.trim().isEmpty ||
+        acceptedAtLocalRevision == null) {
+      throw CloudIdentityException(
+        'Accepted Typed source metadata is incomplete for ${typed.id}.',
+      );
+    }
+    var source = await store.load(sourceId);
+    if (source == null ||
+        source.schema.family != DocumentFamily.original ||
+        source.revision != acceptedAtLocalRevision) {
+      throw CloudIdentityException(
+        'The Original changed after this Typed version was accepted.',
+      );
+    }
+    _requireOwner(source, accountId);
+    if (typed.transcriptionSourceRevisionId != null &&
+        source.serverOriginalRevisionId !=
+            typed.transcriptionSourceRevisionId) {
+      throw CloudIdentityException(
+        'The accepted source revision is no longer current.',
+      );
+    }
+    if (source.accountId == null ||
+        source.serverNoteId == null ||
+        source.serverRevision == null ||
+        source.serverOriginalRevisionId == null ||
+        source.syncState != LocalSyncState.synced) {
+      final sourceSync = await syncNote(source, accountId: accountId);
+      if (sourceSync.isConflict) {
+        throw CloudIdentityException(
+          'The Original must sync before its Typed version.',
+        );
+      }
+      source = await store.load(sourceId) ?? sourceSync.localNote;
+    }
+    _requireOwner(source, accountId);
+    if (source.serverNoteId == null ||
+        source.serverRevision == null ||
+        source.serverOriginalRevisionId == null) {
+      throw CloudIdentityException(
+        'The Original is missing authoritative server revision metadata.',
+      );
+    }
+    if (source.revision != acceptedAtLocalRevision) {
+      throw CloudIdentityException(
+        'The Original changed after this Typed version was accepted.',
+      );
+    }
+    final response = await api.request(
+      '/me/notes/${source.serverNoteId}',
+      method: 'PUT',
+      headers: {'if-match': '"${source.serverRevision}"'},
+      body: {
+        'representation': 'typed',
+        'schema_version': typed.schema.version,
+        'document': typed.document.toJson(),
+        'source_revision_id': source.serverOriginalRevisionId,
+      },
+      compress: true,
+    );
+    final newServerRevision = (response['revision'] as num?)?.toInt();
+    final (responseOriginalRevision, typedRevision) = _parseRevisions(response);
+    final originalRevision =
+        responseOriginalRevision ?? source.serverOriginalRevisionId;
+    if (newServerRevision == null || typedRevision == null) {
+      throw CloudIdentityException(
+        'Typed sync response is missing authoritative revision metadata.',
+      );
+    }
+    await store.setSync(
+      source.id,
+      state: LocalSyncState.synced,
+      accountId: accountId,
+      serverNoteId: source.serverNoteId,
+      serverRevision: newServerRevision,
+      serverOriginalRevisionId: originalRevision,
+      serverTypedRevisionId: typedRevision,
+    );
+    await store.setSync(
+      typed.id,
+      state: LocalSyncState.synced,
+      accountId: accountId,
+      serverNoteId: source.serverNoteId,
+      serverRevision: newServerRevision,
+      serverOriginalRevisionId: originalRevision,
+      serverTypedRevisionId: typedRevision,
+    );
+    final updated = await store.load(typed.id);
+    if (updated == null) throw LocalStoreException('missing_note', typed.id);
+    return SyncResult.synced(
+      localNote: updated,
+      serverRevision: newServerRevision,
+    );
   }
 
   /// Publishes [note] via `PUT /me/notes/{serverNoteId}/publication` (`If-Match: <pubRev>`).

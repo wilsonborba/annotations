@@ -342,6 +342,12 @@ final class TranscriptionRunService {
   final bool enabled;
   final String Function() _newEventId;
 
+  bool get hasDurableResultQueue =>
+      pendingResults is! MemoryPendingTranscriptionResults;
+
+  bool get hasDurableFeedbackQueue =>
+      pendingFeedback is! MemoryPendingTranscriptionFeedbackStore;
+
   Future<TranscriptionRun> register({
     required String downloadId,
     required String modelVersion,
@@ -436,19 +442,26 @@ final class TranscriptionRunService {
     required String downloadId,
     required String modelVersion,
     required String language,
-    required String sourceRevisionId,
+    String? platform,
+    String? sourceRevisionId,
+    String? sourceHash,
     required Map<String, Object?> selectedInkDocument,
     required int schemaVersion,
     required File modelFile,
     required TranscriptionRuntime runtime,
     required void Function(String stage) onStage,
+    Future<void> Function(TranscriptionRun run)? onRegistered,
+    TranscriptionSession? expectedSession,
   }) async {
     _validateRegistration(
       mode: 'local',
       sourceRevisionId: sourceRevisionId,
+      sourceHash: sourceHash,
       selectedInkDocument: selectedInkDocument,
     );
-    final session = await _requireSession();
+    final session = expectedSession == null
+        ? await _requireSession()
+        : await _requireExpectedSession(expectedSession);
     final run = await _registerWithSession(
       session,
       downloadId: downloadId,
@@ -456,14 +469,145 @@ final class TranscriptionRunService {
       language: language,
       mode: 'local',
       sourceRevisionId: sourceRevisionId,
+      sourceHash: sourceHash,
       selectedInkDocument: selectedInkDocument,
       schemaVersion: schemaVersion,
     );
+    await onRegistered?.call(run);
     session.requireCurrent();
-    if (run.mode != 'local' || run.status != 'registered') {
+    return _runRegisteredLocal(
+      session,
+      run: run,
+      downloadId: downloadId,
+      modelVersion: modelVersion,
+      language: language,
+      platform: platform,
+      sourceRevisionId: sourceRevisionId,
+      sourceHash: sourceHash,
+      selectedInkDocument: selectedInkDocument,
+      schemaVersion: schemaVersion,
+      modelFile: modelFile,
+      runtime: runtime,
+      onStage: onStage,
+    );
+  }
+
+  /// Resumes an already registered local run. A completed run is read back and
+  /// returned as-is; it is never registered or recognized a second time.
+  Future<PendingTranscriptionResult> resumeLocal({
+    required String runId,
+    String? sourceRevisionId,
+    String? sourceHash,
+    required String downloadId,
+    required String modelVersion,
+    required String language,
+    String? platform,
+    required Map<String, Object?> selectedInkDocument,
+    required int schemaVersion,
+    required File modelFile,
+    required TranscriptionRuntime runtime,
+    required void Function(String stage) onStage,
+    TranscriptionSession? expectedSession,
+  }) async {
+    _validateRegistration(
+      mode: 'local',
+      sourceRevisionId: sourceRevisionId,
+      sourceHash: sourceHash,
+      selectedInkDocument: selectedInkDocument,
+    );
+    final session = expectedSession == null
+        ? await _requireSession()
+        : await _requireExpectedSession(expectedSession);
+    session.requireCurrent();
+    for (final pending in await pendingResults.loadAll()) {
+      if (pending.accountId == session.accountId && pending.runId == runId) {
+        session.requireCurrent();
+        await _sendPending(session, pending);
+        return pending;
+      }
+    }
+    final run = await api.getRun(session, runId);
+    session.requireCurrent();
+    if (run.mode != 'local' ||
+        run.downloadId != downloadId ||
+        run.modelVersion != modelVersion ||
+        (platform != null && run.platform != platform) ||
+        run.language != language ||
+        run.sourceRevisionId != sourceRevisionId ||
+        run.sourceHash != sourceHash) {
       throw const TranscriptionRunStateException();
     }
-    if (run.downloadId != downloadId || run.modelVersion != modelVersion) {
+    if (run.status == 'completed' && run.result != null) {
+      final eventId = run.result!['event_id'];
+      if (eventId is! String || !_feedbackId.hasMatch(eventId)) {
+        throw const TranscriptionResultNotConfirmedException();
+      }
+      return PendingTranscriptionResult(
+        accountId: session.accountId,
+        runId: run.runId,
+        eventId: eventId,
+        body: Map<String, Object?>.from(run.result!),
+      );
+    }
+    if (run.status != 'registered') {
+      throw const TranscriptionRunStateException();
+    }
+    return _runRegisteredLocal(
+      session,
+      run: run,
+      downloadId: downloadId,
+      modelVersion: modelVersion,
+      language: language,
+      platform: platform,
+      sourceRevisionId: sourceRevisionId,
+      sourceHash: sourceHash,
+      selectedInkDocument: selectedInkDocument,
+      schemaVersion: schemaVersion,
+      modelFile: modelFile,
+      runtime: runtime,
+      onStage: onStage,
+    );
+  }
+
+  /// Reads an existing owner-bound run without creating or advancing it.
+  Future<TranscriptionRun> readRun(
+    String runId, {
+    TranscriptionSession? expectedSession,
+  }) async {
+    _requireEnabled();
+    final session = expectedSession == null
+        ? await _requireSession()
+        : await _requireExpectedSession(expectedSession);
+    session.requireCurrent();
+    final run = await api.getRun(session, runId);
+    session.requireCurrent();
+    return run;
+  }
+
+  Future<PendingTranscriptionResult> _runRegisteredLocal(
+    TranscriptionSession session, {
+    required TranscriptionRun run,
+    required String downloadId,
+    required String modelVersion,
+    required String language,
+    String? platform,
+    required String? sourceRevisionId,
+    required String? sourceHash,
+    required Map<String, Object?> selectedInkDocument,
+    required int schemaVersion,
+    required File modelFile,
+    required TranscriptionRuntime runtime,
+    required void Function(String stage) onStage,
+  }) async {
+    session.requireCurrent();
+    if (run.mode != 'local' ||
+        run.status != 'registered' ||
+        run.downloadId != downloadId ||
+        run.modelVersion != modelVersion ||
+        (platform != null && run.platform != platform) ||
+        run.language != language ||
+        run.sourceRevisionId != sourceRevisionId ||
+        run.sourceHash != sourceHash) {
       throw const TranscriptionRunStateException();
     }
     final result = await runtime.recognize(
@@ -476,7 +620,8 @@ final class TranscriptionRunService {
     final eventId = _newEventId();
     final body = <String, Object?>{
       'event_id': eventId,
-      'source_revision_id': sourceRevisionId,
+      'source_revision_id': ?sourceRevisionId,
+      'source_hash': ?sourceHash,
       'schema_version': schemaVersion,
       'document': result.document,
       'runtime': {
@@ -515,10 +660,13 @@ final class TranscriptionRunService {
   Future<void> submitFeedback({
     required String runId,
     required List<Map<String, Object?>> events,
+    TranscriptionSession? expectedSession,
   }) async {
     _requireEnabled();
     if (events.isEmpty) return;
-    final session = await _requireSession();
+    final session = expectedSession == null
+        ? await _requireSession()
+        : await _requireExpectedSession(expectedSession);
     final pending = <PendingTranscriptionFeedback>[];
     final ids = <String>{};
     for (final event in events) {
@@ -563,9 +711,13 @@ final class TranscriptionRunService {
     }
   }
 
-  Future<int> retryPendingFeedback() async {
+  Future<int> retryPendingFeedback({
+    TranscriptionSession? expectedSession,
+  }) async {
     _requireEnabled();
-    final session = await _session();
+    final session = expectedSession == null
+        ? await _session()
+        : await _requireExpectedSession(expectedSession);
     if (session == null) return 0;
     var delivered = 0;
     for (final event in await pendingFeedback.loadAll()) {
@@ -672,6 +824,18 @@ final class TranscriptionRunService {
 
   Future<TranscriptionSession> _requireSession() async =>
       await _session() ?? (throw const TranscriptionSignInRequiredException());
+
+  Future<TranscriptionSession> _requireExpectedSession(
+    TranscriptionSession expected,
+  ) async {
+    expected.requireCurrent();
+    final active = await _requireSession();
+    expected.requireCurrent();
+    if (active.accountId != expected.accountId) {
+      throw const TranscriptionSessionChangedException();
+    }
+    return expected;
+  }
 
   void _requireEnabled() {
     if (!enabled) throw const TranscriptionFeatureDisabledException();

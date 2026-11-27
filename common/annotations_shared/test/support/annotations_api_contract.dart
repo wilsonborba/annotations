@@ -132,6 +132,7 @@ class AnnotationsApiContract {
         'schema_version',
         'document',
         'transcription_run_id',
+        'source_revision_id',
       }, '');
       if (unknown != null) return unknown;
       final rep = b['representation'];
@@ -147,6 +148,16 @@ class AnnotationsApiContract {
           422,
           'missing_field',
           'A required field is missing: document',
+        );
+      }
+      if (b['source_revision_id'] != null &&
+          (rep != 'typed' ||
+              b['source_revision_id'] is! String ||
+              (b['source_revision_id'] as String).isEmpty)) {
+        return _err(
+          422,
+          'invalid_source_revision',
+          'A source revision id is valid only for a Typed representation.',
         );
       }
       return null;

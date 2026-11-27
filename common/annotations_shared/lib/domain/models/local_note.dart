@@ -35,6 +35,11 @@ final class LocalNoteDraft {
     required this.document,
     this.title,
     this.accountId,
+    this.transcriptionSourceNoteId,
+    this.transcriptionRunId,
+    this.transcriptionSourceRevisionId,
+    this.transcriptionSourceHash,
+    this.transcriptionSourceLocalRevision,
     this.isConflictCopy = false,
   });
 
@@ -48,6 +53,13 @@ final class LocalNoteDraft {
   /// Optional owner binding for a new local copy, such as a server conflict
   /// copy. Existing-note saves preserve the binding already stored.
   final String? accountId;
+
+  /// Source/run identity for a separately stored accepted Typed version.
+  final String? transcriptionSourceNoteId;
+  final String? transcriptionRunId;
+  final String? transcriptionSourceRevisionId;
+  final String? transcriptionSourceHash;
+  final int? transcriptionSourceLocalRevision;
 
   /// Marks a server conflict copy that has no cloud identity and cannot use
   /// client-id recovery as a later sync target.
@@ -71,6 +83,11 @@ final class LocalNote {
     this.serverOriginalRevisionId,
     this.serverTypedRevisionId,
     this.preparedStudyId,
+    this.transcriptionSourceNoteId,
+    this.transcriptionRunId,
+    this.transcriptionSourceRevisionId,
+    this.transcriptionSourceHash,
+    this.transcriptionSourceLocalRevision,
     this.isConflictCopy = false,
   });
 
@@ -105,6 +122,14 @@ final class LocalNote {
   /// Server-owned prepared Certifications study. Stored locally with the
   /// account-bound note metadata; its setup remains on the Certifications API.
   final String? preparedStudyId;
+
+  /// Local relation for an accepted Typed transcription. Sync resolves the
+  /// Original's authoritative revision before attaching this version.
+  final String? transcriptionSourceNoteId;
+  final String? transcriptionRunId;
+  final String? transcriptionSourceRevisionId;
+  final String? transcriptionSourceHash;
+  final int? transcriptionSourceLocalRevision;
 
   /// True when this is an owner-bound local copy of a server conflict.
   final bool isConflictCopy;
