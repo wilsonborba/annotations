@@ -250,7 +250,7 @@ install_macos() {
   install_stage=""
 }
 
-if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then
+if [[ -n "${BASH_SOURCE[0]-}" && "${BASH_SOURCE[0]}" != "$0" ]]; then
   return 0
 fi
 

@@ -24,7 +24,8 @@ package_release() {
 run_installer() {
   env HOME="$work/home" XDG_DATA_HOME="$work/data" XDG_BIN_HOME="$work/bin" \
     TMPDIR="$work/tmp" ANNOTATIONS_RELEASE_BASE_URL="file://$release" \
-    bash "$ROOT_DIR/install.sh" "$@"
+    bash -c 'set -o pipefail; cat "$1" | bash -s -- "${@:2}"' \
+      _ "$ROOT_DIR/install.sh" "$@"
 }
 
 run_installer_with_launcher_swap_failure() {
@@ -32,7 +33,8 @@ run_installer_with_launcher_swap_failure() {
     TMPDIR="$work/tmp" ANNOTATIONS_RELEASE_BASE_URL="file://$release" \
     INJECT_LAUNCHER_MV_FAILURE=1 FAIL_MV_MARKER="$work/failing-bin/fired" \
     PATH="$work/failing-bin:$PATH" \
-    bash "$ROOT_DIR/install.sh" "$@"
+    bash -c 'set -o pipefail; cat "$1" | bash -s -- "${@:2}"' \
+      _ "$ROOT_DIR/install.sh" "$@"
 }
 
 validate_macos_archive() {
@@ -42,6 +44,10 @@ validate_macos_archive() {
     validate_macos_archive
   )
 }
+
+help_output="$(cat "$ROOT_DIR/install.sh" | bash -s -- --help)"
+grep -q 'Usage:' <<< "$help_output"
+grep -q 'does not need administrator rights' <<< "$help_output"
 
 package_release first
 run_installer
