@@ -119,3 +119,15 @@ abstract interface class LocalNoteStore implements EditorFiles {
   /// Closes the store. Pending saves must finish first.
   Future<void> close();
 }
+
+/// A local store that can atomically verify Typed-pair ownership and persist
+/// the accepted representation in the same transaction.
+abstract interface class AtomicTypedNoteStore {
+  Future<LocalNote> saveTypedForSource(
+    LocalNoteDraft draft, {
+    required String sourceNoteId,
+    required String? targetOwnerId,
+    required int expectedSourceRevision,
+    required String? expectedServerSourceRevisionId,
+  });
+}

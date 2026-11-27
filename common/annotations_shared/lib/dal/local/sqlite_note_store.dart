@@ -115,7 +115,8 @@ int _hash(String body) {
 /// the same file system, so the rename to the final name is atomic.
 const _partialFolder = '.partial';
 
-final class SqliteNoteStore implements DeletableLocalNoteStore {
+final class SqliteNoteStore
+    implements DeletableLocalNoteStore, AtomicTypedNoteStore {
   SqliteNoteStore._(this._db, this._files);
 
   final Database _db;
@@ -278,7 +279,30 @@ final class SqliteNoteStore implements DeletableLocalNoteStore {
   final _bodies = Expando<(String, int)>('item bodies');
 
   @override
-  Future<LocalNote> save(LocalNoteDraft draft) async {
+  Future<LocalNote> save(LocalNoteDraft draft) => _save(draft);
+
+  @override
+  Future<LocalNote> saveTypedForSource(
+    LocalNoteDraft draft, {
+    required String sourceNoteId,
+    required String? targetOwnerId,
+    required int expectedSourceRevision,
+    required String? expectedServerSourceRevisionId,
+  }) => _save(
+    draft,
+    expectedTypedSourceNoteId: sourceNoteId,
+    typedTargetOwnerId: targetOwnerId,
+    expectedOriginalLocalRevision: expectedSourceRevision,
+    expectedOriginalServerRevisionId: expectedServerSourceRevisionId,
+  );
+
+  Future<LocalNote> _save(
+    LocalNoteDraft draft, {
+    String? expectedTypedSourceNoteId,
+    String? typedTargetOwnerId,
+    int? expectedOriginalLocalRevision,
+    String? expectedOriginalServerRevisionId,
+  }) async {
     final document = draft.document;
     final List<(String, String, int)>? items;
     final String body;
@@ -301,6 +325,42 @@ final class SqliteNoteStore implements DeletableLocalNoteStore {
     final files = referencedFiles(draft.document);
     final now = DateTime.now().millisecondsSinceEpoch;
     _transaction(_db, () {
+      if (expectedTypedSourceNoteId != null) {
+        final sourceRows = _db.select(
+          'SELECT revision, account_id, server_original_revision_id FROM notes WHERE id = ?',
+          [expectedTypedSourceNoteId],
+        );
+        if (sourceRows.isEmpty) {
+          throw StateError('The Original note is unavailable.');
+        }
+        final source = sourceRows.first;
+        final sourceOwnerId = source['account_id'] as String?;
+        if (source['revision'] != expectedOriginalLocalRevision ||
+            source['server_original_revision_id'] !=
+                expectedOriginalServerRevisionId) {
+          throw StateError(
+            'The Original changed; review its updated source first.',
+          );
+        }
+        if (sourceOwnerId != null && sourceOwnerId != typedTargetOwnerId) {
+          throw StateError('Original note is unavailable for this owner.');
+        }
+        final existing = _db.select(
+          'SELECT account_id, transcription_source_note_id FROM notes WHERE id = ?',
+          [draft.id],
+        );
+        if (existing.isNotEmpty) {
+          final sourceNoteId =
+              existing.first['transcription_source_note_id'] as String?;
+          final ownerId = existing.first['account_id'] as String?;
+          if (sourceNoteId != expectedTypedSourceNoteId) {
+            throw StateError('The Typed note id is used by another source.');
+          }
+          if (ownerId != null && ownerId != typedTargetOwnerId) {
+            throw StateError('The Typed note belongs to another owner.');
+          }
+        }
+      }
       for (final id in files) {
         final rows = _db.select('SELECT file FROM attachments WHERE id = ?', [
           id,
