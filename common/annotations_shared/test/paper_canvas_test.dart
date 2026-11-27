@@ -467,8 +467,22 @@ void main() {
       expect(po.dx, po.dx.roundToDouble());
       expect(dor.dx, dor.dx.roundToDouble());
       var inked = 0;
-      for (var y = 0; y < 700; y++) {
-        for (var x = 0; x < 360; x++) {
+      // Toolbar clearance changes the visible page region on narrow screens.
+      // Compare every shared visible pixel, without sampling past either image.
+      final sharedHeight = [
+        700,
+        p.data.lengthInBytes ~/ (pw * 4) - po.dy.round(),
+        d.data.lengthInBytes ~/ (dw * 4) - dor.dy.round(),
+      ].reduce((a, b) => a < b ? a : b);
+      final sharedWidth = [
+        360,
+        pw - po.dx.round(),
+        dw - dor.dx.round(),
+      ].reduce((a, b) => a < b ? a : b);
+      expect(sharedHeight, greaterThan(0));
+      expect(sharedWidth, greaterThan(0));
+      for (var y = 0; y < sharedHeight; y++) {
+        for (var x = 0; x < sharedWidth; x++) {
           final a = p.rgba(x + po.dx.round(), y + po.dy.round(), pw);
           final b = d.rgba(x + dor.dx.round(), y + dor.dy.round(), dw);
           if (a != b) fail('pixel $x,$y differs: $a vs $b');
