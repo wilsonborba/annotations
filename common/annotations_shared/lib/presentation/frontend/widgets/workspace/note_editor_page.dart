@@ -41,6 +41,7 @@ import '../../components/reports_create_dialog.dart';
 import '../../components/task_card_picker.dart';
 import '../typed/note_screen.dart';
 import 'transcription_review_page.dart';
+import 'content_job_review_page.dart';
 
 /// `/v1/write/<id>`: one local note in the editor of this platform.
 class NoteEditorPage extends StatefulWidget {
@@ -48,6 +49,7 @@ class NoteEditorPage extends StatefulWidget {
     super.key,
     required this.noteId,
     this.transcriptionReviewForTesting,
+    this.contentJobsForTesting,
   });
 
   final String noteId;
@@ -56,6 +58,11 @@ class NoteEditorPage extends StatefulWidget {
   /// production entry remains hidden with [FeatureSwitches.transcription].
   @visibleForTesting
   final TranscriptionReviewAccess? transcriptionReviewForTesting;
+
+  /// Fixture-only optional adapter while Cortex content jobs remain off by
+  /// default and no runtime activation is released.
+  @visibleForTesting
+  final ContentJobReviewAccess? contentJobsForTesting;
 
   @override
   State<NoteEditorPage> createState() => _NoteEditorPageState();
@@ -979,6 +986,66 @@ class _NoteEditorPageState extends State<NoteEditorPage>
     );
   }
 
+  Future<void> _openContentJobs() async {
+    final access = widget.contentJobsForTesting;
+    final handler = _handler;
+    final note = _note;
+    final installed = _installed;
+    final session = installed?.activeSession;
+    final workspace = AppScope.of(context).workspace;
+    final generation = _openGeneration;
+    if (access == null ||
+        !access.service.enabled ||
+        handler == null ||
+        note == null ||
+        workspace == null ||
+        installed == null ||
+        session == null ||
+        note.document.schema.family != DocumentFamily.original ||
+        !_hasTrustedOwnerSession()) {
+      return;
+    }
+    bool isCurrent() =>
+        mounted &&
+        generation == _openGeneration &&
+        identical(handler, _handler) &&
+        identical(note, _note) &&
+        identical(installed, _installed) &&
+        identical(session, installed.activeSession) &&
+        identical(workspace, AppScope.of(context).workspace) &&
+        installed.signedIn &&
+        session.verifiedUserId == note.accountId &&
+        note.accountId == installed.userId &&
+        note.accountId == installed.localOwnerId;
+
+    if (!isCurrent()) return;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => ContentJobReviewPage(
+          noteId: note.id,
+          service: access.service,
+          isOwnerScopeCurrent: isCurrent,
+          ownerScopeRevision: _reportsOwnerScopeRevision,
+          expectedOwnerScopeRevision: generation,
+          insertText: (jobId, text) async {
+            if (!isCurrent()) return false;
+            if (handler.autosave.state.value == SaveState.failed) {
+              await handler.autosave.retry();
+              if (!isCurrent() ||
+                  handler.autosave.state.value != SaveState.saved) {
+                return false;
+              }
+            }
+            if (!handler.insertContentJobText(jobId, text)) return false;
+            await handler.autosave.flush();
+            return isCurrent() &&
+                handler.autosave.state.value == SaveState.saved;
+          },
+        ),
+      ),
+    );
+  }
+
   ReportsEmbedSource? _reportsSourceFor(
     LocalNote note,
     InstalledAccount? installed,
@@ -1238,6 +1305,12 @@ class _NoteEditorPageState extends State<NoteEditorPage>
         (FeatureSwitches.transcription || kDebugMode) &&
         note?.document.schema.family == DocumentFamily.original &&
         _hasTrustedOwnerSession();
+    final contentJobsVisible =
+        kDebugMode &&
+        workspace != null &&
+        note?.document.schema.family == DocumentFamily.original &&
+        widget.contentJobsForTesting?.service.enabled == true &&
+        _hasTrustedOwnerSession();
     final reportsSource = note == null
         ? null
         : _reportsSourceFor(note, _installed);
@@ -1284,6 +1357,15 @@ class _NoteEditorPageState extends State<NoteEditorPage>
                         key: const Key('editor-convert-handwriting'),
                         label: context.tr('transcriptionConvert'),
                         onPressed: _openTranscriptionReview,
+                      ),
+                    ),
+                  if (contentJobsVisible)
+                    track(
+                      'workspace.note.content_jobs',
+                      AppButton(
+                        key: const Key('editor-content-jobs'),
+                        label: context.tr('contentJobTitle'),
+                        onPressed: _openContentJobs,
                       ),
                     ),
                   if (handler != null && workspace != null)

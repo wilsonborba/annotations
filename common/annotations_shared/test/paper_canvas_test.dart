@@ -351,6 +351,37 @@ void main() {
   });
 
   group('view (handler)', () {
+    test('content-job insertion is a stable ordinary text edit', () {
+      final handler = handlerFor(studyNote());
+      addTearDown(handler.dispose);
+      final beforeCount = (handler.document as PaperDocument).items.length;
+
+      expect(
+        handler.insertContentJobText('job/one', 'Reviewed extracted text'),
+        isTrue,
+      );
+      final after = handler.document as PaperDocument;
+      expect(after.items, hasLength(beforeCount + 1));
+      final inserted = after.items.last as TextItem;
+      expect(inserted.id, startsWith('content-job-'));
+      expect(
+        inserted.spans.map((span) => span.text).join(),
+        'Reviewed extracted text',
+      );
+
+      // A repeated Insert after a local persistence error cannot duplicate it.
+      expect(
+        handler.insertContentJobText('job/one', 'Reviewed extracted text'),
+        isTrue,
+      );
+      expect(
+        (handler.document as PaperDocument).items,
+        hasLength(beforeCount + 1),
+      );
+      handler.undo();
+      expect((handler.document as PaperDocument).items, hasLength(beforeCount));
+    });
+
     test('zoom and pan never change the document', () {
       final note = studyNote();
       final handler = handlerFor(note);

@@ -13,6 +13,69 @@ import 'support/annotations_api_contract.dart';
 
 void main() {
   test(
+    'inserted result resumes as handled and discard removes only draft',
+    () async {
+      final persistence = InMemoryContentJobPersistence();
+      const draft = ContentJobDraft(
+        noteId: 'n1',
+        jobId: 'job-1',
+        extractedText: 'Reviewed result',
+      );
+      await persistence.saveRef(
+        'owner-a',
+        const ContentJobRef(
+          noteId: 'n1',
+          clientJobId: 'client-1',
+          jobId: 'job-1',
+          status: 'completed',
+          uploadedFileIds: ['file-1'],
+        ),
+      );
+      await persistence.saveDraft('owner-a', draft);
+      final client = MockClient(
+        (_) async => throw StateError('unexpected HTTP'),
+      );
+      final service = ContentJobService(
+        api: ApiAdapter(client: client, base: 'https://api.test'),
+        persistence: persistence,
+        enabled: true,
+        sessionProvider: _provider(() => true),
+      );
+
+      expect(
+        (await service.loadReviewState('n1')).draft?.extractedText,
+        'Reviewed result',
+      );
+      await service.markDraftInserted('n1', 'job-1');
+      expect((await service.resumeJob('n1')), isNull);
+      expect((await persistence.loadDraft('owner-a', 'n1'))?.accepted, isTrue);
+
+      // A different owner cannot delete the saved result.
+      final otherOwner = ContentJobService(
+        api: ApiAdapter(client: client, base: 'https://api.test'),
+        persistence: persistence,
+        enabled: true,
+        sessionProvider: () async => TranscriptionSession(
+          accountId: 'owner-b',
+          readHeaders: const {},
+          mutationHeaders: const {},
+          isCurrent: () => true,
+        ),
+      );
+      await otherOwner.discardDraft('n1', 'job-1');
+      expect(await persistence.loadDraft('owner-a', 'n1'), isNotNull);
+      await service.discardDraft('n1', 'job-1');
+      expect(await persistence.loadDraft('owner-a', 'n1'), isNull);
+      expect(await service.resumeJob('n1'), isNull);
+      expect(
+        (await persistence.loadRef('owner-a', 'n1'))?.status,
+        'result_discarded',
+      );
+      client.close();
+    },
+  );
+
+  test(
     'persistence isolates identical note ids and ignores unowned legacy data',
     () async {
       final tempDir = await Directory.systemTemp.createTemp(

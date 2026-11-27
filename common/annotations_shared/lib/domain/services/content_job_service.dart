@@ -108,11 +108,24 @@ final class ContentJobDraft {
   );
 }
 
+final class ContentJobReviewState {
+  const ContentJobReviewState({this.ref, this.draft});
+
+  final ContentJobRef? ref;
+  final ContentJobDraft? draft;
+}
+
 abstract interface class ContentJobPersistence {
   Future<ContentJobRef?> loadRef(String accountId, String noteId);
   Future<void> saveRef(String accountId, ContentJobRef ref);
   Future<void> saveDraft(String accountId, ContentJobDraft draft);
   Future<ContentJobDraft?> loadDraft(String accountId, String noteId);
+  Future<void> finishDraft(
+    String accountId,
+    String noteId,
+    String jobId, {
+    required bool inserted,
+  });
 }
 
 final class FileContentJobPersistence implements ContentJobPersistence {
@@ -174,6 +187,50 @@ final class FileContentJobPersistence implements ContentJobPersistence {
     data['drafts'] = drafts;
     _write(data);
   }
+
+  @override
+  Future<void> finishDraft(
+    String accountId,
+    String noteId,
+    String jobId, {
+    required bool inserted,
+  }) async {
+    final data = _read();
+    final key = _key(accountId, noteId);
+    final refs = Map<String, dynamic>.from((data['refs'] as Map?) ?? const {});
+    final rawRef = refs[key];
+    if (rawRef is! Map || rawRef['job_id'] != jobId) {
+      throw StateError(
+        'The content job changed before the result was handled.',
+      );
+    }
+    refs[key] = ContentJobRef.fromJson(Map<String, dynamic>.from(rawRef))
+        .copyWith(status: inserted ? 'result_inserted' : 'result_discarded')
+        .toJson();
+    data['refs'] = refs;
+    final drafts = Map<String, dynamic>.from(
+      (data['drafts'] as Map?) ?? const {},
+    );
+    final rawDraft = drafts[key];
+    if (rawDraft is! Map || rawDraft['job_id'] != jobId) {
+      throw StateError('The saved content job result changed.');
+    }
+    if (inserted) {
+      final draft = ContentJobDraft.fromJson(
+        Map<String, dynamic>.from(rawDraft),
+      );
+      drafts[key] = ContentJobDraft(
+        noteId: draft.noteId,
+        jobId: draft.jobId,
+        extractedText: draft.extractedText,
+        accepted: true,
+      ).toJson();
+    } else {
+      drafts.remove(key);
+    }
+    data['drafts'] = drafts;
+    _write(data);
+  }
 }
 
 final class InMemoryContentJobPersistence implements ContentJobPersistence {
@@ -200,6 +257,34 @@ final class InMemoryContentJobPersistence implements ContentJobPersistence {
   @override
   Future<ContentJobDraft?> loadDraft(String accountId, String noteId) async =>
       _drafts[_key(accountId, noteId)];
+
+  @override
+  Future<void> finishDraft(
+    String accountId,
+    String noteId,
+    String jobId, {
+    required bool inserted,
+  }) async {
+    final key = _key(accountId, noteId);
+    final draft = _drafts[key];
+    final ref = _refs[key];
+    if (draft?.jobId != jobId || ref?.jobId != jobId) {
+      throw StateError('The saved content job result changed.');
+    }
+    _refs[key] = ref!.copyWith(
+      status: inserted ? 'result_inserted' : 'result_discarded',
+    );
+    if (inserted) {
+      _drafts[key] = ContentJobDraft(
+        noteId: draft!.noteId,
+        jobId: draft.jobId,
+        extractedText: draft.extractedText,
+        accepted: true,
+      );
+    } else {
+      _drafts.remove(key);
+    }
+  }
 }
 
 /// Optional Cortex content-job adapter with durable resume (annotations#47).
@@ -243,8 +328,12 @@ class ContentJobService {
     }
 
     // Generate & persist client_job_id BEFORE the first network call.
-    final existing = await persistence.loadRef(session.accountId, noteId);
+    var existing = await persistence.loadRef(session.accountId, noteId);
     session.requireCurrent();
+    if (existing?.status == 'result_inserted' ||
+        existing?.status == 'result_discarded') {
+      existing = null;
+    }
     final clientJobId = existing?.clientJobId ?? _newClientJobId();
     var ref =
         existing ??
@@ -381,6 +470,12 @@ class ContentJobService {
     final ref = await persistence.loadRef(session.accountId, noteId);
     session.requireCurrent();
     if (ref == null || ref.jobId == null) return null;
+    if (ref.status == 'result_inserted' || ref.status == 'result_discarded') {
+      return null;
+    }
+    final savedDraft = await persistence.loadDraft(session.accountId, noteId);
+    session.requireCurrent();
+    if (savedDraft != null) return savedDraft.accepted ? null : savedDraft;
 
     final uri = Uri.parse('${api.base}/me/content_jobs/${ref.jobId}/events')
         .replace(
@@ -479,6 +574,52 @@ class ContentJobService {
     if (session == null) throw const TranscriptionSignInRequiredException();
     session.requireCurrent();
     return session;
+  }
+
+  Future<ContentJobReviewState> loadReviewState(String noteId) async {
+    if (!enabled) return const ContentJobReviewState();
+    final session = await _verifiedSession();
+    final ref = await persistence.loadRef(session.accountId, noteId);
+    session.requireCurrent();
+    final draft = await persistence.loadDraft(session.accountId, noteId);
+    session.requireCurrent();
+    return ContentJobReviewState(ref: ref, draft: draft);
+  }
+
+  /// Marks a result as inserted into the local note. The draft remains
+  /// durable so resume cannot insert it a second time after reopening.
+  Future<void> markDraftInserted(String noteId, String jobId) async {
+    if (!enabled) throw StateError('Cortex content jobs are disabled.');
+    final session = await _verifiedSession();
+    final draft = await persistence.loadDraft(session.accountId, noteId);
+    session.requireCurrent();
+    if (draft == null || draft.jobId != jobId) {
+      throw StateError('The saved content job result changed.');
+    }
+    await persistence.finishDraft(
+      session.accountId,
+      noteId,
+      jobId,
+      inserted: true,
+    );
+    session.requireCurrent();
+  }
+
+  /// Discards only this owner's local review result; server history and
+  /// uploaded files remain governed by the content-job API.
+  Future<void> discardDraft(String noteId, String jobId) async {
+    if (!enabled) throw StateError('Cortex content jobs are disabled.');
+    final session = await _verifiedSession();
+    final draft = await persistence.loadDraft(session.accountId, noteId);
+    session.requireCurrent();
+    if (draft == null || draft.jobId != jobId) return;
+    await persistence.finishDraft(
+      session.accountId,
+      noteId,
+      jobId,
+      inserted: false,
+    );
+    session.requireCurrent();
   }
 }
 

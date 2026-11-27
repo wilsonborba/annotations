@@ -151,6 +151,84 @@ const strings = <String, List<String>>{
     'Converter escrita à mão',
     'แปลงลายมือ',
   ],
+  // Optional, explicitly started media extraction (annotations#47).
+  'contentJobTitle': [
+    'Extract selected content',
+    'Extrair conteúdo selecionado',
+    'ดึงเนื้อหาที่เลือก',
+  ],
+  'contentJobUnavailable': [
+    'Content jobs are unavailable for this account.',
+    'As tarefas de conteúdo não estão disponíveis para esta conta.',
+    'งานเนื้อหาไม่พร้อมใช้งานสำหรับบัญชีนี้',
+  ],
+  'contentJobSelectionFailed': [
+    'The selected files could not be read.',
+    'Não foi possível ler os arquivos selecionados.',
+    'อ่านไฟล์ที่เลือกไม่สำเร็จ',
+  ],
+  'contentJobKind': ['Content type', 'Tipo de conteúdo', 'ประเภทเนื้อหา'],
+  'contentJobExtraction': ['Extract text', 'Extrair texto', 'ดึงข้อความ'],
+  'contentJobStudyNotes': [
+    'Create study notes',
+    'Criar notas de estudo',
+    'สร้างบันทึกการเรียน',
+  ],
+  'contentJobSelectFiles': ['Choose files', 'Escolher arquivos', 'เลือกไฟล์'],
+  'contentJobStart': [
+    'Start extraction',
+    'Iniciar extração',
+    'เริ่มดึงเนื้อหา',
+  ],
+  'contentJobStarting': ['Starting…', 'Iniciando…', 'กำลังเริ่ม…'],
+  'contentJobStartFailed': [
+    'The job could not be started. Your selected files are still here.',
+    'Não foi possível iniciar. Os arquivos selecionados continuam aqui.',
+    'เริ่มงานไม่สำเร็จ ไฟล์ที่เลือกยังอยู่',
+  ],
+  'contentJobResume': ['Resume job', 'Retomar tarefa', 'ทำงานต่อ'],
+  'contentJobResumeFailed': [
+    'The job could not be resumed. Try again.',
+    'Não foi possível retomar a tarefa. Tente novamente.',
+    'ทำงานต่อไม่สำเร็จ ลองอีกครั้ง',
+  ],
+  'contentJobReviewResult': [
+    'Result ready for review',
+    'Resultado pronto para revisão',
+    'ผลลัพธ์พร้อมตรวจทาน',
+  ],
+  'contentJobStatus': ['Job status', 'Status da tarefa', 'สถานะงาน'],
+  'contentJobResultTitle': [
+    'Review the result',
+    'Revise o resultado',
+    'ตรวจทานผลลัพธ์',
+  ],
+  'contentJobInsert': [
+    'Insert into note',
+    'Inserir na anotação',
+    'แทรกในบันทึก',
+  ],
+  'contentJobDiscard': ['Discard result', 'Descartar resultado', 'ทิ้งผลลัพธ์'],
+  'contentJobAlreadyInserted': [
+    'This result was already inserted into the note.',
+    'Este resultado já foi inserido na anotação.',
+    'แทรกผลลัพธ์นี้ในบันทึกแล้ว',
+  ],
+  'contentJobResultDiscarded': [
+    'The result was discarded. You can start a new job.',
+    'O resultado foi descartado. Você pode iniciar uma nova tarefa.',
+    'ทิ้งผลลัพธ์แล้ว คุณเริ่มงานใหม่ได้',
+  ],
+  'contentJobInsertFailed': [
+    'The result could not be saved in this note. Retry after checking the save status.',
+    'Não foi possível salvar o resultado nesta anotação. Confira o salvamento e tente novamente.',
+    'บันทึกผลลัพธ์ในบันทึกนี้ไม่สำเร็จ ตรวจสถานะการบันทึกแล้วลองอีกครั้ง',
+  ],
+  'contentJobDiscardFailed': [
+    'The saved result could not be discarded.',
+    'Não foi possível descartar o resultado salvo.',
+    'ทิ้งผลลัพธ์ที่บันทึกไว้ไม่สำเร็จ',
+  ],
   'transcriptionChooseSource': [
     'Choose the note parts to convert',
     'Escolha as partes da anotação para converter',

@@ -599,6 +599,13 @@
       "source": "lib/presentation/frontend/widgets/workspace/note_editor_page.dart"
     },
     {
+      "id": "workspace.note.content_jobs",
+      "label": "Workspace note content jobs",
+      "path": "workspace > note > content_jobs",
+      "description": "Open the explicitly started content job workflow for a note.",
+      "source": "lib/presentation/frontend/widgets/workspace/note_editor_page.dart"
+    },
+    {
       "id": "account.installed.start",
       "label": "Account installed start",
       "path": "account > installed > start",

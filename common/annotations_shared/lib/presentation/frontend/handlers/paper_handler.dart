@@ -13,6 +13,7 @@
 library;
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
@@ -20,7 +21,8 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/painting.dart';
 
 import '../../../core/paper_settings.dart';
-import '../../../dal/local/quill_text_engine.dart' show annotationsTextStyle;
+import '../../../dal/local/quill_text_engine.dart'
+    show QuillTextEngine, annotationsTextStyle;
 import '../../../domain/models/ink.dart';
 import '../../../domain/models/local_note.dart';
 import '../../../domain/models/note_document.dart';
@@ -30,6 +32,7 @@ import '../../../domain/services/note_autosave.dart';
 import '../../../domain/services/note_history.dart';
 import '../../../domain/services/object_selection.dart';
 import '../../../domain/services/paper_page.dart';
+import '../../../domain/services/text_blocks.dart';
 import 'attachment_cache.dart';
 
 /// What the notice after Undo or Redo says: the steps back and forward.
@@ -296,6 +299,47 @@ class PaperHandler extends ChangeNotifier {
   /// editor commits through its text binding (annotations#27).
   void edited() {
     if (editingEnabled) _changed();
+  }
+
+  /// Inserts a reviewed content-job result as one ordinary text item.
+  /// Repeating the same job is idempotent by its stable local item id.
+  bool insertContentJobText(String jobId, String text) {
+    final paper = _paper;
+    if (!editingEnabled || paper == null || text.trim().isEmpty) return false;
+    final id =
+        'content-job-${base64Url.encode(utf8.encode(jobId)).replaceAll('=', '')}';
+    final layout = DocumentLayout.of(document);
+    if (layout?.ids.contains(id) == true) return true;
+    final pageBottom = layout?.boundsOf(layout.units)?.bottom ?? 0;
+    final engine = QuillTextEngine(style: textStyle);
+    final width = math.min(settings.textBlockWidth, paper.page.width);
+    final place = const TextBlocks().place(
+      session.rules,
+      document,
+      id: id,
+      x: 0,
+      y: pageBottom + 24,
+      width: width,
+      minWidth: settings.minTextBlockWidth,
+      lineHeight: (w) => engine.measureHeight(const [], w),
+    );
+    if (place == null) return false;
+    final spans = <Map<String, Object?>>[
+      {'text': text},
+    ];
+    final item = <String, Object?>{
+      'id': id,
+      'kind': 'text',
+      'x': place.x,
+      'y': place.y,
+      'width': place.width,
+      'height': engine.measureHeight(spans, place.width),
+      'spans': spans,
+    };
+    return apply(
+      HistoryCommand(CommandKind.paste),
+      (rules, current) => rules.check(current, {'op': 'add', 'item': item}),
+    ).accepted;
   }
 
   String? _editingText;
