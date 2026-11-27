@@ -790,7 +790,8 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.textContaining('Source unavailable'), findsOneWidget);
-      expect(find.textContaining('Saved author'), findsNothing);
+      expect(find.textContaining('Saved source snapshot'), findsOneWidget);
+      expect(find.textContaining('Saved author'), findsOneWidget);
 
       final offline = handlerFor(simpleTyped(), title: 'Study');
       addTearDown(offline.dispose);

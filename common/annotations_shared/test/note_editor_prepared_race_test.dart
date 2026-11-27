@@ -229,6 +229,7 @@ class _QuizReturnFixture {
     required this.apiClient,
     required this.accountClient,
     required this.accountRequestPaths,
+    required this.apiRequestPaths,
     required this.workspace,
     required this.workspaceStore,
     required this.preferences,
@@ -248,6 +249,7 @@ class _QuizReturnFixture {
   final MockClient apiClient;
   final MockClient accountClient;
   final List<String> accountRequestPaths;
+  final List<String> apiRequestPaths;
   final LocalWorkspace workspace;
   final _ExportLoadGateStore workspaceStore;
   final Preferences preferences;
@@ -404,7 +406,11 @@ Future<_QuizReturnFixture> _makeQuizReturnFixture(
   );
   final studyReads = <int>[];
   final releaseReturnStudy = Completer<http.Response>();
+  final apiRequestPaths = <String>[];
   final apiClient = MockClient((request) async {
+    apiRequestPaths.add(
+      '${request.method} ${request.url.path}?${request.url.query}',
+    );
     if (request.method == 'GET' &&
         request.url.path == '/apps/annotations/v1/me/notes/server-note-a') {
       return http.Response(
@@ -417,6 +423,34 @@ Future<_QuizReturnFixture> _makeQuizReturnFixture(
               'representation': 'original',
               'revision_id': 'original-revision-1',
               'document': document.toJson(),
+            },
+          ],
+        }),
+        200,
+      );
+    }
+    if (request.method == 'GET' &&
+        request.url.path == '/apps/annotations/v1/notes/public-source') {
+      return http.Response(
+        jsonEncode({
+          'note_id': 'public-source',
+          'title': 'Published typed source',
+          'author_name': 'Public author',
+          'views': ['typed'],
+          'representations': [
+            {
+              'representation': 'typed',
+              'document': {
+                'blocks': [
+                  {
+                    'id': 'source-paragraph',
+                    'kind': 'paragraph',
+                    'spans': [
+                      {'text': 'Public typed content'},
+                    ],
+                  },
+                ],
+              },
             },
           ],
         }),
@@ -532,6 +566,7 @@ Future<_QuizReturnFixture> _makeQuizReturnFixture(
     apiClient: apiClient,
     accountClient: accountClient,
     accountRequestPaths: accountRequestPaths,
+    apiRequestPaths: apiRequestPaths,
     workspace: workspace,
     workspaceStore: workspaceStore,
     preferences: preferences,
@@ -548,6 +583,55 @@ Future<_QuizReturnFixture> _makeQuizReturnFixture(
 
 void main() {
   setUpAll(loadAppFonts);
+
+  testWidgets('a new full-writer Original shows its public Typed source', (
+    tester,
+  ) async {
+    final fixture = await _makeQuizReturnFixture(tester);
+    final studyNoteId = await tester.runAsync(
+      () => fixture.workspace.createHandwrittenStudy(
+        const StudySourceReference(
+          noteId: 'public-source',
+          title: 'Saved source title',
+          authorId: 'public-author',
+          authorName: 'Saved author',
+        ),
+      ),
+    );
+    expect(studyNoteId, isNotNull);
+    final study = await tester.runAsync(() => fixture.store.load(studyNoteId!));
+    final storedStudy = study!;
+    expect(storedStudy.schema.family, DocumentFamily.original);
+    expect(storedStudy.studySource!.relationAttached, isFalse);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        key: const ValueKey('handwritten-study-editor'),
+        home: NoteEditorPage(noteId: studyNoteId!),
+        builder: (_, child) => AppScope(
+          preferences: fixture.preferences,
+          service: AnnotationsService(
+            api: ApiAdapter(
+              base: 'https://api.asodya.com/apps/annotations/v1',
+              client: fixture.apiClient,
+            ),
+          ),
+          workspace: fixture.workspace,
+          installed: fixture.account,
+          child: child!,
+        ),
+      ),
+    );
+    await pumpEditorFrames(tester);
+
+    expect(find.byType(PaperScreen), findsOneWidget);
+    expect(find.textContaining('Published typed source'), findsOneWidget);
+    expect(find.textContaining('Public author'), findsOneWidget);
+    expect(
+      fixture.apiRequestPaths,
+      contains('GET /apps/annotations/v1/notes/public-source?view=typed'),
+    );
+  });
 
   testWidgets('one app return reads the saved quiz once and adds one card', (
     tester,

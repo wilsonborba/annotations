@@ -240,11 +240,6 @@ const strings = <String, List<String>>{
     'แหล่งที่มาไม่พร้อมใช้งาน',
   ],
   'studySource': ['Source', 'Fonte', 'แหล่งที่มา'],
-  'studySourceLocal': [
-    'Local source reference',
-    'Referência de fonte local',
-    'แหล่งอ้างอิงในเครื่อง',
-  ],
   'contentJobReviewResult': [
     'Result ready for review',
     'Resultado pronto para revisão',

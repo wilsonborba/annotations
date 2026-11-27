@@ -87,34 +87,41 @@ class NoteScreen extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) =>
-      switch (noteViewFor(profile, handler.document)) {
-        NoteView.paper => PaperScreen(
-          handler: handler,
-          publicProjection: publicProjection,
-          reportsSource: reportsSource,
-          trustedReportsAccountId: trustedReportsAccountId,
-          reportsLanguage: reportsLanguage,
-          onAddReport: onAddReport,
-          onAddTaskCard: onAddTaskCard,
-          onCreateReport: onCreateReport,
-          loadQuizCard: loadQuizCard,
-          loadTaskCard: loadTaskCard,
-        ),
-        NoteView.typed => TypedNoteEditor(
-          paper: handler,
-          studySource: studySource,
-        ),
-        NoteView.readOnly => NoteReader(
-          handler: handler,
-          publicProjection: publicProjection,
-          reportsSource: reportsSource,
-          trustedReportsAccountId: trustedReportsAccountId,
-          reportsLanguage: reportsLanguage,
-          loadTaskCard: loadTaskCard,
-          loadQuizCard: loadQuizCard,
-        ),
-      };
+  Widget build(BuildContext context) {
+    final view = switch (noteViewFor(profile, handler.document)) {
+      NoteView.paper => PaperScreen(
+        handler: handler,
+        publicProjection: publicProjection,
+        reportsSource: reportsSource,
+        trustedReportsAccountId: trustedReportsAccountId,
+        reportsLanguage: reportsLanguage,
+        onAddReport: onAddReport,
+        onAddTaskCard: onAddTaskCard,
+        onCreateReport: onCreateReport,
+        loadQuizCard: loadQuizCard,
+        loadTaskCard: loadTaskCard,
+      ),
+      NoteView.typed => TypedNoteEditor(paper: handler),
+      NoteView.readOnly => NoteReader(
+        handler: handler,
+        publicProjection: publicProjection,
+        reportsSource: reportsSource,
+        trustedReportsAccountId: trustedReportsAccountId,
+        reportsLanguage: reportsLanguage,
+        loadTaskCard: loadTaskCard,
+        loadQuizCard: loadQuizCard,
+      ),
+    };
+    final source = studySource;
+    if (source == null) return view;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _StudySourceLine(source: source),
+        Expanded(child: view),
+      ],
+    );
+  }
 }
 
 /// Reading only: paper notes on the page with zoom and the view lock;
@@ -281,8 +288,7 @@ class _NoteReaderState extends State<NoteReader> {
 /// text formatting, Undo and Redo, and the text.
 class TypedNoteEditor extends StatefulWidget {
   final PaperHandler paper;
-  final StudySourceReference? studySource;
-  const TypedNoteEditor({super.key, required this.paper, this.studySource});
+  const TypedNoteEditor({super.key, required this.paper});
 
   @override
   State<TypedNoteEditor> createState() => _TypedNoteEditorState();
@@ -350,8 +356,6 @@ class _TypedNoteEditorState extends State<TypedNoteEditor> {
                 ],
               ),
             ),
-            if (widget.studySource != null)
-              _StudySourceLine(source: widget.studySource!),
             ListenableBuilder(
               listenable: Listenable.merge([typed, paper]),
               builder: (context, _) => Container(
@@ -525,44 +529,49 @@ class _StudySourceLineState extends State<_StudySourceLine> {
     final source = widget.source;
     final colors = Theme.of(context).colorScheme;
     final savedTitle = source.title?.trim();
-    final label = _unavailable
-        ? context.tr('studySourceUnavailable')
-        : _publicSource?.title ??
-              (savedTitle == null || savedTitle.isEmpty
-                  ? source.noteId
-                  : savedTitle);
-    final author = _publicSource?.raw['author_name'] as String? ??
-        (_unavailable ? null : source.authorName);
+    final title =
+        _publicSource?.title ??
+        (savedTitle == null || savedTitle.isEmpty ? source.noteId : savedTitle);
+    final author =
+        _publicSource?.raw['author_name'] as String? ?? source.authorName;
     final canOpen = _publicSource != null && !_unavailable;
-    final sourceHeading = context.tr(
-      source.relationAttached ? 'studySource' : 'studySourceLocal',
-    );
-    final displayedSource = _unavailable
-        ? label
-        : '$sourceHeading: ${[
-            label,
-            if (author != null && author.isNotEmpty) author,
-          ].join(' · ')}';
+    final displayedSource =
+        '${context.tr('studySource')}: ${[title, if (author != null && author.isNotEmpty) author].join(' · ')}';
     final content = Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(
-            canOpen ? Icons.open_in_new : Icons.link,
-            size: 16,
-            color: colors.onSurfaceVariant,
+          Row(
+            children: [
+              AppIcon(
+                canOpen ? AppIcons.openIn : AppIcons.link,
+                size: 16,
+                color: colors.onSurfaceVariant,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  displayedSource,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: canOpen ? colors.primary : colors.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              displayedSource,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: canOpen ? colors.primary : colors.onSurfaceVariant,
+          if (_unavailable)
+            Padding(
+              padding: const EdgeInsets.only(left: 24),
+              child: Text(
+                context.tr('studySourceUnavailable'),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: colors.error),
               ),
             ),
-          ),
         ],
       ),
     );
