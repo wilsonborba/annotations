@@ -13,11 +13,13 @@ tmp=""
 install_stage=""
 launcher_tmp=""
 desktop_tmp=""
+launcher_backup=""
 
 cleanup() {
   [[ -z "$install_stage" ]] || rm -rf "$install_stage"
   [[ -z "$launcher_tmp" ]] || rm -f "$launcher_tmp"
   [[ -z "$desktop_tmp" ]] || rm -f "$desktop_tmp"
+  [[ -z "$launcher_backup" ]] || rm -f "$launcher_backup"
   [[ -z "$tmp" ]] || rm -rf "$tmp"
 }
 trap cleanup EXIT
@@ -99,13 +101,13 @@ EOF
 
 desktop_exec_arg() {
   local value="$1" char escaped='"' index
-  [[ "$value" != *$'\n'* && "$value" != *$'\r'* && "$value" != *=* ]] || return 1
+  [[ "$value" != *$'\n'* && "$value" != *$'\r'* && "$value" != *%* ]] || return 1
   for ((index = 0; index < ${#value}; index++)); do
     char="${value:index:1}"
     case "$char" in
       \\) escaped+='\\\\' ;;
-      '"'|'$'|'`') escaped+="\\$char" ;;
-      '%') escaped+='%%' ;;
+      '"') escaped+='\\' ; escaped+="$char" ;;
+      '$'|'`') escaped+='\\'; escaped+="$char" ;;
       *) escaped+="$char" ;;
     esac
   done
@@ -135,19 +137,31 @@ prepare_desktop_entry() {
     fail "$DESKTOP_FILE exists and is not owned by this installer"
   fi
   [[ -f "$template" && ! -L "$template" ]] || fail "release bundle is missing the Linux desktop entry template"
+  # Local GIO treats raw percent as a field code and rejects the spec's %%
+  # executable-path form, so reject it before publishing a broken launcher.
+  [[ "$BIN_HOME/annotations" != *%* ]] || fail "the desktop launcher cannot safely encode a percent character in its executable path"
   launcher_exec="$(desktop_exec_arg "$BIN_HOME/annotations")" || fail "desktop launcher path contains an unsupported line break"
   icon_path="$APP_HOME/current/bundle/data/native/annotations.png"
   icon_value="$(desktop_icon_value "$icon_path")" || fail "desktop icon path contains an unsupported line break"
   mkdir -p "$DESKTOP_HOME"
   desktop_tmp="$(mktemp "$DESKTOP_HOME/.com.asodya.annotations.desktop.XXXXXX")"
   while IFS= read -r line || [[ -n "$line" ]]; do
-    line="${line//@ANNOTATIONS_LAUNCHER_EXEC@/$launcher_exec}"
-    line="${line//@ANNOTATIONS_ICON@/$icon_value}"
+    line="$(replace_all "$line" '@ANNOTATIONS_LAUNCHER_EXEC@' "$launcher_exec")"
+    line="$(replace_all "$line" '@ANNOTATIONS_ICON@' "$icon_value")"
     printf '%s\n' "$line"
   done < "$template" > "$desktop_tmp"
   if grep -q '@ANNOTATIONS_' "$desktop_tmp"; then
     fail "release bundle has an unresolved Linux desktop entry placeholder"
   fi
+}
+
+replace_all() {
+  local input="$1" token="$2" replacement="$3" output=""
+  while [[ "$input" == *"$token"* ]]; do
+    output+="${input%%"$token"*}$replacement"
+    input="${input#*"$token"}"
+  done
+  printf '%s%s' "$output" "$input"
 }
 
 activate_launcher() {
@@ -198,6 +212,9 @@ uninstall() {
 
 install_linux() {
   local root="$APP_HOME" stage="$APP_HOME/.stage.$$" previous="$APP_HOME/.previous.$$"
+  local prior_launcher="$BIN_HOME/annotations" had_launcher=0
+  # Check before creating the app root, stage, or launcher temporary.
+  [[ "$prior_launcher" != *%* ]] || fail "the desktop launcher cannot safely encode a percent character in its executable path"
   mkdir -p "$root"
   [[ ! -L "$root/current" ]] || fail "refusing to replace a symbolic link at the application path"
   if [[ -e "$root/current" && ! -d "$root/current" ]]; then fail "$root/current is not a directory"; fi
@@ -219,6 +236,11 @@ install_linux() {
     esac
   done
   prepare_launcher
+  if [[ -e "$prior_launcher" ]]; then
+    had_launcher=1
+    launcher_backup="$(mktemp "$BIN_HOME/.annotations.previous.XXXXXX")"
+    cp -p "$prior_launcher" "$launcher_backup"
+  fi
   tar --no-same-owner --no-same-permissions -xzf "$archive" -C "$stage"
   [[ -x "$stage/bundle/annotations_local" && -d "$stage/bundle/data/flutter_assets" ]] || fail "release archive is incomplete"
   [[ -f "$stage/bundle/data/native/annotations.png" ]] || fail "release archive is missing the Linux app icon"
@@ -239,10 +261,20 @@ install_linux() {
     rm -rf "$root/current"
     if [[ -e "$previous" ]]; then
       mv "$previous" "$root/current"
-    elif [[ -f "$BIN_HOME/annotations" ]] && grep -q 'ASODYA_ANNOTATIONS_USER_LAUNCHER' "$BIN_HOME/annotations"; then
-      rm -f "$BIN_HOME/annotations"
+    fi
+    if (( had_launcher )); then
+      if ! mv -f "$launcher_backup" "$prior_launcher"; then
+        fail "could not restore the previous user launcher"
+      fi
+      launcher_backup=""
+    elif [[ -f "$prior_launcher" ]] && grep -q 'ASODYA_ANNOTATIONS_USER_LAUNCHER' "$prior_launcher"; then
+      rm -f "$prior_launcher"
     fi
     fail "could not activate the user desktop entry"
+  fi
+  if [[ -n "$launcher_backup" ]]; then
+    rm -f "$launcher_backup"
+    launcher_backup=""
   fi
   rm -rf "$previous"
   install_stage=""

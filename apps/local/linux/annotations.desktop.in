@@ -6,7 +6,6 @@ Name=Annotations
 GenericName=Handwritten Notes
 Comment=Create and organize handwritten notes
 Exec=@ANNOTATIONS_LAUNCHER_EXEC@
-TryExec=@ANNOTATIONS_LAUNCHER_EXEC@
 Icon=@ANNOTATIONS_ICON@
 Terminal=false
 Categories=Education;

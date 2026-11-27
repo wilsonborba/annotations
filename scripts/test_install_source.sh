@@ -68,14 +68,19 @@ PY
 package_release() {
   local marker="$1" tree="$work/package-tree" dist="$work/dist"
   rm -rf "$tree" "$dist"
-  mkdir -p "$tree/data/flutter_assets" "$tree/data/native" "$dist"
-  printf '#!/bin/sh\n# fixture %s\n' "$marker" > "$tree/annotations_local"
-  chmod 0755 "$tree/annotations_local"
-  printf 'fixture\n' > "$tree/data/flutter_assets/fixture"
-  cp "$ROOT_DIR/apps/local/linux/annotations.png" "$tree/data/native/annotations.png"
-  cp "$ROOT_DIR/apps/local/linux/annotations.desktop.in" "$tree/data/native/annotations.desktop.in"
-  env TMPDIR="$work/tmp" ANNOTATIONS_LINUX_BUNDLE="$tree" ANNOTATIONS_DIST_DIR="$dist" \
+  mkdir -p "$tree/bundle/data/flutter_assets" "$tree/bundle/data/native" "$dist"
+  printf '#!/bin/sh\n# fixture %s\n' "$marker" > "$tree/bundle/annotations_local"
+  chmod 0755 "$tree/bundle/annotations_local"
+  printf 'fixture\n' > "$tree/bundle/data/flutter_assets/fixture"
+  printf '%s\n' "$marker" > "$tree/VERSION"
+  cp "$ROOT_DIR/apps/local/linux/annotations.png" "$tree/bundle/data/native/annotations.png"
+  cp "$ROOT_DIR/apps/local/linux/annotations.desktop.in" "$tree/bundle/data/native/annotations.desktop.in"
+  env TMPDIR="$work/tmp" ANNOTATIONS_LINUX_BUNDLE="$tree/bundle" ANNOTATIONS_DIST_DIR="$dist" \
     bash "$ROOT_DIR/scripts/package_installed_apps.sh" linux >/dev/null
+  # Give each synthetic release its own VERSION, as distinct real releases do.
+  tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner \
+    -czf "$dist/annotations-linux-x64.tar.gz" -C "$tree" bundle VERSION
+  (cd "$dist" && sha256sum annotations-linux-x64.tar.gz > SHA256SUMS)
   cp "$dist/annotations-linux-x64.tar.gz" "$release/"
   cp "$dist/SHA256SUMS" "$release/"
 }
@@ -123,6 +128,7 @@ grep -q 'fixture first' "$data_home/annotations/current/bundle/annotations_local
 [[ -x "$bin_home/annotations" ]]
 [[ -f "$data_home/applications/com.asodya.annotations.desktop" ]]
 grep -q '^Exec=".*/annotations"$' "$data_home/applications/com.asodya.annotations.desktop"
+! grep -q '^TryExec=' "$data_home/applications/com.asodya.annotations.desktop"
 expected_icon="${data_home// /\\s}/annotations/current/bundle/data/native/annotations.png"
 grep -Fxq "Icon=$expected_icon" "$data_home/applications/com.asodya.annotations.desktop"
 [[ -f "$data_home/annotations/current/bundle/data/native/annotations.png" ]]
@@ -130,6 +136,47 @@ grep -q 'ASODYA_ANNOTATIONS_ICON=.*bundle/data/native/annotations.png' "$bin_hom
 if command -v desktop-file-validate >/dev/null 2>&1; then
   desktop-file-validate "$data_home/applications/com.asodya.annotations.desktop"
 fi
+python3 "$ROOT_DIR/scripts/test_desktop_entry_gio.py" "$ROOT_DIR/install.sh" \
+  "$ROOT_DIR/apps/local/linux/annotations.desktop.in" "$work/gio-paths"
+
+# GIO treats a percent in Exec as field-code syntax even though the launcher
+# path is literal. Fail closed before touching an existing or fresh install.
+package_release percent-rejected
+percent_data="$work/percent-data"
+percent_bin="$work/bin%tools"
+mkdir -p "$percent_data/annotations/current/bundle" "$percent_data/applications" "$percent_bin"
+printf 'old local app\n' > "$percent_data/annotations/current/bundle/annotations_local"
+printf 'old-version\n' > "$percent_data/annotations/current/VERSION"
+: > "$percent_data/annotations/current/.asodya-installed"
+printf '#!/bin/sh\n# ASODYA_ANNOTATIONS_USER_LAUNCHER\nold-launcher\n' > "$percent_bin/annotations"
+chmod 0755 "$percent_bin/annotations"
+printf '[Desktop Entry]\n# ASODYA_ANNOTATIONS_USER_DESKTOP\nName=old desktop\n' \
+  > "$percent_data/applications/com.asodya.annotations.desktop"
+old_app_tree="$(find "$percent_data/annotations/current" -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | awk '{print $1}')"
+old_launcher="$(sha256sum "$percent_bin/annotations" | awk '{print $1}')"
+old_desktop="$(sha256sum "$percent_data/applications/com.asodya.annotations.desktop" | awk '{print $1}')"
+if env HOME="$work/home" XDG_DATA_HOME="$percent_data" XDG_BIN_HOME="$percent_bin" \
+  TMPDIR="$work/tmp" ANNOTATIONS_RELEASE_BASE_URL="file://$release" \
+  bash "$ROOT_DIR/install.sh" >"$work/percent-update.log" 2>&1; then
+  printf 'installer accepted a percent-containing launcher path for an existing installation\n' >&2
+  exit 1
+fi
+grep -q 'cannot safely encode a percent character' "$work/percent-update.log"
+[[ "$(find "$percent_data/annotations/current" -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | awk '{print $1}')" == "$old_app_tree" ]]
+[[ "$(sha256sum "$percent_bin/annotations" | awk '{print $1}')" == "$old_launcher" ]]
+[[ "$(sha256sum "$percent_data/applications/com.asodya.annotations.desktop" | awk '{print $1}')" == "$old_desktop" ]]
+[[ -z "$(find "$percent_data/annotations" -maxdepth 1 \( -name '.stage.*' -o -name '.previous.*' \) -print -quit)" ]]
+fresh_data="$work/fresh-percent-data"
+fresh_bin="$work/fresh%bin"
+if env HOME="$work/home" XDG_DATA_HOME="$fresh_data" XDG_BIN_HOME="$fresh_bin" \
+  TMPDIR="$work/tmp" ANNOTATIONS_RELEASE_BASE_URL="file://$release" \
+  bash "$ROOT_DIR/install.sh" >"$work/percent-fresh.log" 2>&1; then
+  printf 'installer accepted a percent-containing launcher path for a fresh installation\n' >&2
+  exit 1
+fi
+grep -q 'cannot safely encode a percent character' "$work/percent-fresh.log"
+[[ ! -e "$fresh_data/annotations" && ! -e "$fresh_bin/annotations" ]]
+[[ ! -e "$fresh_data/applications/com.asodya.annotations.desktop" ]]
 
 package_release second
 run_installer
@@ -163,7 +210,12 @@ grep -q 'could not activate the user launcher' "$work/failure.log"
 desktop_before="$(sha256sum "$data_home/applications/com.asodya.annotations.desktop" | awk '{print $1}')"
 launcher_before="$(sha256sum "$bin_home/annotations" | awk '{print $1}')"
 app_before="$(sha256sum "$data_home/annotations/current/bundle/annotations_local" | awk '{print $1}')"
+version_before="$(sha256sum "$data_home/annotations/current/VERSION" | awk '{print $1}')"
+tree_before="$(find "$data_home/annotations/current" -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | awk '{print $1}')"
 package_release fourth
+# Make the prior launcher's bytes distinct from the newly generated launcher.
+printf '# prior installer bytes\n' >> "$bin_home/annotations"
+launcher_before="$(sha256sum "$bin_home/annotations" | awk '{print $1}')"
 cat > "$work/failing-bin/mv" <<'EOF'
 #!/usr/bin/env bash
 if [[ "${INJECT_DESKTOP_MV_FAILURE:-}" == 1 && $# -eq 3 && "$1" == -f && "$3" == "$XDG_DATA_HOME/applications/com.asodya.annotations.desktop" && "$2" == "${XDG_DATA_HOME}/applications/".com.asodya.annotations.desktop.* ]]; then
@@ -182,7 +234,10 @@ grep -q 'could not activate the user desktop entry' "$work/desktop-failure.log"
 [[ "$(sha256sum "$data_home/applications/com.asodya.annotations.desktop" | awk '{print $1}')" == "$desktop_before" ]]
 [[ "$(sha256sum "$bin_home/annotations" | awk '{print $1}')" == "$launcher_before" ]]
 [[ "$(sha256sum "$data_home/annotations/current/bundle/annotations_local" | awk '{print $1}')" == "$app_before" ]]
+[[ "$(sha256sum "$data_home/annotations/current/VERSION" | awk '{print $1}')" == "$version_before" ]]
+[[ "$(find "$data_home/annotations/current" -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | awk '{print $1}')" == "$tree_before" ]]
 [[ -z "$(find "$data_home/annotations" -maxdepth 1 -name '.previous.*' -print -quit)" ]]
+[[ -z "$(find "$bin_home" -maxdepth 1 -name '.annotations.previous.*' -print -quit)" ]]
 
 # An unowned launcher must reject an update before replacing the installed app.
 printf 'keep this launcher\n' > "$bin_home/annotations"
@@ -211,6 +266,10 @@ fi
 grep -q 'exists and is not owned by this installer' "$work/conflict.log"
 grep -q 'foreign desktop entry' "$conflict_data/applications/com.asodya.annotations.desktop"
 [[ ! -e "$conflict_data/annotations/current" ]]
+env HOME="$work/home" XDG_DATA_HOME="$conflict_data" XDG_BIN_HOME="$conflict_bin" \
+  bash "$ROOT_DIR/install.sh" --uninstall >/dev/null
+grep -q 'foreign desktop entry' "$conflict_data/applications/com.asodya.annotations.desktop"
+[[ ! -e "$conflict_bin/annotations" ]]
 
 # The packager also rejects symlinks in a Linux source bundle.
 ln -s "$work/outside" "$work/package-tree/escape"
