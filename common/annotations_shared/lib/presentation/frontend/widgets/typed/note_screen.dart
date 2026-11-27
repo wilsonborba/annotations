@@ -6,12 +6,16 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_quill/flutter_quill.dart';
+import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../../core/platform_profile.dart';
 import '../../../../core/landing_settings.dart';
+import '../../../../dal/remote/api_adapter.dart';
+import '../../../../domain/models/local_note.dart';
 import '../../../../domain/models/note_document.dart';
 import '../../../../domain/models/reports_embed_data.dart';
+import '../../../../domain/services/discovery_reader_service.dart';
 import '../../../../domain/services/reports_embed_source.dart';
 import '../../../../domain/services/ink_outline.dart';
 import '../../../../domain/services/quiz_card_service.dart';
@@ -41,6 +45,7 @@ import '../paper/paper_screen.dart';
 class NoteScreen extends StatelessWidget {
   final PaperHandler handler;
   final PlatformProfile profile;
+  final StudySourceReference? studySource;
   final bool publicProjection;
   final Future<QuizSummary?> Function(String quizId)? loadQuizCard;
   final Future<TaskSummary?> Function(String taskId)? loadTaskCard;
@@ -69,6 +74,7 @@ class NoteScreen extends StatelessWidget {
     super.key,
     required this.handler,
     required this.profile,
+    this.studySource,
     this.publicProjection = false,
     this.loadQuizCard,
     this.loadTaskCard,
@@ -95,7 +101,10 @@ class NoteScreen extends StatelessWidget {
           loadQuizCard: loadQuizCard,
           loadTaskCard: loadTaskCard,
         ),
-        NoteView.typed => TypedNoteEditor(paper: handler),
+        NoteView.typed => TypedNoteEditor(
+          paper: handler,
+          studySource: studySource,
+        ),
         NoteView.readOnly => NoteReader(
           handler: handler,
           publicProjection: publicProjection,
@@ -272,7 +281,8 @@ class _NoteReaderState extends State<NoteReader> {
 /// text formatting, Undo and Redo, and the text.
 class TypedNoteEditor extends StatefulWidget {
   final PaperHandler paper;
-  const TypedNoteEditor({super.key, required this.paper});
+  final StudySourceReference? studySource;
+  const TypedNoteEditor({super.key, required this.paper, this.studySource});
 
   @override
   State<TypedNoteEditor> createState() => _TypedNoteEditorState();
@@ -340,6 +350,8 @@ class _TypedNoteEditorState extends State<TypedNoteEditor> {
                 ],
               ),
             ),
+            if (widget.studySource != null)
+              _StudySourceLine(source: widget.studySource!),
             ListenableBuilder(
               listenable: Listenable.merge([typed, paper]),
               builder: (context, _) => Container(
@@ -441,6 +453,121 @@ class _TypedNoteEditorState extends State<TypedNoteEditor> {
         null,
       ),
     );
+  }
+}
+
+class _StudySourceLine extends StatefulWidget {
+  const _StudySourceLine({required this.source});
+
+  final StudySourceReference source;
+
+  @override
+  State<_StudySourceLine> createState() => _StudySourceLineState();
+}
+
+class _StudySourceLineState extends State<_StudySourceLine> {
+  ReaderNoteView? _publicSource;
+  bool _unavailable = false;
+  int _requestGeneration = 0;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_requestGeneration == 0) _refreshSource();
+  }
+
+  @override
+  void didUpdateWidget(_StudySourceLine oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.source != widget.source) _refreshSource();
+  }
+
+  Future<void> _refreshSource() async {
+    final generation = ++_requestGeneration;
+    final source = widget.source;
+    setState(() {
+      _publicSource = null;
+      _unavailable = false;
+    });
+    try {
+      final note = await DiscoveryReaderAdapter(
+        AppScope.of(context).service.api,
+      ).getPublicNote(source.noteId, view: NoteViewMode.typed);
+      if (!mounted || generation != _requestGeneration) return;
+      if (note.noteId != source.noteId || !note.hasTyped) {
+        setState(() => _unavailable = true);
+        return;
+      }
+      setState(() => _publicSource = note);
+    } on ApiError catch (error) {
+      if (!mounted || generation != _requestGeneration) return;
+      if (error.status == 401 || error.status == 403 || error.status == 404) {
+        setState(() => _unavailable = true);
+      }
+    } catch (_) {
+      // Keep the saved title and author available when the network is offline.
+    }
+  }
+
+  void _openSource() {
+    final source = widget.source;
+    if (_publicSource == null || _unavailable) return;
+    context.go('/v1/notes/${Uri.encodeComponent(source.noteId)}?view=typed');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final source = widget.source;
+    final colors = Theme.of(context).colorScheme;
+    final savedTitle = source.title?.trim();
+    final label = _unavailable
+        ? context.tr('studySourceUnavailable')
+        : _publicSource?.title ??
+              (savedTitle == null || savedTitle.isEmpty
+                  ? source.noteId
+                  : savedTitle);
+    final author = _publicSource?.raw['author_name'] as String? ??
+        (_unavailable ? null : source.authorName);
+    final canOpen = _publicSource != null && !_unavailable;
+    final sourceHeading = context.tr(
+      source.relationAttached ? 'studySource' : 'studySourceLocal',
+    );
+    final displayedSource = _unavailable
+        ? label
+        : '$sourceHeading: ${[
+            label,
+            if (author != null && author.isNotEmpty) author,
+          ].join(' · ')}';
+    final content = Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      child: Row(
+        children: [
+          Icon(
+            canOpen ? Icons.open_in_new : Icons.link,
+            size: 16,
+            color: colors.onSurfaceVariant,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              displayedSource,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: canOpen ? colors.primary : colors.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+    return canOpen
+        ? Semantics(
+            button: true,
+            label: displayedSource,
+            child: InkWell(onTap: _openSource, child: content),
+          )
+        : content;
   }
 }
 

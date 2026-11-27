@@ -1570,6 +1570,7 @@ class _NoteEditorPageState extends State<NoteEditorPage>
                   : NoteScreen(
                       handler: handler,
                       profile: workspace.profile,
+                      studySource: note.studySource,
                       reportsSource: reportsSource,
                       trustedReportsAccountId: reportsSource == null
                           ? null
