@@ -40,6 +40,7 @@ void main() {
     WidgetTester tester, {
     NoteDocument? document,
     Size size = const Size(1280, 900),
+    double textScale = 1,
     Brightness brightness = Brightness.light,
     Future<void> Function(
       BuildContext context,
@@ -61,6 +62,8 @@ void main() {
     onCreateReport,
   }) async {
     await setWindow(tester, size);
+    tester.platformDispatcher.textScaleFactorTestValue = textScale;
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
     paper = handlerFor(document ?? drawNote());
     preferences = Preferences();
     await preferences.load();
@@ -132,6 +135,69 @@ void main() {
     await tester.pump();
     // The page starts below the docked toolbar, so nothing is hidden.
     final toolbar = tester.getRect(byKey('paper-toolbar'));
+    expect(
+      paper.view.value!.toScreen(Offset.zero).dy,
+      greaterThan(toolbar.bottom),
+    );
+    await finish(tester);
+  });
+
+  testWidgets(
+    'docked clearance follows the wrapped toolbar at phone and desktop sizes',
+    (tester) async {
+      for (final (size, scale) in [
+        (const Size(390, 844), 1.0),
+        (const Size(390, 844), 1.3),
+        (const Size(900, 844), 1.3),
+      ]) {
+        await pump(tester, size: size, textScale: scale);
+        await tester.pumpAndSettle();
+
+        final toolbar = tester.getRect(byKey('paper-toolbar'));
+        final insets = paper.toolbarInsets;
+        expect(insets.top, closeTo(toolbar.height + 24, 0.1));
+        expect(
+          paper.view.value!.toScreen(Offset.zero).dy,
+          greaterThan(toolbar.bottom),
+        );
+        for (final key in [
+          'mode-type',
+          'mode-draw',
+          'toolbar-undo',
+          'toolbar-redo',
+          'toolbar-position',
+        ]) {
+          expect(
+            byKey(key),
+            findsOneWidget,
+            reason: 'width=${size.width}, scale=$scale',
+          );
+        }
+        await finish(tester);
+      }
+    },
+  );
+
+  testWidgets('expanded toolbar remeasures after a settled resize', (
+    tester,
+  ) async {
+    await pump(tester, size: const Size(900, 844));
+    await toDraw(tester);
+    await tester.tap(byKey('toolbar-collapse'));
+    await tester.pumpAndSettle();
+    var toolbar = tester.getRect(byKey('paper-toolbar'));
+    expect(paper.toolbarInsets.top, closeTo(toolbar.height + 24, 0.1));
+
+    tester.view.physicalSize = const Size(390, 844);
+    await tester.pumpAndSettle();
+    toolbar = tester.getRect(byKey('paper-toolbar'));
+    expect(paper.toolbarInsets.top, closeTo(toolbar.height + 24, 0.1));
+    expect(byKey('toolbar-expand'), findsOneWidget);
+
+    await tester.tap(byKey('toolbar-expand'));
+    await tester.pumpAndSettle();
+    toolbar = tester.getRect(byKey('paper-toolbar'));
+    expect(paper.toolbarInsets.top, closeTo(toolbar.height + 24, 0.1));
     expect(
       paper.view.value!.toScreen(Offset.zero).dy,
       greaterThan(toolbar.bottom),

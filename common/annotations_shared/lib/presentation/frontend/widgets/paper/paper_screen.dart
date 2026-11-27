@@ -147,6 +147,8 @@ class _PaperScreenState extends State<PaperScreen> {
   AttachmentHandler? _ownAttachments;
 
   ToolbarPlacement? _placement;
+  final GlobalKey _toolbarSizeKey = GlobalKey();
+  bool _toolbarMeasurementScheduled = false;
 
   /// Focus (B8): the tools, Type and Draw, the lock and Exit Focus stay;
   /// the status panel goes. Content, selection, mode, view and history stay,
@@ -221,33 +223,46 @@ class _PaperScreenState extends State<PaperScreen> {
     );
   }
 
+  void _scheduleToolbarMeasurement() {
+    if (_toolbarMeasurementScheduled) return;
+    _toolbarMeasurementScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _toolbarMeasurementScheduled = false;
+      if (!mounted) return;
+      final renderObject = _toolbarSizeKey.currentContext?.findRenderObject();
+      if (renderObject is! RenderBox || !renderObject.hasSize) return;
+      // Read the actual wrap extent after layout. The toolbar stays where it
+      // was placed while the paper's safe area follows width and text scale.
+      final insets = _insetsFor(placement, renderObject.size);
+      if (insets != widget.handler.toolbarInsets) {
+        widget.handler.toolbarInsets = insets;
+      }
+    });
+  }
+
   /// The toolbar at its placement, inside the screen. A keyboard that would
   /// cover it moves it up; the stored placement stays, so it comes back
   /// (B7 rule 8).
-  /// The room of a docked toolbar: its thickness and the margin.
-  static const _toolbarRoom = 72.0;
-
-  EdgeInsets _insetsFor(ToolbarPlacement p) => switch (p.edge) {
-    ToolbarEdge.top => const EdgeInsets.only(top: _toolbarRoom),
-    ToolbarEdge.bottom => const EdgeInsets.only(bottom: _toolbarRoom),
-    ToolbarEdge.left => const EdgeInsets.only(left: _toolbarRoom),
-    ToolbarEdge.right => const EdgeInsets.only(right: _toolbarRoom),
-    ToolbarEdge.floating => EdgeInsets.zero,
-  };
+  /// Keep the paper clear of the measured toolbar and its existing margins.
+  EdgeInsets _insetsFor(ToolbarPlacement p, Size toolbarSize) {
+    if (p.edge == ToolbarEdge.floating) return EdgeInsets.zero;
+    final extent = p.edge.vertical ? toolbarSize.width : toolbarSize.height;
+    final room = extent + 2 * _margin;
+    return switch (p.edge) {
+      ToolbarEdge.top => EdgeInsets.only(top: room),
+      ToolbarEdge.bottom => EdgeInsets.only(bottom: room),
+      ToolbarEdge.left => EdgeInsets.only(left: room),
+      ToolbarEdge.right => EdgeInsets.only(right: room),
+      ToolbarEdge.floating => EdgeInsets.zero,
+    };
+  }
 
   Widget _toolbar(BuildContext context, Size size) {
     final keyboard = MediaQuery.viewInsetsOf(context).bottom;
     final p = placement;
-    // A docked toolbar takes its edge, so the whole page stays reachable;
-    // a floating one lies over the page.
-    final insets = _insetsFor(p);
-    if (insets != widget.handler.toolbarInsets) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) widget.handler.toolbarInsets = insets;
-      });
-    }
     final vertical = p.edge.vertical;
     final bar = PaperToolbar(
+      key: _toolbarSizeKey,
       paper: widget.handler,
       draw: draw,
       text: text,
@@ -271,6 +286,7 @@ class _PaperScreenState extends State<PaperScreen> {
       onExitFocus: _focus ? () => _setFocus(false) : null,
       extent: (vertical ? size.height : size.width) - 2 * _margin,
     );
+    _scheduleToolbarMeasurement();
     final drag = _dragAt;
     final Alignment align;
     if (drag != null) {
@@ -298,7 +314,16 @@ class _PaperScreenState extends State<PaperScreen> {
       child: Align(
         key: const Key('toolbar-place'),
         alignment: align,
-        child: IgnorePointer(ignoring: widget.readOnly, child: bar),
+        child: IgnorePointer(
+          ignoring: widget.readOnly,
+          child: NotificationListener<SizeChangedLayoutNotification>(
+            onNotification: (_) {
+              _scheduleToolbarMeasurement();
+              return false;
+            },
+            child: SizeChangedLayoutNotifier(child: bar),
+          ),
+        ),
       ),
     );
   }
